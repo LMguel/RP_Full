@@ -9,4 +9,50 @@ mobile/node_modules/
 # Geral
 .DS_Store
 .env
+# Registra.Ponto - recommended gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# dotenv and secrets
+.env
+*.env
+
+# IDEs
+.vscode/
+.idea/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Local logs
 *.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AWS / build artifacts and heavy dependencies
+backend/lambda_dependencies/
+backend/__pycache__/
+
+# Optional: add large files by pattern
+# *.zip
+# *.tar.gz
+
+# If you intentionally want to commit vendor packages, remove the above lambda_dependencies line
