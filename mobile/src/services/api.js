@@ -2,7 +2,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
 // URL da API - Configure isso de acordo com seu ambiente
-const API_URL = 'http://192.168.1.4:5000/api'; // Substitua pelo IP da sua máquina
+const API_URL = 'http://SEU_IP_AQUI:5000/api'; // SUBSTITUA pelo IP da sua máquina em desenvolvimento
 
 class ApiService {
   constructor() {
