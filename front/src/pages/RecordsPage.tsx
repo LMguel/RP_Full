@@ -1,34 +1,40 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import PageLayout from '../sections/PageLayout';
-import RecordsTabs from '../components/RecordsTabs';
-import RecordsFilters from '../components/RecordsFilters';
-import TimeRecordForm from '../components/TimeRecordForm';
 import {
   Box,
-  Typography,
-  Button,
   Card,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
+  TextField,
+  Autocomplete,
+  InputAdornment,
+  IconButton,
+  Typography,
+  Paper,
   TableContainer,
+  Table,
   TableHead,
   TableRow,
-  Paper,
+  TableCell,
+  TableBody,
+  Button,
   CircularProgress,
-  Snackbar,
   Alert,
+  Snackbar,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
 } from '@mui/material';
 import {
+  Search as SearchIcon,
+  Clear as ClearIcon,
   Add as AddIcon,
   FileDownload as FileDownloadIcon,
+  CalendarToday as CalendarIcon,
 } from '@mui/icons-material';
+import { Filter } from 'lucide-react';
+import TimeRecordForm from '../components/TimeRecordForm';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../contexts/AuthContext';
@@ -39,7 +45,9 @@ interface EmployeeSummary {
   funcionario_id: string;
   funcionario: string;
   funcionario_nome: string;
-  horas_trabalhadas: number;
+  horas_trabalhadas: number; // minutos
+  horas_extras: number;      // minutos
+  atrasos: number;           // minutos
 }
 
 
@@ -50,7 +58,6 @@ const RecordsSummaryPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   
   // Estados principais
-  const [tabValue, setTabValue] = useState(0); // 0 = Resumo
   const [employeeSummaries, setEmployeeSummaries] = useState<EmployeeSummary[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +71,7 @@ const RecordsSummaryPage: React.FC = () => {
   // Estados para filtros
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
   
   // Estados para snackbar
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -74,8 +82,20 @@ const RecordsSummaryPage: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Função para formatar minutos em HH:MM
+  const formatMinutesToHHMM = (minutes: number): string => {
+    if (minutes === 0) return '00:00';
+    
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  };
+
   // Função atualizada para formatar horas trabalhadas - INCLUINDO MINUTOS
   const formatHoursWorked = (horasValue: number | string): string => {
+    console.log('📊 [FORMAT] Valor recebido:', horasValue);
+    
     // Se é um número decimal (ex: 8.5 horas = 8h 30min)
     if (typeof horasValue === 'number') {
       if (horasValue === 0) return '00:00';
@@ -136,88 +156,31 @@ const RecordsSummaryPage: React.FC = () => {
     return '00:00';
   };
 
-  // Função para processar registros individuais e calcular resumo por funcionário
-  const processIndividualRecords = (records: any[]): EmployeeSummary[] => {
-    if (!Array.isArray(records) || records.length === 0) {
-      return [];
-    }
-    
-    // Agrupar registros por funcionário
-    const groupedByEmployee: { [key: string]: any[] } = {};
-    
-    records.forEach(record => {
-      const employeeId = record.funcionario_id || record.employee_id || record.id_funcionario;
-      if (employeeId) {
-        if (!groupedByEmployee[employeeId]) {
-          groupedByEmployee[employeeId] = [];
-        }
-        groupedByEmployee[employeeId].push(record);
-      }
-    });
-    
-    // Calcular horas trabalhadas para cada funcionário
-    const summaries: EmployeeSummary[] = [];
-    
-    Object.keys(groupedByEmployee).forEach(employeeId => {
-      const employeeRecords = groupedByEmployee[employeeId];
-      const firstRecord = employeeRecords[0];
-      
-      // Calcular total de horas trabalhadas
-      let totalMinutes = 0;
-      
-      // Agrupar por data para calcular horas por dia
-      const recordsByDate: { [date: string]: any[] } = {};
-      
-      employeeRecords.forEach(record => {
-        const date = record.data || record.date || record.data_hora?.split(' ')[0];
-        if (date) {
-          if (!recordsByDate[date]) {
-            recordsByDate[date] = [];
-          }
-          recordsByDate[date].push(record);
-        }
-      });
-      
-      // Para cada data, calcular horas trabalhadas
-      Object.keys(recordsByDate).forEach(date => {
-        const dayRecords = recordsByDate[date].sort((a, b) => {
-          const timeA = a.data_hora || a.hora || a.time;
-          const timeB = b.data_hora || b.hora || b.time;
-          return timeA.localeCompare(timeB);
-        });
-        
-        let dayMinutes = 0;
-        let entryTime: Date | null = null;
-        
-        dayRecords.forEach(record => {
-          const recordTime = new Date(record.data_hora || record.hora || record.time);
-          const recordType = record.tipo || record.type || record.action;
-          
-          if (recordType === 'entrada' || recordType === 'entry') {
-            entryTime = recordTime;
-          } else if ((recordType === 'saída' || recordType === 'exit') && entryTime) {
-            const diffMs = recordTime.getTime() - entryTime.getTime();
-            const diffMinutes = Math.floor(diffMs / (1000 * 60));
-            dayMinutes += diffMinutes;
-            entryTime = null; // Reset para próximo par entrada/saída
-          }
-        });
-        
-        totalMinutes += dayMinutes;
-      });
-      
-      // Converter minutos para horas decimais
-      const totalHours = totalMinutes / 60;
-      
-      summaries.push({
-        funcionario_id: employeeId,
-        funcionario: firstRecord.funcionario_nome || firstRecord.nome || firstRecord.employee_name || `Funcionário ${employeeId}`,
-        funcionario_nome: firstRecord.funcionario_nome || firstRecord.nome || firstRecord.employee_name || `Funcionário ${employeeId}`,
-        horas_trabalhadas: totalHours
-      });
-    });
-    
-    return summaries;
+  // Funções utilitárias para filtro de mês
+  const getFirstDayOfMonth = (yearMonth: string): string => {
+    const [year, month] = yearMonth.split('-').map(Number);
+    return `${year}-${month.toString().padStart(2, '0')}-01`;
+  };
+
+  const getLastDayOfMonth = (yearMonth: string): string => {
+    const [year, month] = yearMonth.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+  };
+
+  const getCurrentMonth = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1; // getMonth() retorna 0-11
+    return `${year}-${month.toString().padStart(2, '0')}`;
+  };
+
+  const getMonthFromDate = (dateString: string): string => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    return `${year}-${month.toString().padStart(2, '0')}`;
   };
 
   // Função para buscar registros
@@ -237,41 +200,37 @@ const RecordsSummaryPage: React.FC = () => {
         fim?: string;
         funcionario_id?: string;
       } = {};
+      
       if (dateFrom) params.inicio = dateFrom;
       if (dateTo) params.fim = dateTo;
       if (selectedEmployeeId) params.funcionario_id = selectedEmployeeId;
 
-      const response = await apiService.getTimeRecords(params);
-      console.log('📊 Resposta da API:', response);
+      // Usar o novo endpoint de resumo que calcula tudo no backend
+      console.log('📊 [API] Buscando resumo com params:', params);
+      const response = await apiService.getTimeRecordsSummary(params);
+      console.log('📊 [API] Resposta do resumo:', response);
       
       let summaries: EmployeeSummary[] = [];
       
-      // Verificar se a resposta já é um resumo ou são registros individuais
+      // Processar resposta do endpoint de resumo
       if (Array.isArray(response)) {
-        // Se já vem como resumo com horas_trabalhadas
-        if (response.length > 0 && response[0].hasOwnProperty('horas_trabalhadas')) {
-          summaries = response;
-        } else {
-          // Se são registros individuais, precisamos calcular o resumo
-          summaries = processIndividualRecords(response);
-        }
-      } else if (response && typeof response === 'object') {
-        // Se vem como objeto com propriedade que contém os dados
-        if (response.resumo) {
-          summaries = response.resumo;
-        } else if (response.registros) {
-          summaries = processIndividualRecords(response.registros);
-        } else {
-          summaries = [];
-        }
+        summaries = response.map((item: any) => ({
+          funcionario_id: item.funcionario_id || item.id,
+          funcionario: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
+          funcionario_nome: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
+          horas_trabalhadas: item.horas_trabalhadas_minutos || 0,
+          horas_extras: item.horas_extras_minutos || 0,
+          atrasos: item.atraso_minutos || 0,
+        } as EmployeeSummary));
       }
       
+      console.log('📊 [RESUMO] Summaries processados:', summaries);
       setEmployeeSummaries(summaries);
       
     } catch (err: any) {
-      console.error('❌ Erro geral ao buscar registros:', err);
-      setError('Erro ao carregar registros. Tente novamente.');
-      showSnackbar('Erro ao carregar registros', 'error');
+      console.error('❌ Erro ao buscar resumo:', err);
+      setError('Erro ao carregar resumo. Tente novamente.');
+      showSnackbar('Erro ao carregar resumo', 'error');
     } finally {
       setLoading(false);
     }
@@ -327,10 +286,60 @@ const RecordsSummaryPage: React.FC = () => {
     setFilteredEmployees([]);
   };
 
+  // Manipulação do filtro de mês
+  const handleMonthChange = (month: string) => {
+    setSelectedMonth(month);
+    if (month) {
+      // Quando um mês é selecionado, definir as datas automaticamente
+      setDateFrom(getFirstDayOfMonth(month));
+      setDateTo(getLastDayOfMonth(month));
+    } else {
+      // Se mês for limpo, limpar também as datas
+      setDateFrom('');
+      setDateTo('');
+    }
+  };
+
+  const handleDateFromChange = (date: string) => {
+    setDateFrom(date);
+    // Verificar se as datas são de meses diferentes
+    if (date && dateTo) {
+      const monthFrom = getMonthFromDate(date);
+      const monthTo = getMonthFromDate(dateTo);
+      if (monthFrom !== monthTo) {
+        setSelectedMonth(''); // Limpar filtro de mês se datas são de meses diferentes
+      } else if (monthFrom) {
+        setSelectedMonth(monthFrom); // Definir mês se datas são do mesmo mês
+      }
+    }
+  };
+
+  const handleDateToChange = (date: string) => {
+    setDateTo(date);
+    // Verificar se as datas são de meses diferentes
+    if (dateFrom && date) {
+      const monthFrom = getMonthFromDate(dateFrom);
+      const monthTo = getMonthFromDate(date);
+      if (monthFrom !== monthTo) {
+        setSelectedMonth(''); // Limpar filtro de mês se datas são de meses diferentes
+      } else if (monthTo) {
+        setSelectedMonth(monthTo); // Definir mês se datas são do mesmo mês
+      }
+    }
+  };
+
+  // Limpar filtros (incluindo mês)
+  const handleClearFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setSelectedMonth('');
+    handleClearSearch();
+  };
+
   // Efeitos
   useEffect(() => {
     buscarRegistros();
-  }, [buscarRegistros, tabValue]); // tabValue é mantido para consistência, mas sempre será 0 aqui
+  }, [buscarRegistros]);
 
   useEffect(() => {
     const fetchEmployees = async () => {
@@ -343,6 +352,15 @@ const RecordsSummaryPage: React.FC = () => {
       }
     };
     fetchEmployees();
+  }, []);
+
+  // Inicializar mês atual
+  useEffect(() => {
+    const currentMonth = getCurrentMonth();
+    setSelectedMonth(currentMonth);
+    // Definir datas do mês atual
+    setDateFrom(getFirstDayOfMonth(currentMonth));
+    setDateTo(getLastDayOfMonth(currentMonth));
   }, []);
 
   // Snackbar
@@ -392,131 +410,244 @@ const RecordsSummaryPage: React.FC = () => {
     const dataToExport = employeeSummaries.map(summary => ({
       'ID Funcionário': summary.funcionario_id,
       'Nome Funcionário': summary.funcionario_nome || summary.funcionario,
-      'Horas Trabalhadas': formatHoursWorked(summary.horas_trabalhadas || 0),
+      'Horas Trabalhadas': formatMinutesToHHMM(summary.horas_trabalhadas || 0),
+      'Horas Extras': formatMinutesToHHMM(summary.horas_extras || 0),
+      'Atrasos': formatMinutesToHHMM(summary.atrasos || 0),
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Resumo de Registros');
-    XLSX.writeFile(wb, 'resumo_registros.xlsx');
-    showSnackbar('Dados exportados para Excel com sucesso!', 'success');
+    XLSX.utils.book_append_sheet(wb, ws, 'Resumo Funcionarios');
+    XLSX.writeFile(wb, 'resumo_funcionarios.xlsx');
+    showSnackbar('Resumo de funcionários exportado para Excel com sucesso!', 'success');
   };
 
   // Renderização
   return (
     <PageLayout>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-          <Typography variant="h4" component="h1" sx={{ color: 'white' }}>Registros de Ponto</Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<AddIcon />}
-            onClick={handleAddRecord}
-          >
-            Adicionar Registro
-          </Button>
-        </Box>
+      <div className="w-full max-w-7xl mx-auto p-4 space-y-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+            <h1 className="text-3xl font-bold text-white">Registros de Ponto</h1>
+            <button
+              onClick={handleAddRecord}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+            >
+              <AddIcon />
+              Adicionar Registro
+            </button>
+          </div>
+        </motion.div>
 
-        <RecordsTabs tabValue={tabValue} onTabChange={(event, newValue) => {
-          if (newValue === 1) {
-            navigate('/records/detailed'); // Navega para a nova rota de registros detalhados
-          } else {
-            setTabValue(newValue);
-          }
-        }} />
+        <Paper sx={{
+          borderRadius: 2,
+          background: 'rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          overflow: 'hidden'
+        }}>
+          {/* Seção de Filtros */}
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+              <Filter size={20} color="rgba(255, 255, 255, 0.9)" />
+              <Typography variant="subtitle1" fontWeight={600} sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
+                Filtros
+              </Typography>
+            </Box>
 
-        <RecordsFilters
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          onClearFilters={() => {
-            setDateFrom('');
-            setDateTo('');
-            handleClearSearch();
-          }}
-          nome={searchTerm}
-          onNomeChange={handleSearchChange}
-          opcoesNomes={filteredEmployees.map(emp => emp.nome)}
-          onBuscarNomes={handleSearchChange}
-          tabValue={tabValue}
-          isIndividualView={false}
-        />
+            {/* Primeira linha: Campo de busca */}
+            <Box sx={{ mb: 3 }}>
+              <Autocomplete
+                freeSolo
+                options={filteredEmployees.map(emp => emp.nome)}
+                value={searchTerm}
+                onInputChange={(event, value) => {
+                  handleSearchChange(value || '');
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    fullWidth
+                    placeholder="Buscar por funcionário..."
+                    size="small"
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                        '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                        '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                      },
+                      '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                    }}
+                  />
+                )}
+              />
+            </Box>
 
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-            <CircularProgress />
-          </Box>
-        ) : error ? (
-          <Alert severity="error" sx={{ mt: 4 }}>{error}</Alert>
-        ) : (
-          <Card 
-            sx={{
-              mt: 4,
-              background: 'rgba(255, 255, 255, 0.08)',
-              backdropFilter: 'blur(20px)',
-              borderRadius: '16px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-            }}
-          >
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    fontWeight: 600, 
-                    color: 'white',
-                    fontSize: '18px'
-                  }}
-                >
-                  Resumo por Funcionário ({employeeSummaries.length})
-                </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<FileDownloadIcon />}
-                  onClick={exportToExcel}
-                  disabled={employeeSummaries.length === 0}
-                  sx={{
-                    borderColor: 'rgba(255, 255, 255, 0.3)',
-                    color: 'rgba(255, 255, 255, 0.8)',
-                    '&:hover': {
-                      borderColor: 'rgba(255, 255, 255, 0.5)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    }
-                  }}
-                >
-                  Exportar para Excel
-                </Button>
-              </Box>
-              <TableContainer 
-                component={Paper} 
-                variant="outlined"
+            {/* Segunda linha: Mês, Data Início e Data Fim */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
+              {/* Mês */}
+              <TextField
+                label="Mês"
+                type="month"
+                value={selectedMonth || ''}
+                onChange={(e) => handleMonthChange(e.target.value)}
+                size="small"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <CalendarIcon sx={{ fontSize: 18 }} />
+                    </InputAdornment>
+                  ),
+                }}
                 sx={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+
+              {/* Data Início */}
+              <TextField
+                label="Data Início"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => handleDateFromChange(e.target.value)}
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+
+              {/* Data Fim */}
+              <TextField
+                label="Data Fim"
+                type="date"
+                value={dateTo}
+                onChange={(e) => handleDateToChange(e.target.value)}
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
+              <Button
+                variant="outlined"
+                size="medium"
+                onClick={handleClearFilters}
+                startIcon={<ClearIcon />}
+                sx={{
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  }
                 }}
               >
+                Limpar Filtros
+              </Button>
+              <Button
+                variant="outlined"
+                size="medium"
+                startIcon={<FileDownloadIcon />}
+                onClick={exportToExcel}
+                disabled={employeeSummaries.length === 0}
+                sx={{
+                  ml: 'auto',
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  },
+                  '&.Mui-disabled': {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    color: 'rgba(255, 255, 255, 0.3)',
+                  }
+                }}
+              >
+                Exportar Excel
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Linha divisória */}
+          <Box sx={{ 
+            height: '1px', 
+            background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)',
+            my: 0
+          }} />
+
+          {/* Seção da Tabela */}
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  fontWeight: 600, 
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '18px'
+                }}
+              >
+                Resumo por Funcionário ({employeeSummaries.length})
+              </Typography>
+            </Box>
+
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                <CircularProgress sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+              </Box>
+            ) : error ? (
+              <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>
+            ) : (
+              <TableContainer sx={{ background: 'transparent' }}>
                 <Table aria-label="tabela de resumo de registros">
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Funcionário</TableCell>
                       <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Horas Trabalhadas</TableCell>
-                      <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Ações</TableCell>
+                      <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Horas Extras</TableCell>
+                      <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Atrasos</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {employeeSummaries.length === 0 ? (
                       <TableRow>
                         <TableCell 
-                          colSpan={3} 
+                          colSpan={4} 
                           align="center"
                           sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                         >
@@ -531,34 +662,52 @@ const RecordsSummaryPage: React.FC = () => {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      employeeSummaries.map((summary) => (
+                      employeeSummaries.map((summary, idx) => (
                         <TableRow key={summary.funcionario_id} hover>
                           <TableCell component="th" scope="row" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                            <Typography variant="body2" sx={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.9)' }}>
+                            <Typography 
+                              variant="body2" 
+                              onClick={() => handleClickFuncionario(summary)}
+                              sx={{ 
+                                fontWeight: 500, 
+                                color: 'rgba(255, 255, 255, 0.9)',
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                '&:hover': {
+                                  color: 'rgba(255, 255, 255, 1)',
+                                  textDecoration: 'underline',
+                                }
+                              }}
+                            >
                               {summary.funcionario_nome || summary.funcionario}
                             </Typography>
                           </TableCell>
                           <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                             <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                              {formatHoursWorked(summary.horas_trabalhadas || 0)}
+                              {formatMinutesToHHMM(summary.horas_trabalhadas || 0)}
                             </Typography>
                           </TableCell>
-                          <TableCell align="center">
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              onClick={() => handleClickFuncionario(summary)}
-                              sx={{
-                                borderColor: 'rgba(59, 130, 246, 0.3)',
-                                color: '#3b82f6',
-                                '&:hover': {
-                                  borderColor: '#3b82f6',
-                                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                                }
+                          <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                fontWeight: 500,
+                                color: summary.horas_extras > 0 ? '#10b981' : 'rgba(255, 255, 255, 0.6)'
                               }}
                             >
-                              Ver Detalhes
-                            </Button>
+                              {summary.horas_extras > 0 ? formatMinutesToHHMM(summary.horas_extras) : '00:00'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                fontWeight: 500,
+                                color: summary.atrasos > 0 ? '#ef4444' : 'rgba(255, 255, 255, 0.6)'
+                              }}
+                            >
+                              {summary.atrasos > 0 ? formatMinutesToHHMM(summary.atrasos) : '00:00'}
+                            </Typography>
                           </TableCell>
                         </TableRow>
                       ))
@@ -566,9 +715,9 @@ const RecordsSummaryPage: React.FC = () => {
                   </TableBody>
                 </Table>
               </TableContainer>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </Box>
+        </Paper>
 
         <TimeRecordForm
           open={formOpen}
@@ -596,7 +745,7 @@ const RecordsSummaryPage: React.FC = () => {
             {snackbarMessage}
           </Alert>
         </Snackbar>
-      </motion.div>
+      </div>
     </PageLayout>
   );
 };

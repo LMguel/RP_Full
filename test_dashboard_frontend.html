@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Dashboard API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: white;
+        }
+        .container {
+            background: #16213e;
+            padding: 30px;
+            border-radius: 10px;
+        }
+        button {
+            background: #0f3460;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #e94560;
+        }
+        .result {
+            background: #0f3460;
+            padding: 20px;
+            border-radius: 6px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        .error {
+            background: #e94560;
+        }
+        .success {
+            background: #2ecc71;
+            color: #000;
+        }
+        input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #0f3460;
+            width: 200px;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Teste Dashboard API</h1>
+        
+        <div>
+            <h3>1. Fazer Login</h3>
+            <input type="text" id="usuario" placeholder="usuario_id" value="aaa">
+            <input type="password" id="senha" placeholder="senha" value="aaaaaa">
+            <button onclick="fazerLogin()">🔐 Login</button>
+        </div>
+
+        <div id="loginResult"></div>
+
+        <hr style="margin: 30px 0; border-color: #0f3460;">
+
+        <div>
+            <h3>2. Buscar Dashboard</h3>
+            <input type="date" id="data" value="2025-11-13">
+            <button onclick="buscarDashboard()">📊 Buscar Dashboard</button>
+        </div>
+
+        <div id="dashboardResult"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        let token = '';
+
+        async function fazerLogin() {
+            const usuario = document.getElementById('usuario').value;
+            const senha = document.getElementById('senha').value;
+            const resultDiv = document.getElementById('loginResult');
+
+            resultDiv.innerHTML = '<div class="result">⏳ Fazendo login...</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ usuario_id: usuario, senha: senha })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    resultDiv.innerHTML = `
+                        <div class="result success">
+                            ✅ Login bem-sucedido!<br>
+                            Token: ${token.substring(0, 50)}...<br>
+                            Usuário: ${data.usuario_id || 'N/A'}<br>
+                            Empresa: ${data.empresa_nome || 'N/A'}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            ❌ Erro no login<br>
+                            ${JSON.stringify(data, null, 2)}
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        ❌ Erro de conexão: ${err.message}
+                    </div>
+                `;
+            }
+        }
+
+        async function buscarDashboard() {
+            const data = document.getElementById('data').value;
+            const resultDiv = document.getElementById('dashboardResult');
+
+            if (!token) {
+                token = localStorage.getItem('token');
+                if (!token) {
+                    resultDiv.innerHTML = '<div class="result error">❌ Faça login primeiro!</div>';
+                    return;
+                }
+            }
+
+            resultDiv.innerHTML = '<div class="result">⏳ Buscando dados...</div>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/v2/dashboard/company/${data}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const dashData = await response.json();
+
+                if (response.ok) {
+                    const summary = dashData.summary || {};
+                    const employees = dashData.employees || [];
+
+                    resultDiv.innerHTML = `
+                        <div class="result success">
+                            ✅ Dados recebidos!<br><br>
+                            <strong>📊 Resumo:</strong><br>
+                            - Total funcionários: ${summary.total_employees}<br>
+                            - Presentes: ${summary.present}<br>
+                            - Atrasados: ${summary.late}<br>
+                            - Horas trabalhadas: ${(summary.total_worked_minutes / 60).toFixed(1)}h<br>
+                            - Horas esperadas: ${(summary.total_expected_minutes / 60).toFixed(1)}h<br>
+                            - Saldo: ${(summary.total_balance_minutes / 60).toFixed(1)}h<br><br>
+                            
+                            <strong>👥 Funcionários (${employees.length}):</strong><br>
+                            ${employees.map(emp => `
+                                - ${emp.employee_name || emp.employee_id}<br>
+                                  Status: ${emp.status}<br>
+                                  Entrada: ${emp.actual_start || 'N/A'}<br>
+                                  Saída: ${emp.actual_end || 'N/A'}<br>
+                            `).join('<br>')}
+                            <br><br>
+                            <strong>📋 JSON Completo:</strong><br>
+                            ${JSON.stringify(dashData, null, 2)}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            ❌ Erro ao buscar dashboard<br>
+                            Status: ${response.status}<br>
+                            ${JSON.stringify(dashData, null, 2)}
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        ❌ Erro de conexão: ${err.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Auto-login se houver token
+        window.onload = () => {
+            const savedToken = localStorage.getItem('token');
+            if (savedToken) {
+                token = savedToken;
+                document.getElementById('loginResult').innerHTML = `
+                    <div class="result success">
+                        ℹ️ Token encontrado no localStorage<br>
+                        Token: ${token.substring(0, 50)}...
+                    </div>
+                `;
+            }
+        };
+    </script>
+</body>
+</html>

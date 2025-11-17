@@ -59,7 +59,7 @@ class ApiService {
 
   // Auth endpoints
   async login(credentials: { usuario_id: string; senha: string }) {
-    const response = await this.api.post('/login', credentials);
+    const response = await this.api.post('/api/login', credentials);
     return response.data;
   }
 
@@ -69,13 +69,13 @@ class ApiService {
     empresa_nome: string;
     senha: string;
   }) {
-    const response = await this.api.post('/cadastrar_usuario_empresa', userData);
+    const response = await this.api.post('/api/cadastrar_usuario_empresa', userData);
     return response.data;
   }
 
   // Password reset endpoint
   async resetPassword(usuario_id: string, nova_senha: string) {
-    const response = await this.api.post('/reset_password', {
+    const response = await this.api.post('/api/reset_password', {
       usuario_id,
       nova_senha
     });
@@ -88,23 +88,23 @@ class ApiService {
     email: string;
     nova_senha: string;
   }) {
-    const response = await this.api.post('/forgot_password', data);
+    const response = await this.api.post('/api/forgot_password', data);
     return response.data;
   }
 
   // Employee endpoints
   async getEmployees() {
-    const response = await this.api.get('/funcionarios');
+    const response = await this.api.get('/api/funcionarios');
     return response.data;
   }
 
   async getEmployee(id: string) {
-    const response = await this.api.get(`/funcionarios/${id}`);
+    const response = await this.api.get(`/api/funcionarios/${id}`);
     return response.data;
   }
 
   async createEmployee(employeeData: FormData) {
-    const response = await this.api.post('/cadastrar_funcionario', employeeData, {
+    const response = await this.api.post('/api/cadastrar_funcionario', employeeData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -113,7 +113,7 @@ class ApiService {
   }
 
   async updateEmployee(id: string, employeeData: FormData) {
-    const response = await this.api.put(`/funcionarios/${id}`, employeeData, {
+    const response = await this.api.put(`/api/funcionarios/${id}`, employeeData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -122,7 +122,7 @@ class ApiService {
   }
 
   async deleteEmployee(id: string) {
-    const response = await this.api.delete(`/funcionarios/${id}`);
+    const response = await this.api.delete(`/api/funcionarios/${id}`);
     return response.data;
   }
 
@@ -130,7 +130,7 @@ class ApiService {
     const formData = new FormData();
     formData.append('foto', photo);
     
-    const response = await this.api.put(`/funcionarios/${id}/foto`, formData, {
+    const response = await this.api.put(`/api/funcionarios/${id}/foto`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -145,7 +145,17 @@ class ApiService {
     nome?: string;
     funcionario_id?: string;
   }) {
-    const response = await this.api.get('/registros', { params });
+    const response = await this.api.get('/api/registros', { params });
+    return response.data;
+  }
+
+  async getTimeRecordsSummary(params?: {
+    inicio?: string;
+    fim?: string;
+    nome?: string;
+    funcionario_id?: string;
+  }) {
+    const response = await this.api.get('/api/registros/resumo', { params });
     return response.data;
   }
 
@@ -153,7 +163,7 @@ class ApiService {
     const formData = new FormData();
     formData.append('foto', foto);
     
-    const response = await this.api.post('/registrar_ponto', formData, {
+    const response = await this.api.post('/api/registrar_ponto', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -166,18 +176,18 @@ class ApiService {
     data_hora: string;
     tipo: 'entrada' | 'saída';
   }) {
-    const response = await this.api.post('/registrar_ponto_manual', data);
+    const response = await this.api.post('/api/registrar_ponto_manual', data);
     return response.data;
   }
 
   async deleteTimeRecord(registroId: string) {
-    const response = await this.api.delete(`/registros/${registroId}`);
+    const response = await this.api.delete(`/api/registros/${registroId}`);
     return response.data;
   }
 
   // Search endpoints
   async searchEmployeeNames(query: string) {
-    const response = await this.api.get('/funcionarios/nome', {
+    const response = await this.api.get('/api/funcionarios/nome', {
       params: { nome: query },
     });
     return response.data;
@@ -190,13 +200,78 @@ class ApiService {
     registros: any[];
     email: string;
   }) {
-    const response = await this.api.post('/enviar-email-registros', data);
+    const response = await this.api.post('/api/enviar-email-registros', data);
     return response.data;
   }
 
   // Health check
   async healthCheck() {
-    const response = await this.api.get('/');
+    const response = await this.api.get('/api/');
+    return response.data;
+  }
+
+  // ========== V2.0 ENDPOINTS ==========
+  
+  // Register point with V2 (auto-updates summaries)
+  async registerPointV2(data: {
+    employee_id: string;
+    company_id: string;
+    photo_base64: string;
+    location?: { latitude: number; longitude: number };
+    work_mode: 'presencial' | 'remoto' | 'hibrido';
+  }) {
+    const response = await this.api.post('/v2/registrar-ponto', data);
+    return response.data;
+  }
+
+  // Get daily summary for an employee
+  async getDailySummary(employeeId: string, date: string) {
+    const response = await this.api.get(`/v2/daily-summary/${employeeId}/${date}`);
+    return response.data;
+  }
+
+  // Get monthly summary for an employee
+  async getMonthlySummary(employeeId: string, year: number, month: number) {
+    const response = await this.api.get(`/v2/monthly-summary/${employeeId}/${year}/${month}`);
+    return response.data;
+  }
+
+  // Get company dashboard (all employees for a specific date)
+  async getCompanyDashboard(date: string) {
+    const response = await this.api.get(`/v2/dashboard/company/${date}`);
+    return response.data;
+  }
+
+  // Get employee personal dashboard (requires auth)
+  async getEmployeeDashboard() {
+    const response = await this.api.get('/v2/dashboard/employee');
+    return response.data;
+  }
+
+  // Get individual time records for a specific day
+  async getEmployeeRecords(employeeId: string, date: string) {
+    const response = await this.api.get(`/v2/records/${employeeId}/${date}`);
+    return response.data;
+  }
+
+  // Generic HTTP methods for flexibility
+  async get(endpoint: string, params?: any) {
+    const response = await this.api.get(endpoint, { params });
+    return response.data;
+  }
+
+  async post(endpoint: string, data: any) {
+    const response = await this.api.post(endpoint, data);
+    return response.data;
+  }
+
+  async put(endpoint: string, data: any) {
+    const response = await this.api.put(endpoint, data);
+    return response.data;
+  }
+
+  async delete(endpoint: string) {
+    const response = await this.api.delete(endpoint);
     return response.data;
   }
 }

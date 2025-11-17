@@ -48,12 +48,33 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const { user, logout } = useAuth();
 
+  // Abrir submenu automaticamente se estiver em página de registros
+  const [recordsSubmenuOpen, setRecordsSubmenuOpen] = useState(
+    location.pathname.startsWith('/records')
+  );
+
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Funcionários', icon: <PeopleIcon />, path: '/employees' },
-    { text: 'Registros', icon: <AccessTimeIcon />, path: '/records' },
+    { 
+      text: 'Registros', 
+      icon: <AccessTimeIcon />, 
+      path: '/records',
+      submenu: [
+        { text: 'Resumo por Funcionário', path: '/records' },
+        { text: 'Registros Diários', path: '/records/daily' },
+        { text: 'Registros Detalhados', path: '/records/detailed' },
+      ]
+    },
     { text: 'Configurações', icon: <SettingsIcon />, path: '/settings' },
   ];
+
+  // Atualizar submenu quando a rota mudar
+  React.useEffect(() => {
+    if (location.pathname.startsWith('/records')) {
+      setRecordsSubmenuOpen(true);
+    }
+  }, [location.pathname]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -141,41 +162,89 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <List>
           {menuItems.map((item) => {
             const isActive = location.pathname === item.path;
+            const isRecordsSection = location.pathname.startsWith('/records');
+            const hasSubmenu = item.submenu && item.submenu.length > 0;
+            
             return (
-              <ListItem key={item.text} disablePadding sx={{ mb: 1 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation(item.path)}
-                  sx={{
-                    borderRadius: '8px',
-                    mx: 1,
-                    color: isActive ? 'white' : 'rgba(255, 255, 255, 0.7)',
-                    background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                    '&:hover': {
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      color: 'white',
-                    },
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  <ListItemIcon
-                    sx={{
-                      color: isActive ? 'white' : 'rgba(255, 255, 255, 0.7)',
-                      minWidth: 40,
-                    }}
-                  >
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.text}
-                    sx={{
-                      '& .MuiListItemText-primary': {
-                        fontWeight: isActive ? 500 : 400,
-                        fontSize: '14px'
+              <React.Fragment key={item.text}>
+                <ListItem disablePadding sx={{ mb: 1 }}>
+                  <ListItemButton
+                    onClick={() => {
+                      if (hasSubmenu && item.text === 'Registros') {
+                        setRecordsSubmenuOpen(!recordsSubmenuOpen);
+                      } else {
+                        handleNavigation(item.path);
                       }
                     }}
-                  />
-                </ListItemButton>
-              </ListItem>
+                    sx={{
+                      borderRadius: '8px',
+                      mx: 1,
+                      color: (isActive || (hasSubmenu && isRecordsSection)) ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                      background: (isActive || (hasSubmenu && isRecordsSection)) ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                      '&:hover': {
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        color: 'white',
+                      },
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <ListItemIcon
+                      sx={{
+                        color: (isActive || (hasSubmenu && isRecordsSection)) ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                        minWidth: 40,
+                      }}
+                    >
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={item.text}
+                      sx={{
+                        '& .MuiListItemText-primary': {
+                          fontWeight: (isActive || (hasSubmenu && isRecordsSection)) ? 500 : 400,
+                          fontSize: '14px'
+                        }
+                      }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+                
+                {/* Submenu de Registros */}
+                {hasSubmenu && item.text === 'Registros' && recordsSubmenuOpen && (
+                  <Box sx={{ pl: 2, mb: 1 }}>
+                    {item.submenu.map((subItem) => {
+                      const isSubActive = location.pathname === subItem.path;
+                      return (
+                        <ListItemButton
+                          key={subItem.path}
+                          onClick={() => handleNavigation(subItem.path)}
+                          sx={{
+                            borderRadius: '8px',
+                            mx: 1,
+                            py: 0.75,
+                            color: isSubActive ? 'white' : 'rgba(255, 255, 255, 0.6)',
+                            background: isSubActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                            '&:hover': {
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              color: 'white',
+                            },
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <Typography 
+                            variant="caption" 
+                            sx={{ 
+                              fontSize: '13px',
+                              fontWeight: isSubActive ? 500 : 400
+                            }}
+                          >
+                            • {subItem.text}
+                          </Typography>
+                        </ListItemButton>
+                      );
+                    })}
+                  </Box>
+                )}
+              </React.Fragment>
             );
           })}
         </List>

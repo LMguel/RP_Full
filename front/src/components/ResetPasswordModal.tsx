@@ -166,13 +166,14 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
           justifyContent: 'space-between',
           alignItems: 'center',
           pb: 1,
+          fontWeight: 600,
         }}
       >
-        <Box display="flex" alignItems="center" gap={1}>
+        <Box display="flex" alignItems="center" gap={1} component="span">
           <LockIcon sx={{ color: '#ef4444' }} />
-          <Typography variant="h6" fontWeight="600">
+          <Box component="span">
             Redefinir Senha de Usuário
-          </Typography>
+          </Box>
         </Box>
         <IconButton onClick={handleClose} sx={{ color: 'white' }}>
           <CloseIcon />

@@ -180,13 +180,14 @@ const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
           justifyContent: 'space-between',
           alignItems: 'center',
           pb: 1,
+          fontWeight: 600,
         }}
       >
-        <Box display="flex" alignItems="center" gap={1}>
+        <Box display="flex" alignItems="center" gap={1} component="span">
           <HelpIcon sx={{ color: '#3b82f6' }} />
-          <Typography variant="h6" fontWeight="600">
+          <Box component="span">
             Recuperar Senha
-          </Typography>
+          </Box>
         </Box>
         <IconButton onClick={handleClose} sx={{ color: 'white' }}>
           <CloseIcon />

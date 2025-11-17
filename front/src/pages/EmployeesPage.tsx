@@ -80,6 +80,8 @@ const EmployeesPage: React.FC = () => {
       setError(null);
       const response = await apiService.getEmployees();
       const employeesList = response.funcionarios || [];
+      console.log('[EmployeesPage] Funcionários carregados:', employeesList);
+      console.log('[EmployeesPage] Exemplo de foto_url:', employeesList[0]?.foto_url);
       setEmployees(employeesList);
     } catch (err: any) {
       console.error('Error loading employees:', err);
@@ -184,7 +186,10 @@ const EmployeesPage: React.FC = () => {
 
   const formatDate = (dateString: string) => {
     try {
-      return new Date(dateString).toLocaleDateString('pt-BR');
+      // Forçar timezone local para evitar problemas de UTC
+      const [year, month, day] = dateString.split('-');
+      const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      return date.toLocaleDateString('pt-BR');
     } catch {
       return dateString;
     }
@@ -202,144 +207,74 @@ const EmployeesPage: React.FC = () => {
 
   return (
     <PageLayout>
-      {/* Header */}
-      <Box sx={{ 
-        display: 'flex', 
-        flexDirection: { xs: 'column', sm: 'row' },
-        alignItems: { sm: 'center' },
-        justifyContent: 'space-between',
-        gap: 2,
-        mb: 4
-      }}>
+      <div className="w-full max-w-7xl mx-auto p-4 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+              <PersonIcon className="w-8 h-8" />
+              Funcionários
+            </h1>
+            <p className="text-white/70 mt-1">
+              Gerencie os funcionários da sua empresa
+            </p>
+          </motion.div>
+          
+          <button
+            onClick={() => setFormOpen(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+          >
+            <AddIcon />
+            Cadastrar Funcionário
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-500/20 border border-red-500/50 text-white px-4 py-3 rounded-lg backdrop-blur mb-6">
+            {error}
+          </div>
+        )}
+
+        {/* Search */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <Box>
-            <Typography 
-              variant="h4" 
-              sx={{ 
-                fontWeight: 600, 
-                color: 'white', 
-                mb: 1,
-                fontSize: '28px'
-              }}
-            >
-              Funcionários
-            </Typography>
-            <Typography 
-              variant="body1" 
-              sx={{ 
-                color: 'rgba(255, 255, 255, 0.8)',
-                fontSize: '16px'
-              }}
-            >
-              Gerencie os funcionários da sua empresa
-            </Typography>
-          </Box>
+          <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 p-6 mb-6">
+            <div className="relative">
+              <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/50" />
+              <input
+                type="text"
+                placeholder="Buscar por nome ou cargo..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
+              />
+            </div>
+          </div>
         </motion.div>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setFormOpen(true)}
-          sx={{
-            background: '#3b82f6',
-            '&:hover': {
-              background: '#2563eb',
-            },
-            fontWeight: 600,
-            textTransform: 'none',
-            mt: { xs: 2, sm: 0 }
-          }}
-        >
-          Cadastrar Funcionário
-        </Button>
-      </Box>
 
-      {error && (
-        <Alert 
-          severity="error" 
-          sx={{ 
-            mb: 4,
-            background: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: '12px',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-          }}
+        {/* Employees Table */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
         >
-          {error}
-        </Alert>
-      )}
-
-      {/* Search */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
-      >
-        <Card 
-          sx={{
-            background: 'rgba(255, 255, 255, 0.08)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            mb: 4
-          }}
-        >
-          <CardContent>
-            <TextField
-              fullWidth
-              placeholder="Buscar por nome ou cargo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                  </InputAdornment>
-                ),
-                sx: {
-                  color: 'white',
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: 'rgba(255, 255, 255, 0.3)',
-                  },
-                  '&:hover .MuiOutlinedInput-notchedOutline': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                  },
-                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                    borderColor: 'rgba(255, 255, 255, 0.7)',
-                  },
-                  '& input::placeholder': {
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    opacity: 1,
-                  },
-                  background: 'rgba(255, 255, 255, 0.05)',
-                }
-              }}
-              variant="outlined"
-            />
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Employees Table */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-      >
-        <Card 
-          sx={{
-            background: 'rgba(255, 255, 255, 0.08)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-          }}
-        >
-          <CardContent>
+          <Card 
+            sx={{
+              background: 'rgba(255, 255, 255, 0.08)',
+              backdropFilter: 'blur(20px)',
+              borderRadius: '16px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <CardContent>
             <Typography 
               variant="h6" 
               sx={{ 
@@ -372,6 +307,12 @@ const EmployeesPage: React.FC = () => {
                       Cargo
                     </TableCell>
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                      Horário Entrada
+                    </TableCell>
+                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                      Horário Saída
+                    </TableCell>
+                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Data de Cadastro
                     </TableCell>
                     <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
@@ -386,11 +327,34 @@ const EmployeesPage: React.FC = () => {
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar
-                              src={employee.foto_url}
+                              src={employee.foto_url || undefined}
                               alt={employee.nome}
-                              sx={{ width: 40, height: 40 }}
+                              imgProps={{
+                                onError: (e: any) => {
+                                  console.error('[Avatar Error] Falha ao carregar foto para:', employee.nome);
+                                  console.error('  URL tentada:', employee.foto_url);
+                                  console.error('  Status:', e.target.complete ? 'loaded but error' : 'not loaded');
+                                  e.target.style.display = 'none';
+                                },
+                                onLoad: (e: any) => {
+                                  console.log('[Avatar Success] Foto carregada:', employee.nome, employee.foto_url);
+                                }
+                              }}
+                              sx={{ 
+                                width: 50, 
+                                height: 50,
+                                border: '2px solid rgba(59, 130, 246, 0.3)',
+                                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)',
+                                background: employee.foto_url ? 'transparent' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                transition: 'transform 0.2s',
+                                '&:hover': {
+                                  transform: 'scale(1.1)',
+                                  border: '2px solid rgba(59, 130, 246, 0.6)',
+                                },
+                                fontSize: '20px'
+                              }}
                             >
-                              <PersonIcon />
+                              {!employee.foto_url && employee.nome.charAt(0).toUpperCase()}
                             </Avatar>
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.9)' }}>
@@ -415,6 +379,16 @@ const EmployeesPage: React.FC = () => {
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">
+                            {employee.horario_entrada || '-'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                          <Typography variant="body2">
+                            {employee.horario_saida || '-'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                          <Typography variant="body2">
                             {formatDate(employee.data_cadastro)}
                           </Typography>
                         </TableCell>
@@ -432,7 +406,7 @@ const EmployeesPage: React.FC = () => {
                   ) : (
                     <TableRow>
                       <TableCell 
-                        colSpan={4} 
+                        colSpan={6} 
                         align="center"
                         sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                       >
@@ -520,10 +494,8 @@ const EmployeesPage: React.FC = () => {
           }
         }}
       >
-        <DialogTitle>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Confirmar Exclusão
-          </Typography>
+        <DialogTitle sx={{ fontWeight: 600 }}>
+          Confirmar Exclusão
         </DialogTitle>
         <DialogContent>
           <Typography>
@@ -554,15 +526,16 @@ const EmployeesPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Reset Password Modal */}
-      <ResetPasswordModal
-        open={resetPasswordOpen}
-        onClose={() => {
-          setResetPasswordOpen(false);
-          setEmployeeToResetPassword(null);
-        }}
-        userId={employeeToResetPassword?.id}
-      />
+        {/* Reset Password Modal */}
+        <ResetPasswordModal
+          open={resetPasswordOpen}
+          onClose={() => {
+            setResetPasswordOpen(false);
+            setEmployeeToResetPassword(null);
+          }}
+          userId={employeeToResetPassword?.id}
+        />
+      </div>
     </PageLayout>
   );
 };

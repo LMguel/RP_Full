@@ -26,6 +26,8 @@ interface RecordsFiltersProps {
   dateTo: string;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
+  selectedMonth?: string;
+  onMonthChange?: (value: string) => void;
   onClearFilters: () => void;
   
   // Para aba de resumo
@@ -42,7 +44,6 @@ interface RecordsFiltersProps {
   employees?: Employee[];
   
   // Controle de exibição
-  tabValue: number;
   isIndividualView?: boolean;
 }
 
@@ -51,6 +52,8 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
   dateTo,
   onDateFromChange,
   onDateToChange,
+  selectedMonth,
+  onMonthChange,
   onClearFilters,
   nome,
   onNomeChange,
@@ -61,7 +64,6 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
   selectedEmployeeFilter,
   onSelectedEmployeeFilterChange,
   employees = [],
-  tabValue,
   isIndividualView = false,
 }) => {
   return (
@@ -177,7 +179,7 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
               <>
                 {/* Filtros para vista geral */}
                 <Grid size={{ xs: 12, md: 4 }}>
-                  {tabValue === 0 ? (
+                  {!isIndividualView ? (
                     <Autocomplete
                       freeSolo
                       options={opcoesNomes}
@@ -265,7 +267,7 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
                   )}
                 </Grid>
                 
-                {tabValue === 1 && (
+                {isIndividualView && (
                   <Grid size={{ xs: 12, md: 3 }}>
                     <FormControl 
                       fullWidth 
@@ -313,6 +315,42 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
                     </FormControl>
                   </Grid>
                 )}
+                
+                {/* Filtro de mês */}
+                <Grid size={{ xs: 12, md: 2 }}>
+                  <TextField
+                    fullWidth
+                    label="Mês"
+                    type="month"
+                    value={selectedMonth || ''}
+                    onChange={(e) => onMonthChange?.(e.target.value)}
+                    InputLabelProps={{ 
+                      shrink: true,
+                      sx: {
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        '&.Mui-focused': {
+                          color: 'rgba(255, 255, 255, 0.9)'
+                        }
+                      }
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: 'white',
+                        '& fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.3)',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.5)',
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.7)',
+                        },
+                        background: 'rgba(255, 255, 255, 0.05)',
+                      }
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
                 
                 <Grid size={{ xs: 12, md: 2 }}>
                   <TextField

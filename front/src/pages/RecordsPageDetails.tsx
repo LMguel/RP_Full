@@ -11,7 +11,6 @@ interface ImportMeta {
 import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import PageLayout from '../sections/PageLayout';
-import RecordsTabs from '../components/RecordsTabs';
 import RecordsFilters from '../components/RecordsFilters';
 import TimeRecordForm from '../components/TimeRecordForm';
 import {
@@ -127,6 +126,61 @@ const formatDateTime = (dateValue: any): string => {
   }
 };
 
+const getStatusColor = (tipo: string) => {
+  return tipo === 'entrada' ? 'success' : 'error';
+};
+
+const getStatusText = (tipo: string) => {
+  return tipo === 'entrada' ? 'Entrada' : 'Saída';
+};
+
+// Função para determinar o status detalhado do registro
+const getDetailedStatus = (record: TimeRecord) => {
+  const statuses: Array<{ text: string; color: string }> = [];
+
+  // Entrada antecipada
+  if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
+    statuses.push({
+      text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
+      color: '#3b82f6' // azul
+    });
+  }
+
+  // Atraso
+  if (record.atraso_minutos && record.atraso_minutos > 0) {
+    statuses.push({
+      text: `Atraso ${record.atraso_minutos} min`,
+      color: '#ef4444' // vermelho
+    });
+  }
+
+  // Hora extra
+  if (record.horas_extras_minutos && record.horas_extras_minutos > 0) {
+    statuses.push({
+      text: `+${record.horas_extras_minutos} min extra`,
+      color: '#10b981' // verde
+    });
+  }
+
+  // Saída antecipada
+  if (record.saida_antecipada_minutos && record.saida_antecipada_minutos > 0) {
+    statuses.push({
+      text: `Saiu ${record.saida_antecipada_minutos} min antes`,
+      color: '#f59e0b' // laranja
+    });
+  }
+
+  // Se não tem nenhum status especial
+  if (statuses.length === 0) {
+    return [{
+      text: 'Normal',
+      color: 'rgba(255, 255, 255, 0.6)' // cinza
+    }];
+  }
+
+  return statuses;
+};
+
 const RecordsDetailedPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -134,7 +188,6 @@ const RecordsDetailedPage: React.FC = () => {
   const { employeeId: paramEmployeeId, employeeName: paramEmployeeName } = useParams<{ employeeId: string; employeeName: string }>();
 
   // Estados principais
-  const [tabValue, setTabValue] = useState(1); // 1 = Detalhado
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [records, setRecords] = useState<TimeRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<TimeRecord[]>([]);
@@ -528,7 +581,7 @@ const RecordsDetailedPage: React.FC = () => {
       'Nome Funcionário': record.funcionario_nome,
       'Data/Hora': formatDateTime(record.data_hora),
       'Tipo': record.tipo,
-      'Empresa': record.empresa_nome,
+      'Status': getDetailedStatus(record).map(s => s.text).join(', '),
     }));
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
@@ -682,88 +735,161 @@ const RecordsDetailedPage: React.FC = () => {
           </Button>
         </Box>
 
-        <RecordsTabs tabValue={tabValue} onTabChange={(event, newValue) => {
-          if (newValue === 0) {
-            navigate('/records'); // Navega de volta para a página de resumo
-          } else {
-            setTabValue(newValue);
-          }
-        }} />
+        <Paper sx={{
+          borderRadius: 2,
+          background: 'rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          overflow: 'hidden'
+        }}>
+          {/* Seção de Filtros */}
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+              <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
+              <Typography variant="subtitle1" fontWeight={600} sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
+                Filtros
+              </Typography>
+            </Box>
 
-        <RecordsFilters
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          onClearFilters={() => {
-            setDateFrom('');
-            setDateTo('');
-            handleClearSearch();
-          }}
-          nome={searchTerm}
-          onNomeChange={handleSearchChange}
-          opcoesNomes={filteredEmployees.map(emp => emp.nome)}
-          onBuscarNomes={handleSearchChange}
-          tabValue={tabValue}
-          isIndividualView={true}
-        />
-
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-            <CircularProgress />
-          </Box>
-        ) : error ? (
-          <Alert severity="error" sx={{ mt: 4 }}>{error}</Alert>
-        ) : (
-          <Card 
-            sx={{
-              mt: 4,
-              background: 'rgba(255, 255, 255, 0.08)',
-              backdropFilter: 'blur(20px)',
-              borderRadius: '16px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-            }}
-          >
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    fontWeight: 600, 
-                    color: 'white',
-                    fontSize: '18px'
-                  }}
-                >
-                  Registros Individuais ({filteredRecords.length})
-                </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<FileDownloadIcon />}
-                  onClick={exportToExcel}
-                  disabled={filteredRecords.length === 0}
-                  sx={{
-                    borderColor: 'rgba(255, 255, 255, 0.3)',
-                    color: 'rgba(255, 255, 255, 0.8)',
-                    '&:hover': {
-                      borderColor: 'rgba(255, 255, 255, 0.5)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    }
-                  }}
-                >
-                  Exportar para Excel
-                </Button>
-              </Box>
-              <TableContainer 
-                component={Paper} 
-                variant="outlined"
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
+              {/* Data Início */}
+              <TextField
+                label="Data Início"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                size="small"
+                InputLabelProps={{ shrink: true }}
                 sx={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  backdropFilter: 'blur(10px)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+
+              {/* Data Fim */}
+              <TextField
+                label="Data Fim"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+
+              {/* Buscar */}
+              <TextField
+                placeholder="Buscar funcionário..."
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                size="small"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                }}
+              />
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
+              <Button
+                variant="outlined"
+                size="medium"
+                onClick={() => {
+                  setDateFrom('');
+                  setDateTo('');
+                  handleClearSearch();
+                }}
+                startIcon={<ClearIcon />}
+                sx={{
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  }
                 }}
               >
+                Limpar Filtros
+              </Button>
+              <Button
+                variant="outlined"
+                size="medium"
+                startIcon={<FileDownloadIcon />}
+                onClick={exportToExcel}
+                disabled={filteredRecords.length === 0}
+                sx={{
+                  ml: 'auto',
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  },
+                  '&.Mui-disabled': {
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    color: 'rgba(255, 255, 255, 0.3)',
+                  }
+                }}
+              >
+                Exportar Excel
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Linha divisória */}
+          <Box sx={{ 
+            height: '1px', 
+            background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)',
+            my: 0
+          }} />
+
+          {/* Seção da Tabela */}
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  fontWeight: 600, 
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '18px'
+                }}
+              >
+                Registros Individuais ({filteredRecords.length})
+              </Typography>
+            </Box>
+
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                <CircularProgress sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+              </Box>
+            ) : error ? (
+              <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>
+            ) : (
+              <TableContainer sx={{ background: 'transparent' }}>
                 <Table aria-label="tabela de registros detalhados">
                   <TableHead>
                     <TableRow>
@@ -782,7 +908,7 @@ const RecordsDetailedPage: React.FC = () => {
                         Data/Hora {sortBy === 'data' && (sortOrder === 'asc' ? '▲' : '▼')}
                       </TableCell>
                       <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Tipo</TableCell>
-                      <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Empresa</TableCell>
+                      <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Status</TableCell>
                       <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Ações</TableCell>
                     </TableRow>
                   </TableHead>
@@ -808,7 +934,19 @@ const RecordsDetailedPage: React.FC = () => {
                       filteredRecords.map((record) => (
                         <TableRow key={record.registro_id} hover>
                           <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                            <Typography variant="body2" sx={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.9)' }}>
+                            <Typography 
+                              variant="body2" 
+                              onClick={() => navigate(`/records/employee/${record.funcionario_id}/${encodeURIComponent(record.funcionario_nome)}`)}
+                              sx={{ 
+                                fontWeight: 500, 
+                                color: 'rgba(255, 255, 255, 0.9)',
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                '&:hover': {
+                                  color: 'rgba(255, 255, 255, 1)',
+                                }
+                              }}
+                            >
                               {record.funcionario_nome}
                             </Typography>
                           </TableCell>
@@ -832,10 +970,22 @@ const RecordsDetailedPage: React.FC = () => {
                               }}
                             />
                           </TableCell>
-                          <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                            <Typography variant="body2">
-                              {record.empresa_nome || 'N/A'}
-                            </Typography>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              {getDetailedStatus(record).map((status, idx) => (
+                                <Chip
+                                  key={idx}
+                                  label={status.text}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: 'transparent',
+                                    border: `1px solid ${status.color}`,
+                                    color: status.color,
+                                    fontSize: '0.75rem',
+                                  }}
+                                />
+                              ))}
+                            </Box>
                           </TableCell>
                           <TableCell align="center">
                             <IconButton 
@@ -857,9 +1007,9 @@ const RecordsDetailedPage: React.FC = () => {
                   </TableBody>
                 </Table>
               </TableContainer>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </Box>
+        </Paper>
 
         <TimeRecordForm
           open={formOpen}

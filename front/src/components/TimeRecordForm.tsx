@@ -45,6 +45,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   const [formData, setFormData] = useState({
     funcionario_id: '',
     data_hora: '',
+      date: '', // YYYY-MM-DD
+      time: '', // HH:MM
     tipo: 'entrada' as 'entrada' | 'saída',
   });
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -67,11 +69,14 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       const day = String(brasiliaTime.getDate()).padStart(2, '0');
       const hours = String(brasiliaTime.getHours()).padStart(2, '0');
       const minutes = String(brasiliaTime.getMinutes()).padStart(2, '0');
-      const formattedDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
-      setFormData(prev => ({
-        ...prev,
-        data_hora: formattedDateTime,
+        // Inicializar date e time
+        setFormData(prev => ({
+          ...prev,
+          date: `${year}-${month}-${day}`,
+          time: `${hours}:${minutes}`,
       }));
+      // Preencher campos manuais também
+  // Preencher campos manuais também
     }
   }, [open, propEmployees]);
 
@@ -129,11 +134,11 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       newErrors.funcionario_id = 'Funcionário é obrigatório';
     }
 
-    if (!formData.data_hora) {
+    if (!formData.date || !formData.time) {
       newErrors.data_hora = 'Data e hora são obrigatórias';
     } else {
       // Validações empresariais críticas
-      const selectedDateTime = new Date(formData.data_hora);
+      const selectedDateTime = new Date(`${formData.date}T${formData.time}:00`);
       const now = new Date();
       
       // 1. Não pode registrar no futuro
@@ -177,8 +182,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
 
     try {
       // Validação adicional: verificar registros duplicados
-      const selectedDate = new Date(formData.data_hora);
-      const dateStr = selectedDate.toISOString().split('T')[0];
+  const selectedDate = new Date(`${formData.date}T${formData.time}:00`);
+  const dateStr = formData.date;
       
       console.log('🔍 Verificando registros duplicados para:', {
         funcionario_id: formData.funcionario_id,
@@ -217,7 +222,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         }
         
         // Verificar se não há conflito de horários próximos (menos de 30 minutos)
-        const newDateTime = selectedDate.getTime();
+  const newDateTime = selectedDate.getTime();
         const conflictingRecords = recordsToCheck.filter((record: any) => {
           if (!record.data_hora) return false;
           const existingDateTime = new Date(record.data_hora).getTime();
@@ -238,9 +243,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         // Continua mesmo se não conseguir verificar (para não bloquear o sistema)
       }
 
-      // Convert to proper format for database, keeping the user's selected time
-      // Parse the datetime-local input directly without timezone conversion
-      const formattedDateTime = formData.data_hora.replace('T', ' ') + ':00';
+  // Combine date and time into the format expected by backend: 'YYYY-MM-DD HH:MM:SS'
+  const formattedDateTime = `${formData.date} ${formData.time}:00`;
       
       await onSubmit({
         funcionario_id: formData.funcionario_id,
@@ -260,6 +264,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     setFormData({
       funcionario_id: '',
       data_hora: '',
+      date: '',
+      time: '',
       tipo: 'entrada',
     });
     setErrors({});
@@ -269,7 +275,13 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      // do not close on backdrop click; only on explicit actions
+      onClose={(event, reason) => {
+        if (reason === 'backdropClick') return;
+        if (reason === 'escapeKeyDown') return; // disable ESC
+        handleClose();
+      }}
+      disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
       PaperProps={{
@@ -294,14 +306,15 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
           justifyContent: 'space-between',
           color: 'white',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          pb: 2
+          pb: 2,
+          fontWeight: 600
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }} component="span">
           <AccessTimeIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
-          <Typography variant="h6" sx={{ fontWeight: 600, color: 'white' }}>
+          <Box component="span">
             Registrar Ponto Manual
-          </Typography>
+          </Box>
         </Box>
         <IconButton 
           onClick={handleClose} 
@@ -386,45 +399,74 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                 )}
               </FormControl>
 
-              <TextField
-                fullWidth
-                label="Data e Hora"
-                name="data_hora"
-                type="datetime-local"
-                value={formData.data_hora}
-                onChange={handleChange}
-                error={!!errors.data_hora}
-                helperText={errors.data_hora}
-                disabled={loading}
-                variant="outlined"
-                InputLabelProps={{
-                  shrink: true,
-                  sx: {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    '&.Mui-focused': {
-                      color: 'rgba(255, 255, 255, 0.9)'
-                    }
-                  }
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'white',
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.3)',
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <TextField
+                  name="date"
+                  type="date"
+                  value={formData.date}
+                  onChange={handleChange}
+                  error={!!errors.data_hora}
+                  helperText={errors.data_hora}
+                  variant="outlined"
+                  InputLabelProps={{ shrink: true }}
+                  sx={{
+                    flex: 1,
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                      background: 'rgba(255, 255, 255, 0.05)',
                     },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.5)',
+                    '& .MuiInputBase-input': {
+                      color: 'white',
                     },
-                    '&.Mui-focused fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.7)',
+                    '& input[type="date"]::-webkit-calendar-picker-indicator': {
+                      filter: 'invert(1) brightness(0.7)',
                     },
-                    background: 'rgba(255, 255, 255, 0.05)',
-                  },
-                  '& .MuiFormHelperText-root': {
-                    color: '#ef4444'
-                  }
-                }}
-              />
+                  }}
+                />
+
+                <TextField
+                  fullWidth
+                  name="time"
+                  type="time"
+                  value={formData.time}
+                  onChange={handleChange}
+                  error={!!errors.data_hora}
+                  helperText={errors.data_hora}
+                  variant="outlined"
+                  InputLabelProps={{ shrink: true }}
+                  sx={{
+                    flex: 1,
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                      background: 'rgba(255, 255, 255, 0.05)',
+                    },
+                    '& .MuiInputBase-input': {
+                      color: 'white',
+                    },
+                    '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                      filter: 'invert(1) brightness(0.7)',
+                    },
+                  }}
+                />
+              </Box>
 
               <FormControl 
                 fullWidth 

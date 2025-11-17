@@ -33,7 +33,10 @@ import {
   FileDownload as FileDownloadIcon,
   AccessTime as AccessTimeIcon,
   Close as CloseIcon,
+  Clear as ClearIcon,
+  FilterList as FilterIcon,
 } from '@mui/icons-material';
+import { InputAdornment } from '@mui/material';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { apiService } from '../services/api';
@@ -291,6 +294,53 @@ const EmployeeRecordsPage: React.FC = () => {
     return tipo === 'entrada' ? 'Entrada' : 'Saída';
   };
 
+  // Função para determinar o status detalhado do registro
+  const getDetailedStatus = (record: TimeRecord) => {
+    const statuses: Array<{ text: string; color: string }> = [];
+
+    // Entrada antecipada
+    if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
+      statuses.push({
+        text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
+        color: '#3b82f6' // azul
+      });
+    }
+
+    // Atraso
+    if (record.atraso_minutos && record.atraso_minutos > 0) {
+      statuses.push({
+        text: `Atraso ${record.atraso_minutos} min`,
+        color: '#ef4444' // vermelho
+      });
+    }
+
+    // Hora extra
+    if (record.horas_extras_minutos && record.horas_extras_minutos > 0) {
+      statuses.push({
+        text: `+${record.horas_extras_minutos} min extra`,
+        color: '#10b981' // verde
+      });
+    }
+
+    // Saída antecipada
+    if (record.saida_antecipada_minutos && record.saida_antecipada_minutos > 0) {
+      statuses.push({
+        text: `Saiu ${record.saida_antecipada_minutos} min antes`,
+        color: '#f59e0b' // laranja
+      });
+    }
+
+    // Se não tem nenhum status especial
+    if (statuses.length === 0) {
+      return [{
+        text: 'Normal',
+        color: 'rgba(255, 255, 255, 0.6)' // cinza
+      }];
+    }
+
+    return statuses;
+  };
+
   const clearFilters = () => {
     setDateFrom('');
     setDateTo('');
@@ -371,95 +421,151 @@ const EmployeeRecordsPage: React.FC = () => {
           </Box>
         </motion.div>
         
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button
-            variant="outlined"
-            startIcon={<EmailIcon />}
-            onClick={() => setEmailDialogOpen(true)}
-            disabled={selectedEmployeeRecords.length === 0}
-            sx={{
-              borderColor: 'rgba(255, 255, 255, 0.3)',
-              color: 'rgba(255, 255, 255, 0.8)',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                backgroundColor: 'rgba(33, 150, 243, 0.1)',
-              }
-            }}
-          >
-            Enviar Email
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<FileDownloadIcon />}
-            onClick={exportEmployeeHistory}
-            disabled={selectedEmployeeRecords.length === 0}
-            sx={{
-              borderColor: 'rgba(255, 255, 255, 0.3)',
-              color: 'rgba(255, 255, 255, 0.8)',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-              }
-            }}
-          >
-            Exportar Excel
-          </Button>
-        </Box>
       </Box>
 
-      {/* Filtros */}
-      <RecordsFilters
-        dateFrom={dateFrom}
-        dateTo={dateTo}
-        onDateFromChange={setDateFrom}
-        onDateToChange={setDateTo}
-        onClearFilters={clearFilters}
-        nome=""
-        onNomeChange={() => {}}
-        opcoesNomes={[]}
-        onBuscarNomes={() => {}}
-        tabValue={0}
-        isIndividualView={true}
-      />
+      {/* Paper Unificado: Filtros + Tabela */}
+      <Paper sx={{
+        borderRadius: 2,
+        background: 'rgba(255, 255, 255, 0.08)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        overflow: 'hidden'
+      }}>
+        {/* Seção de Filtros */}
+        <Box sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+            <FilterIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
+            <Typography variant="subtitle1" fontWeight={600} sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
+              Filtros
+            </Typography>
+          </Box>
 
-      {/* Tabela de registros individuais */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-      >
-        <Card 
-          sx={{
-            background: 'rgba(255, 255, 255, 0.08)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-          }}
-        >
-          <CardContent>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+            {/* Data Início */}
+            <TextField
+              label="Data Início"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                  '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                },
+                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+              }}
+            />
+
+            {/* Data Fim */}
+            <TextField
+              label="Data Fim"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                  '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                },
+                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+              }}
+            />
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
+            <Button
+              variant="outlined"
+              size="medium"
+              onClick={clearFilters}
+              startIcon={<ClearIcon />}
+              sx={{
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                color: 'rgba(255, 255, 255, 0.8)',
+                '&:hover': {
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                }
+              }}
+            >
+              Limpar Filtros
+            </Button>
+            <Button
+              variant="outlined"
+              size="medium"
+              startIcon={<EmailIcon />}
+              onClick={() => setEmailDialogOpen(true)}
+              disabled={selectedEmployeeRecords.length === 0}
+              sx={{
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                color: 'rgba(255, 255, 255, 0.8)',
+                '&:hover': {
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                },
+                '&.Mui-disabled': {
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.3)',
+                }
+              }}
+            >
+              Enviar Email
+            </Button>
+            <Button
+              variant="outlined"
+              size="medium"
+              startIcon={<FileDownloadIcon />}
+              onClick={exportEmployeeHistory}
+              disabled={selectedEmployeeRecords.length === 0}
+              sx={{
+                ml: 'auto',
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                color: 'rgba(255, 255, 255, 0.8)',
+                '&:hover': {
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                },
+                '&.Mui-disabled': {
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.3)',
+                }
+              }}
+            >
+              Exportar Excel
+            </Button>
+          </Box>
+        </Box>
+
+        {/* Linha divisória */}
+        <Box sx={{ 
+          height: '1px', 
+          background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)',
+          my: 0
+        }} />
+
+        {/* Seção da Tabela */}
+        <Box sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography 
               variant="h6" 
               sx={{ 
                 fontWeight: 600, 
-                mb: 3,
-                color: 'white',
+                color: 'rgba(255, 255, 255, 0.9)',
                 fontSize: '18px'
               }}
             >
               Histórico de Registros ({selectedEmployeeRecords.length})
             </Typography>
-            
-            <TableContainer 
-              component={Paper} 
-              variant="outlined"
-              sx={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                backdropFilter: 'blur(10px)',
-                borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
+          </Box>
+
+          <TableContainer sx={{ background: 'transparent' }}>
               <Table>
                 <TableHead>
                   <TableRow>
@@ -471,6 +577,9 @@ const EmployeeRecordsPage: React.FC = () => {
                     </TableCell>
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Tipo
+                    </TableCell>
+                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                      Status
                     </TableCell>
                     <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Ações
@@ -500,6 +609,23 @@ const EmployeeRecordsPage: React.FC = () => {
                               size="small"
                             />
                           </TableCell>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              {getDetailedStatus(record).map((status, idx) => (
+                                <Chip
+                                  key={idx}
+                                  label={status.text}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: 'transparent',
+                                    border: `1px solid ${status.color}`,
+                                    color: status.color,
+                                    fontSize: '0.75rem',
+                                  }}
+                                />
+                              ))}
+                            </Box>
+                          </TableCell>
                           <TableCell align="center">
                             <IconButton
                               onClick={() => {
@@ -525,7 +651,7 @@ const EmployeeRecordsPage: React.FC = () => {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} align="center">
+                      <TableCell colSpan={5} align="center">
                         <Box sx={{ py: 8 }}>
                           <AccessTimeIcon sx={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: '4rem', mb: 2 }} />
                           <Typography variant="h6" sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 1 }}>
@@ -541,9 +667,8 @@ const EmployeeRecordsPage: React.FC = () => {
                 </TableBody>
               </Table>
             </TableContainer>
-          </CardContent>
-        </Card>
-      </motion.div>
+        </Box>
+      </Paper>
 
       {/* Delete Confirmation Dialog */}
       <Dialog
@@ -559,10 +684,8 @@ const EmployeeRecordsPage: React.FC = () => {
           }
         }}
       >
-        <DialogTitle>
-          <Typography variant="h6" sx={{ fontWeight: 600, color: 'white' }}>
-            Confirmar Exclusão
-          </Typography>
+        <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
+          Confirmar Exclusão
         </DialogTitle>
         <DialogContent>
           <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
@@ -617,11 +740,11 @@ const EmployeeRecordsPage: React.FC = () => {
           }
         }}
       >
-        <DialogTitle>
+        <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, color: 'white' }}>
+            <Box component="span">
               Enviar Relatório por Email
-            </Typography>
+            </Box>
             <IconButton
               onClick={() => !emailEnviando && setEmailDialogOpen(false)}
               disabled={emailEnviando}

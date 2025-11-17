@@ -9,11 +9,35 @@ export interface Employee {
   id: string;
   nome: string;
   cargo: string;
+  email?: string;
   foto_url: string;
   face_id: string;
   empresa_nome: string;
-  empresa_id: string;
+  empresa_id: string;  // mantém compatibilidade
+  company_id?: string; // novo schema DynamoDB
   data_cadastro: string;
+  horario_entrada?: string;
+  horario_saida?: string;
+}
+
+export interface HorarioPreset {
+  id: string;
+  empresa_id: string;
+  nome: string;
+  horario_entrada: string;
+  horario_saida: string;
+  data_criacao: string;
+}
+
+export interface CompanySettings {
+  empresa_id: string;
+  tolerancia_atraso: number;
+  hora_extra_entrada_antecipada: boolean;
+  arredondamento_horas_extras: '5' | '10' | '15' | 'exato';
+  intervalo_automatico: boolean;
+  duracao_intervalo: number;
+  compensar_saldo_horas: boolean;
+  data_atualizacao?: string;
 }
 
 export interface TimeRecord {
@@ -21,9 +45,17 @@ export interface TimeRecord {
   funcionario_id: string;
   data_hora: string;
   tipo: 'entrada' | 'saída';
-  empresa_id: string;
+  empresa_id: string;   // mantém compatibilidade
+  company_id?: string;  // novo schema DynamoDB
   empresa_nome: string;
   funcionario_nome?: string;
+  horas_extras_minutos?: number;
+  atraso_minutos?: number;
+  entrada_antecipada_minutos?: number;
+  saida_antecipada_minutos?: number;
+  horas_trabalhadas_minutos?: number;
+  horas_extras_formatado?: string;
+  atraso_formatado?: string;
 }
 
 export interface LoginRequest {

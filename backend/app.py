@@ -1,5 +1,8 @@
 from flask import Flask, jsonify
+from flask_cors import CORS
 from routes import routes
+from routes_v2 import routes_v2
+from routes_daily import daily_routes
 import os
 import os
 import json
@@ -19,8 +22,29 @@ app = Flask(__name__)
 # Configurações
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback-secret-key-for-development')
 
+# Enable CORS globally for all routes
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "http://localhost:3000", 
+            "http://localhost:3001",  # Vite porta alternativa
+            "http://localhost:3002",  # Vite porta alternativa 2
+            "http://localhost:5173", 
+            "http://127.0.0.1:5173"
+        ],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": False,
+        "expose_headers": ["Content-Type", "Authorization"]
+    }
+})
+
 # Registra as rotas do blueprint com prefixo /api
 app.register_blueprint(routes, url_prefix='/api')
+# Registra rotas V2 (nova arquitetura)
+app.register_blueprint(routes_v2)
+# Registra rotas de registros diários
+app.register_blueprint(daily_routes)
 
 # Debug: listar todas as rotas registradas
 @app.route('/debug/routes', methods=['GET'])

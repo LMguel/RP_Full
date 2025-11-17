@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PageLayout from '../sections/PageLayout';
 import {
   Box,
@@ -15,38 +15,459 @@ import {
   IconButton,
   Alert,
   CircularProgress,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  InputAdornment,
 } from '@mui/material';
 import {
   Person as PersonIcon,
   Business as BusinessIcon,
   Security as SecurityIcon,
-  Palette as PaletteIcon,
   PhotoCamera as PhotoCameraIcon,
   Save as SaveIcon,
+  Timer as TimerIcon,
+  AccessTime as AccessTimeIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { apiService } from '../services/api';
+import { CompanySettings } from '../types';
+
+// Componente para configurações de ponto e horas extras
+const TimeTrackingSettings: React.FC = () => {
+  const [settings, setSettings] = useState<CompanySettings>({
+    empresa_id: '',
+    tolerancia_atraso: 5,
+    hora_extra_entrada_antecipada: false,
+    arredondamento_horas_extras: '5',
+    intervalo_automatico: false,
+    duracao_intervalo: 60, // minutos
+    compensar_saldo_horas: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+    const loadSettings = async () => {
+      try {
+        setLoading(true);
+      const response = await apiService.get('/api/configuracoes');      // Garantir que todos os campos tenham valores padrão
+      const defaultSettings: CompanySettings = {
+        empresa_id: '',
+        tolerancia_atraso: 5,
+        hora_extra_entrada_antecipada: false,
+        arredondamento_horas_extras: '5',
+        intervalo_automatico: false,
+        duracao_intervalo: 60,
+        compensar_saldo_horas: false,
+      };
+      
+      // Mesclar resposta da API com valores padrão e garantir tipos corretos
+      const mergedSettings = { 
+        ...defaultSettings, 
+        ...response,
+        tolerancia_atraso: Number(response.tolerancia_atraso) || defaultSettings.tolerancia_atraso,
+        hora_extra_entrada_antecipada: Boolean(response.hora_extra_entrada_antecipada),
+        intervalo_automatico: Boolean(response.intervalo_automatico),
+        duracao_intervalo: Number(response.duracao_intervalo) || defaultSettings.duracao_intervalo,
+        compensar_saldo_horas: Boolean(response.compensar_saldo_horas),
+      };
+      
+      setSettings(mergedSettings);
+    } catch (err: any) {
+      console.error('Error loading settings:', err);
+      toast.error('Erro ao carregar configurações de ponto');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+
+      // Garantir que todos os valores sejam do tipo correto
+      const dataToSend = {
+        tolerancia_atraso: Number(settings.tolerancia_atraso) || 0,
+        hora_extra_entrada_antecipada: Boolean(settings.hora_extra_entrada_antecipada),
+        arredondamento_horas_extras: settings.arredondamento_horas_extras,
+        intervalo_automatico: Boolean(settings.intervalo_automatico),
+        duracao_intervalo: Number(settings.duracao_intervalo) || 60,
+        compensar_saldo_horas: Boolean(settings.compensar_saldo_horas),
+      };
+
+      // Validations...
+      
+      await apiService.put('/api/configuracoes', dataToSend);
+      
+      toast.success('Configurações salvas com sucesso!');
+    } catch (err: any) {
+      console.error('Error saving settings:', err);
+      toast.error('Erro ao salvar configurações');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card 
+        sx={{
+          background: 'rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(20px)',
+          borderRadius: '16px',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }}
+      >
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+            <CircularProgress />
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card 
+      sx={{
+        background: 'rgba(255, 255, 255, 0.08)',
+        backdropFilter: 'blur(20px)',
+        borderRadius: '16px',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+      }}
+    >
+      <CardContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <TimerIcon sx={{ color: '#3b82f6', fontSize: '24px' }} />
+          <Box>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                fontWeight: 600,
+                color: 'white',
+                fontSize: '18px'
+              }}
+            >
+              Configurações de Ponto e Horas Extras
+            </Typography>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontSize: '14px'
+              }}
+            >
+              Personalize as regras de registro de ponto da empresa
+            </Typography>
+          </Box>
+        </Box>
+
+        <Grid container spacing={3}>
+          {/* Tolerância de Atraso */}
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <AccessTimeIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
+                >
+                  Tolerância de Atraso
+                </Typography>
+              </Box>
+              <Typography 
+                variant="caption" 
+                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
+              >
+                Minutos de atraso não contabilizados
+              </Typography>
+              <TextField
+                type="number"
+                value={settings.tolerancia_atraso}
+                onChange={(e) => setSettings({ ...settings, tolerancia_atraso: parseInt(e.target.value) || 0 })}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">min</InputAdornment>,
+                  inputProps: { min: 0, max: 60 },
+                }}
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.2)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#3b82f6',
+                    },
+                  },
+                }}
+              />
+            </Box>
+          </Grid>
+
+          {/* Hora Extra por Entrada Antecipada */}
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <TimerIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
+                >
+                  Entrada Antecipada
+                </Typography>
+              </Box>
+              <Typography 
+                variant="caption" 
+                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
+              >
+                Conta como hora extra se chegar antes
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={settings.hora_extra_entrada_antecipada}
+                    onChange={(e) => setSettings({ ...settings, hora_extra_entrada_antecipada: e.target.checked })}
+                    sx={{
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: '#3b82f6',
+                      },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                        backgroundColor: '#3b82f6',
+                      },
+                    }}
+                  />
+                }
+                label={
+                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                    {settings.hora_extra_entrada_antecipada ? 'Ativado' : 'Desativado'}
+                  </Typography>
+                }
+              />
+            </Box>
+          </Grid>
+
+          {/* Arredondamento */}
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <CheckCircleIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
+                >
+                  Arredondamento
+                </Typography>
+              </Box>
+              <Typography 
+                variant="caption" 
+                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
+              >
+                Como arredondar horas extras
+              </Typography>
+              <FormControl
+                fullWidth
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.2)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#3b82f6',
+                    },
+                  },
+                  '& .MuiSvgIcon-root': {
+                    color: 'rgba(255, 255, 255, 0.6)',
+                  },
+                }}
+              >
+                <Select
+                  value={settings.arredondamento_horas_extras}
+                  onChange={(e) => setSettings({ 
+                    ...settings, 
+                    arredondamento_horas_extras: e.target.value as '5' | '10' | '15' | 'exato' 
+                  })}
+                >
+                  <MenuItem value="exato">Exato</MenuItem>
+                  <MenuItem value="5">5 min</MenuItem>
+                  <MenuItem value="10">10 min</MenuItem>
+                  <MenuItem value="15">15 min</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+          </Grid>
+
+          {/* Intervalo Automático */}
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <TimerIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
+                >
+                  Intervalo Automático
+                </Typography>
+              </Box>
+              <Typography 
+                variant="caption" 
+                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
+              >
+                Descontar automaticamente hora do almoço
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.intervalo_automatico}
+                      onChange={(e) => setSettings({ ...settings, intervalo_automatico: e.target.checked })}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': {
+                          color: '#3b82f6',
+                        },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                          backgroundColor: '#3b82f6',
+                        },
+                      }}
+                    />
+                  }
+                  label={
+                    <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                      {settings.intervalo_automatico ? 'Ativado' : 'Desativado'}
+                    </Typography>
+                  }
+                />
+                {settings.intervalo_automatico && (
+                  <TextField
+                    type="number"
+                    label="Duração do Intervalo"
+                    value={settings.duracao_intervalo === 0 ? '' : settings.duracao_intervalo}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const numValue = value === '' ? 0 : parseInt(value) || 0;
+                      setSettings({ ...settings, duracao_intervalo: Math.max(0, numValue) });
+                    }}
+                    onBlur={(e) => {
+                      // Quando sair do campo, se estiver vazio, define como 0
+                      if (e.target.value === '') {
+                        setSettings({ ...settings, duracao_intervalo: 0 });
+                      }
+                    }}
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">min</InputAdornment>,
+                      inputProps: { min: 0, max: 480 },
+                    }}
+                    fullWidth
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        '& fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.2)',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.3)',
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: '#3b82f6',
+                        },
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: 'rgba(255, 255, 255, 0.7)',
+                      },
+                    }}
+                  />
+                )}
+              </Box>
+            </Box>
+          </Grid>
+
+          {/* Compensar Saldo de Horas */}
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <CheckCircleIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
+                >
+                  Compensar Saldo de Horas
+                </Typography>
+              </Box>
+              <Typography 
+                variant="caption" 
+                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
+              >
+                Atrasos são compensados com horas extras
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={settings.compensar_saldo_horas}
+                    onChange={(e) => setSettings({ ...settings, compensar_saldo_horas: e.target.checked })}
+                    sx={{
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: '#10b981',
+                      },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                        backgroundColor: '#10b981',
+                      },
+                    }}
+                  />
+                }
+                label={
+                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                    {settings.compensar_saldo_horas ? 'Ativado' : 'Desativado'}
+                  </Typography>
+                }
+              />
+            </Box>
+          </Grid>
+        </Grid>
+
+        <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)', my: 3 }} />
+
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="contained"
+            startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
+            onClick={handleSave}
+            disabled={saving}
+            sx={{
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+              },
+            }}
+          >
+            {saving ? 'Salvando...' : 'Salvar Configurações'}
+          </Button>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
 
 const SettingsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   
-  // User Profile
-  const [profileData, setProfileData] = useState({
-    usuario_id: user?.usuario_id || '',
-    email: user?.email || '',
-  });
-
-  // Company Settings
-  const [companyData, setCompanyData] = useState({
-    empresa_nome: user?.empresa_nome || '',
-    cnpj: '',
-    endereco: '',
-    telefone: '',
-  });
-
   // Security Settings
   const [securityData, setSecurityData] = useState({
     senha_atual: '',
@@ -54,54 +475,12 @@ const SettingsPage: React.FC = () => {
     confirmar_senha: '',
   });
 
-  const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setProfileData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
-
-  const handleCompanyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setCompanyData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
-
   const handleSecurityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setSecurityData(prev => ({
       ...prev,
       [name]: value,
     }));
-  };
-
-  const handleSaveProfile = async () => {
-    try {
-      setLoading(true);
-      // API call to update profile
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      toast.success('Perfil atualizado com sucesso!');
-    } catch (error) {
-      toast.error('Erro ao atualizar perfil');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveCompany = async () => {
-    try {
-      setLoading(true);
-      // API call to update company
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      toast.success('Dados da empresa atualizados com sucesso!');
-    } catch (error) {
-      toast.error('Erro ao atualizar dados da empresa');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleChangePassword = async () => {
@@ -134,29 +513,6 @@ const SettingsPage: React.FC = () => {
 
   const handleLogout = () => {
     logout();
-  };
-
-  // Estilo para campos de texto
-  const textFieldStyles = {
-    '& .MuiOutlinedInput-root': {
-      color: 'rgba(255, 255, 255, 0.9)',
-      '& fieldset': {
-        borderColor: 'rgba(255, 255, 255, 0.3)',
-      },
-      '&:hover fieldset': {
-        borderColor: 'rgba(255, 255, 255, 0.5)',
-      },
-      '&.Mui-focused fieldset': {
-        borderColor: 'rgba(255, 255, 255, 0.7)',
-      },
-      backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    },
-    '& .MuiInputLabel-root': {
-      color: 'rgba(255, 255, 255, 0.7)',
-    },
-    '& .MuiFormHelperText-root': {
-      color: 'rgba(255, 255, 255, 0.6)',
-    },
   };
 
   return (
@@ -192,466 +548,14 @@ const SettingsPage: React.FC = () => {
       </motion.div>
 
       <Grid container spacing={3}>
-        {/* Profile Settings */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        {/* Time Tracking Settings - TOP */}
+        <Grid size={{ xs: 12 }}>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <Card 
-              sx={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: '16px',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                  <PersonIcon sx={{ color: '#3b82f6', fontSize: '24px' }} />
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      fontWeight: 600,
-                      color: 'white',
-                      fontSize: '18px'
-                    }}
-                  >
-                    Perfil do Usuário
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-                  <Avatar
-                    sx={{ 
-                      width: 80, 
-                      height: 80, 
-                      mb: 2,
-                      border: '4px solid rgba(255, 255, 255, 0.2)'
-                    }}
-                  >
-                    <PersonIcon sx={{ fontSize: 40, color: 'rgba(255, 255, 255, 0.8)' }} />
-                  </Avatar>
-                  <input
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    id="profile-photo-upload"
-                    type="file"
-                  />
-                  <label htmlFor="profile-photo-upload">
-                    <Button
-                      variant="outlined"
-                      component="span"
-                      startIcon={<PhotoCameraIcon />}
-                      size="small"
-                      sx={{
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                        color: 'rgba(255, 255, 255, 0.8)',
-                        '&:hover': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        }
-                      }}
-                    >
-                      Alterar Foto
-                    </Button>
-                  </label>
-                </Box>
-
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <TextField
-                    fullWidth
-                    label="ID do Usuário"
-                    name="usuario_id"
-                    value={profileData.usuario_id}
-                    onChange={handleProfileChange}
-                    variant="outlined"
-                    disabled
-                    helperText="O ID do usuário não pode ser alterado"
-                    sx={textFieldStyles}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="Email"
-                    name="email"
-                    type="email"
-                    value={profileData.email}
-                    onChange={handleProfileChange}
-                    variant="outlined"
-                    sx={textFieldStyles}
-                  />
-                </Box>
-
-                <Box sx={{ mt: 3 }}>
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    onClick={handleSaveProfile}
-                    disabled={loading}
-                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-                    sx={{
-                      background: '#3b82f6',
-                      '&:hover': {
-                        background: '#2563eb',
-                      },
-                      py: 1.5,
-                      borderRadius: '8px',
-                      fontWeight: 600,
-                      textTransform: 'none',
-                    }}
-                  >
-                    {loading ? 'Salvando...' : 'Salvar Perfil'}
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
-
-        {/* Company Settings */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <Card 
-              sx={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: '16px',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                  <BusinessIcon sx={{ color: '#10b981', fontSize: '24px' }} />
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      fontWeight: 600,
-                      color: 'white',
-                      fontSize: '18px'
-                    }}
-                  >
-                    Dados da Empresa
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <TextField
-                    fullWidth
-                    label="Nome da Empresa"
-                    name="empresa_nome"
-                    value={companyData.empresa_nome}
-                    onChange={handleCompanyChange}
-                    variant="outlined"
-                    sx={textFieldStyles}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="CNPJ"
-                    name="cnpj"
-                    value={companyData.cnpj}
-                    onChange={handleCompanyChange}
-                    variant="outlined"
-                    placeholder="00.000.000/0000-00"
-                    sx={textFieldStyles}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="Endereço"
-                    name="endereco"
-                    value={companyData.endereco}
-                    onChange={handleCompanyChange}
-                    variant="outlined"
-                    multiline
-                    rows={2}
-                    sx={textFieldStyles}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="Telefone"
-                    name="telefone"
-                    value={companyData.telefone}
-                    onChange={handleCompanyChange}
-                    variant="outlined"
-                    placeholder="(00) 00000-0000"
-                    sx={textFieldStyles}
-                  />
-                </Box>
-
-                <Box sx={{ mt: 3 }}>
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    onClick={handleSaveCompany}
-                    disabled={loading}
-                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-                    sx={{
-                      background: '#10b981',
-                      '&:hover': {
-                        background: '#059669',
-                      },
-                      py: 1.5,
-                      borderRadius: '8px',
-                      fontWeight: 600,
-                      textTransform: 'none',
-                    }}
-                  >
-                    {loading ? 'Salvando...' : 'Salvar Empresa'}
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
-
-        {/* Security Settings */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-          >
-            <Card 
-              sx={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: '16px',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                  <SecurityIcon sx={{ color: '#ef4444', fontSize: '24px' }} />
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      fontWeight: 600,
-                      color: 'white',
-                      fontSize: '18px'
-                    }}
-                  >
-                    Segurança
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <TextField
-                    fullWidth
-                    label="Senha Atual"
-                    name="senha_atual"
-                    type="password"
-                    value={securityData.senha_atual}
-                    onChange={handleSecurityChange}
-                    variant="outlined"
-                    sx={textFieldStyles}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="Nova Senha"
-                    name="nova_senha"
-                    type="password"
-                    value={securityData.nova_senha}
-                    onChange={handleSecurityChange}
-                    variant="outlined"
-                    sx={textFieldStyles}
-                  />
-
-                  <TextField
-                    fullWidth
-                    label="Confirmar Nova Senha"
-                    name="confirmar_senha"
-                    type="password"
-                    value={securityData.confirmar_senha}
-                    onChange={handleSecurityChange}
-                    variant="outlined"
-                    sx={textFieldStyles}
-                  />
-                </Box>
-
-                <Box sx={{ mt: 3 }}>
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    onClick={handleChangePassword}
-                    disabled={loading}
-                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SecurityIcon />}
-                    sx={{
-                      background: '#ef4444',
-                      '&:hover': {
-                        background: '#dc2626',
-                      },
-                      py: 1.5,
-                      borderRadius: '8px',
-                      fontWeight: 600,
-                      textTransform: 'none',
-                    }}
-                  >
-                    {loading ? 'Alterando...' : 'Alterar Senha'}
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
-
-        {/* Appearance Settings */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-          >
-            <Card 
-              sx={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: '16px',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                  <PaletteIcon sx={{ color: '#8b5cf6', fontSize: '24px' }} />
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      fontWeight: 600,
-                      color: 'white',
-                      fontSize: '18px'
-                    }}
-                  >
-                    Aparência
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={darkMode}
-                        onChange={(e) => setDarkMode(e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={
-                      <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                        Modo Escuro
-                      </Typography>
-                    }
-                  />
-
-                  <Alert 
-                    severity="info" 
-                    sx={{
-                      mt: 2,
-                      background: 'rgba(59, 130, 246, 0.1)',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      border: '1px solid rgba(59, 130, 246, 0.3)',
-                      '& .MuiAlert-icon': {
-                        color: '#3b82f6',
-                      }
-                    }}
-                  >
-                    <Typography variant="body2">
-                      O modo escuro será implementado em uma versão futura.
-                    </Typography>
-                  </Alert>
-                </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Grid>
-
-        {/* Danger Zone */}
-        <Grid size={{ xs: 12 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-          >
-            <Card 
-              sx={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: '16px',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-              }}
-            >
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      fontWeight: 600,
-                      color: '#ef4444',
-                      fontSize: '18px'
-                    }}
-                  >
-                    Zona de Perigo
-                  </Typography>
-                </Box>
-
-                <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)', mb: 3 }} />
-
-                <Box sx={{ 
-                  display: 'flex', 
-                  flexDirection: { xs: 'column', sm: 'row' },
-                  alignItems: { sm: 'center' },
-                  justifyContent: 'space-between',
-                  gap: 2
-                }}>
-                  <Box>
-                    <Typography 
-                      variant="subtitle1" 
-                      sx={{ 
-                        fontWeight: 500,
-                        color: 'white',
-                        mb: 0.5
-                      }}
-                    >
-                      Sair da Conta
-                    </Typography>
-                    <Typography 
-                      variant="body2" 
-                      sx={{ 
-                        color: 'rgba(255, 255, 255, 0.6)'
-                      }}
-                    >
-                      Faça logout da sua conta atual
-                    </Typography>
-                  </Box>
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={handleLogout}
-                    sx={{
-                      borderColor: '#ef4444',
-                      color: '#ef4444',
-                      '&:hover': {
-                        borderColor: '#dc2626',
-                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                      }
-                    }}
-                  >
-                    Sair
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
+            <TimeTrackingSettings />
           </motion.div>
         </Grid>
       </Grid>

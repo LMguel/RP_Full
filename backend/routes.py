@@ -1,28 +1,54 @@
 from flask import Blueprint, request, jsonify
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import uuid
 import tempfile
 import os
 import boto3
 from aws_utils import (
-    tabela_funcionarios, tabela_registros, enviar_s3, reconhecer_funcionario, rekognition, BUCKET, COLLECTION, REGIAO, tabela_usuarioempresa
+    tabela_funcionarios, tabela_registros, enviar_s3, reconhecer_funcionario, rekognition, BUCKET, COLLECTION, REGIAO, tabela_usuarioempresa, tabela_configuracoes
 )
 from functools import wraps
 from auth import verify_token
 from werkzeug.security import check_password_hash
 import jwt
 from flask import current_app
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Attr, Key
+from overtime_calculator import calculate_overtime, format_minutes_to_time
+from geolocation_utils import validar_localizacao, formatar_distancia
+import unicodedata
+import re
 
 s3 = boto3.client('s3', region_name=REGIAO)
 
 routes = Blueprint('routes', __name__)
 
+# Função para normalizar string removendo acentos e caracteres especiais
+def normalizar_string(texto):
+    """
+    Remove acentos e caracteres especiais, mantendo apenas letras, números, underscore e hífen.
+    Usado para criar IDs compatíveis com AWS Rekognition.
+    """
+    if not texto:
+        return texto
+    # Normalizar unicode (decompor caracteres acentuados)
+    nfkd = unicodedata.normalize('NFKD', texto)
+    # Remover acentos
+    sem_acento = ''.join([c for c in nfkd if not unicodedata.combining(c)])
+    # Manter apenas caracteres permitidos: a-zA-Z0-9_.-
+    limpo = re.sub(r'[^a-zA-Z0-9_.\-]', '_', sem_acento)
+    return limpo
+
 # Enable CORS for all routes in this blueprint
 CORS(routes, resources={
     r"/*": {
-        "origins": ["http://localhost:3000", "https://localhost:3000"],  # Add your frontend URLs
+        "origins": [
+            "http://localhost:3000", 
+            "https://localhost:3000",
+            "http://localhost:5173",  # Vite dev server
+            "http://127.0.0.1:5173"   # Vite alternative
+        ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }
@@ -31,6 +57,11 @@ CORS(routes, resources={
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # OPTIONS requests pass through without token validation (CORS preflight)
+        if request.method == 'OPTIONS':
+            # Call function with None payload for OPTIONS
+            return ('', 200)
+        
         token = None
         # O token pode vir no header Authorization: Bearer <token>
         if 'Authorization' in request.headers:
@@ -46,123 +77,413 @@ def token_required(f):
     return decorated
 
 @routes.route('/', methods=['GET', 'OPTIONS'])
-@cross_origin()
 def health():
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-        return response
     return 'OK', 200
 
 @routes.route('/registros/<registro_id>', methods=['DELETE', 'OPTIONS'])
-@cross_origin()
 def deletar_registro(registro_id):
+    # Tratar OPTIONS primeiro (CORS preflight)
     if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'DELETE,OPTIONS')
-        return response
-        
+        return '', 200
+    
     try:
-        # Buscar o registro pelo registro_id (scan, pois não é chave primária)
-        response = tabela_registros.scan(
-            FilterExpression=Attr('registro_id').eq(registro_id)
-        )
-        items = response.get('Items', [])
-        if not items:
+        # O registro_id vem do frontend, mas agora precisamos do company_id também
+        # Tentar extrair do token
+        token = None
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+        
+        if not token:
+            return jsonify({'error': 'Token ausente'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Token inválido'}), 401
+        
+        company_id = payload.get('company_id')
+        
+        if not company_id:
+            return jsonify({'error': 'Company ID não encontrado no token'}), 400
+        
+        # O registro_id pode vir em diferentes formatos:
+        # Formato novo: "company_id_employee_id#date_time"
+        # Formato antigo: "company_id_employee_id_timestamp"
+        print(f"[DELETE REGISTRO] Tentando deletar registro: {registro_id}")
+        
+        if '_' not in registro_id:
+            print(f"[DELETE REGISTRO] Formato de registro_id inválido: {registro_id}")
+            return jsonify({'error': 'Formato de registro_id inválido'}), 400
+        
+        # Tentar extrair company_id (primeiro segmento UUID)
+        # Formato UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        parts = registro_id.split('_')
+        if len(parts) < 2:
+            print(f"[DELETE REGISTRO] Não foi possível extrair company_id de: {registro_id}")
+            return jsonify({'error': 'Formato de registro_id inválido'}), 400
+        
+        # O company_id é sempre o primeiro elemento (UUID com hífens)
+        extracted_company_id = parts[0]
+        
+        # O resto é employee_id e timestamp
+        # Pode ser: "miguel#2025-11-10 14:30:00" OU "miguel_205890"
+        remaining = '_'.join(parts[1:])
+        
+        # Se não tem #, precisamos buscar o registro para descobrir o formato correto
+        if '#' not in remaining:
+            print(f"[DELETE REGISTRO] Formato sem # detectado, remaining: {remaining}")
+            # O remaining já é o employee_id completo: luis_miguel_b9af22
+            # No banco está como: luis_miguel_b9af22#2025-11-12 07:30:00
+            
+            try:
+                # Buscar registros que começam com este employee_id
+                response = tabela_registros.query(
+                    KeyConditionExpression=Key('company_id').eq(company_id) & Key('employee_id#date_time').begins_with(f"{remaining}#")
+                )
+                items = response.get('Items', [])
+                print(f"[DELETE REGISTRO] Encontrados {len(items)} registros começando com {remaining}#")
+                
+                if not items:
+                    # Debug: mostrar exemplos de registros
+                    print(f"[DELETE REGISTRO] Buscando todos os registros da empresa para debug...")
+                    all_response = tabela_registros.query(
+                        KeyConditionExpression=Key('company_id').eq(company_id),
+                        Limit=10
+                    )
+                    all_items = all_response.get('Items', [])
+                    print(f"[DELETE REGISTRO] Exemplos de employee_id#date_time na empresa:")
+                    for i, item in enumerate(all_items[:5], 1):
+                        print(f"  {i}. {item.get('employee_id#date_time', 'N/A')}")
+                    
+                    print(f"[DELETE REGISTRO] ❌ Nenhum registro encontrado começando com {remaining}#")
+                    return jsonify({'error': 'Registro não encontrado'}), 404
+                
+                # Se encontrou apenas 1, usar esse
+                if len(items) == 1:
+                    composite_key = items[0].get('employee_id#date_time', '')
+                    print(f"[DELETE REGISTRO] ✓ Único registro encontrado: {composite_key}")
+                else:
+                    # Se tem vários, pegar o primeiro
+                    composite_key = items[0].get('employee_id#date_time', '')
+                    print(f"[DELETE REGISTRO] ⚠️ Múltiplos registros encontrados, usando o primeiro: {composite_key}")
+                
+            except Exception as e:
+                print(f"[DELETE REGISTRO] Erro ao buscar registros: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': f'Registro não encontrado: {str(e)}'}), 404
+        else:
+            composite_key = remaining  # employee_id#date_time
+        
+        # Validar se o company_id extraído corresponde ao do token
+        if extracted_company_id != company_id:
+            print(f"[DELETE REGISTRO] Company ID não corresponde: {extracted_company_id} != {company_id}")
+            return jsonify({'error': 'Acesso negado'}), 403
+        
+        print(f"[DELETE REGISTRO] Deletando com chave: company_id={company_id}, employee_id#date_time={composite_key}")
+        
+        # Verificar se o registro existe antes de deletar
+        try:
+            verify_response = tabela_registros.get_item(Key={
+                'company_id': company_id,
+                'employee_id#date_time': composite_key
+            })
+            if 'Item' not in verify_response:
+                print(f"[DELETE REGISTRO] ❌ Registro não encontrado no DynamoDB")
+                return jsonify({'error': 'Registro não encontrado'}), 404
+            print(f"[DELETE REGISTRO] Registro encontrado: {verify_response['Item'].get('tipo', 'N/A')}")
+        except Exception as e:
+            print(f"[DELETE REGISTRO] Erro ao verificar registro: {str(e)}")
             return jsonify({'error': 'Registro não encontrado'}), 404
-        registro = items[0]
-        # Deletar usando a chave composta correta
+        
+        # Deletar o registro
         tabela_registros.delete_item(Key={
-            'funcionario_id': registro['funcionario_id'],
-            'data_hora': registro['data_hora']
+            'company_id': company_id,
+            'employee_id#date_time': composite_key
         })
+        
+        # Verificar se foi realmente deletado
+        verify_after = tabela_registros.get_item(Key={
+            'company_id': company_id,
+            'employee_id#date_time': composite_key
+        })
+        
+        if 'Item' in verify_after:
+            print(f"[DELETE REGISTRO] ⚠️ AVISO: Registro ainda existe após delete_item!")
+        else:
+            print(f"[DELETE REGISTRO] ✅ Confirmado: Registro deletado com sucesso!")
+        
         return jsonify({'message': 'Registro deletado com sucesso!'}), 200
+        
     except Exception as e:
-        print(f"Erro ao deletar registro: {str(e)}")
-        return jsonify({'error': 'Erro ao deletar registro'}), 500
+        print(f"[DELETE REGISTRO] ❌ Erro ao deletar registro: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Erro ao deletar registro: {str(e)}'}), 500
 
 @routes.route('/registrar_ponto', methods=['POST', 'OPTIONS'])
-@cross_origin()
 def registrar_ponto():
+    # OPTIONS é tratado automaticamente pelo Flask-CORS
     if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        return response
-        
+        return '', 200
+    
     try:
+        # Verificar se é modo preview (não registra, apenas reconhece)
+        preview_mode = request.form.get('preview', 'false').lower() == 'true'
+        
+        print(f"[REGISTRO] Iniciando {'preview' if preview_mode else 'registro de ponto'}...")
+        print(f"[REGISTRO] Content-Type: {request.content_type}")
+        print(f"[REGISTRO] Files: {list(request.files.keys())}")
+        
         if 'foto' not in request.files:
+            print("[REGISTRO] ❌ Nenhuma foto enviada")
             return jsonify({
                 'success': False,
                 'message': 'Nenhuma foto enviada'
             }), 400
 
         foto = request.files['foto']
+        print(f"[REGISTRO] Foto recebida: {foto.filename}, tipo: {foto.content_type}")
+        
         temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uuid.uuid4().hex}.jpg")
         foto.save(temp_path)
+        print(f"[REGISTRO] Foto salva temporariamente em: {temp_path}")
+        
+        # Verificar tamanho do arquivo
+        file_size = os.path.getsize(temp_path)
+        print(f"[REGISTRO] Tamanho do arquivo: {file_size} bytes")
 
-        print("[DEBUG] Tentando reconhecer funcionário...")
-        funcionario_id = reconhecer_funcionario(temp_path)
+        print("[REGISTRO] Tentando reconhecer funcionário...")
+        reconhecimento_result = reconhecer_funcionario(temp_path)
         os.remove(temp_path)
-        print(f"[DEBUG] Resultado reconhecimento: {funcionario_id if funcionario_id else 'Não reconhecido'}")
+        print(f"[REGISTRO] Resultado reconhecimento: {reconhecimento_result if reconhecimento_result else 'Não reconhecido'}")
 
-        if not funcionario_id:
+        if not reconhecimento_result:
             return jsonify({
                 'success': False,
                 'message': 'Funcionário não reconhecido'
             }), 404
 
-        # Buscar dados do funcionário
-        response = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-        funcionario = response.get('Item')
+        # Se ExternalImageId foi indexado com prefixo company_id_employee_id, explodimos
+        # para obter company_id e funcionario_id (evita scans globais).
+        funcionario_id = reconhecimento_result
+        empresa_id_from_face = None
+        # Tentar split por _ mas só se tiver formato UUID_nome_hash
+        if isinstance(reconhecimento_result, str) and '_' in reconhecimento_result:
+            # ExternalImageId: empresa_id_funcionario_id
+            # Formato: uuid_nome_hash (ex: 82094db4-8df5-44bb-aa3e-b75392181a53_miguel_785262)
+            parts = reconhecimento_result.split('_', 1)
+            if len(parts) == 2 and '-' in parts[0]:  # Verifica se primeira parte é UUID
+                empresa_id_from_face, funcionario_id = parts
 
+        funcionario = None
+        # Tabela Employees usa composite key (company_id + id)
+        if empresa_id_from_face:
+            # Temos company_id do ExternalImageId
+            try:
+                response = tabela_funcionarios.get_item(Key={
+                    'company_id': empresa_id_from_face,
+                    'id': funcionario_id
+                })
+                funcionario = response.get('Item')
+            except Exception as e:
+                print(f"[REGISTRO] Erro ao buscar com composite key: {e}")
+        
         if not funcionario:
-            return jsonify({
-                'success': False,
-                'message': 'Funcionário não encontrado'
-            }), 404
+            # Fallback: scan pelo id (para retrocompatibilidade)
+            print(f"[REGISTRO] Fazendo scan para buscar funcionário id={funcionario_id}")
+            response = tabela_funcionarios.scan(FilterExpression=Attr('id').eq(funcionario_id))
+            items = response.get('Items', [])
+            if not items:
+                return jsonify({
+                    'success': False,
+                    'message': 'Funcionário não encontrado'
+                }), 404
+            funcionario = items[0]
+            print(f"[REGISTRO] Funcionário encontrado via scan: {funcionario['nome']}")
 
         funcionario_nome = funcionario['nome']
+        company_id = funcionario.get('company_id')
+        funcionario_home_office = funcionario.get('home_office', False)
+        
+        # Verificar se funcionário está ativo (exclusão lógica)
+        is_active = funcionario.get('is_active', funcionario.get('ativo', True))
+        if not is_active:
+            print(f"[REGISTRO] ❌ Funcionário inativo tentou registrar ponto: {funcionario_nome}")
+            return jsonify({
+                'success': False,
+                'message': 'Funcionário inativo. Contate o RH.',
+                'inactive': True
+            }), 403
+        
+        # Validar geolocalização (se não for home office e se tiver coordenadas enviadas)
+        if not preview_mode and not funcionario_home_office:
+            latitude_usuario = request.form.get('latitude')
+            longitude_usuario = request.form.get('longitude')
+            
+            if latitude_usuario and longitude_usuario:
+                try:
+                    # Buscar configurações da empresa
+                    config_response = tabela_configuracoes.get_item(Key={'company_id': company_id})
+                    configuracoes = config_response.get('Item', {})
+                    
+                    exigir_localizacao = configuracoes.get('exigir_localizacao', False)
+                    
+                    if exigir_localizacao:
+                        latitude_empresa = configuracoes.get('latitude_empresa')
+                        longitude_empresa = configuracoes.get('longitude_empresa')
+                        raio_permitido = configuracoes.get('raio_permitido', 100)
+                        
+                        if latitude_empresa and longitude_empresa:
+                            dentro_do_raio, distancia = validar_localizacao(
+                                float(latitude_usuario),
+                                float(longitude_usuario),
+                                float(latitude_empresa),
+                                float(longitude_empresa),
+                                raio_permitido
+                            )
+                            
+                            print(f"[REGISTRO] Validação geolocalização: distância={formatar_distancia(distancia)}, permitido={raio_permitido}m")
+                            
+                            if not dentro_do_raio:
+                                return jsonify({
+                                    'success': False,
+                                    'message': f'Você está muito longe da empresa. Distância: {formatar_distancia(distancia)}',
+                                    'fora_do_raio': True,
+                                    'distancia': distancia
+                                }), 403
+                        else:
+                            print("[REGISTRO] ⚠️ Geolocalização exigida mas coordenadas da empresa não configuradas")
+                except Exception as e:
+                    print(f"[REGISTRO] Erro ao validar geolocalização: {str(e)}")
+                    # Não bloquear o registro se houver erro na validação
+            elif not preview_mode:
+                # Verificar se empresa exige geolocalização
+                try:
+                    config_response = tabela_configuracoes.get_item(Key={'company_id': company_id})
+                    configuracoes = config_response.get('Item', {})
+                    exigir_localizacao = configuracoes.get('exigir_localizacao', False)
+                    
+                    if exigir_localizacao:
+                        return jsonify({
+                            'success': False,
+                            'message': 'Localização é obrigatória para registrar ponto',
+                            'localizacao_obrigatoria': True
+                        }), 400
+                except Exception as e:
+                    print(f"[REGISTRO] Erro ao verificar configurações: {str(e)}")
+        
         agora = datetime.now()
         hoje = agora.strftime('%Y-%m-%d')
+        data_hora_str = agora.strftime('%Y-%m-%d %H:%M:%S')
         
+        # Buscar registros do dia usando composite key da tabela TimeRecords
+        # HASH: company_id, RANGE: employee_id#date_time
+        print(f"[REGISTRO] Buscando registros do dia para company_id={company_id}, funcionario_id={funcionario_id}")
         response_registros = tabela_registros.scan(
-            FilterExpression=Attr('funcionario_id').eq(funcionario_id) & Attr('data_hora').begins_with(hoje)
+            FilterExpression=Attr('company_id').eq(company_id) & Attr('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje}")
         )
-        registros_do_dia = sorted(response_registros['Items'], key=lambda x: x['data_hora'])
+        registros_do_dia = sorted(response_registros['Items'], key=lambda x: x.get('employee_id#date_time', ''))
 
         tipo = 'entrada' if not registros_do_dia or registros_do_dia[-1]['tipo'] == 'saída' else 'saída'
+        
+        # Se for modo preview, retornar apenas informações sem salvar
+        if preview_mode:
+            print(f"[REGISTRO] 👁️ Modo preview - retornando reconhecimento sem salvar")
+            return jsonify({
+                'success': True,
+                'funcionario_nome': funcionario_nome,
+                'nome': funcionario_nome,
+                'tipo_registro': tipo,
+                'tipo': tipo,
+                'confidence': 0.92,  # Simular confiança alta (em produção, pegar do Rekognition)
+                'livenessOk': True,  # Simular liveness OK
+                'message': f'Funcionário reconhecido: {funcionario_nome}'
+            }), 200
 
+        # Criar registro com schema correto da tabela TimeRecords
+        # HASH: company_id, RANGE: employee_id#date_time
         registro = {
-            'registro_id': str(uuid.uuid4()),
-            'funcionario_id': funcionario_id,
-            'data_hora': agora.strftime('%Y-%m-%d %H:%M:%S'),
+            'company_id': company_id,  # HASH key
+            'employee_id#date_time': f"{funcionario_id}#{data_hora_str}",  # RANGE key
             'tipo': tipo,
-            'empresa_id': funcionario.get('empresa_id'),
-            'empresa_nome': funcionario.get('empresa_nome')
+            'funcionario_nome': funcionario_nome,
+            'empresa_nome': funcionario.get('empresa_nome', ''),
         }
+        
+    # Se for saída, calcular horas extras
+        if tipo == 'saída' and registros_do_dia:
+            try:
+                # Buscar configurações da empresa
+                empresa_id = funcionario.get('company_id')
+                # Tabela ConfiguracoesEmpresa usa 'empresa_id' como chave
+                config_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+                
+                configuracoes = config_response.get('Item', {
+                    'tolerancia_atraso': 5,
+                    'hora_extra_entrada_antecipada': False,
+                    'arredondamento_horas_extras': '5',
+                    'intervalo_automatico': False,
+                    'duracao_intervalo': 60
+                })
+                
+                # Pegar horários esperados do funcionário
+                horario_entrada_esperado = funcionario.get('horario_entrada')
+                horario_saida_esperado = funcionario.get('horario_saida')
+                
+                # Pegar horários reais (entrada do dia + saída agora)
+                # employee_id#date_time formato: miguel_123#2025-11-10 08:30:00
+                primeiro_registro_key = registros_do_dia[0].get('employee_id#date_time', '')
+                horario_entrada_real = primeiro_registro_key.split('#')[1].split(' ')[1][:5] if '#' in primeiro_registro_key else '00:00'
+                horario_saida_real = agora.strftime('%H:%M')
+                
+                # Calcular se tem horários cadastrados
+                if horario_entrada_esperado and horario_saida_esperado:
+                    calculo = calculate_overtime(
+                        horario_entrada_esperado,
+                        horario_saida_esperado,
+                        horario_entrada_real,
+                        horario_saida_real,
+                        configuracoes,
+                        configuracoes.get('intervalo_automatico', False),
+                        configuracoes.get('duracao_intervalo', 60)
+                    )
+                    
+                    # Adicionar informações ao registro
+                    registro['horas_extras_minutos'] = calculo['horas_extras_minutos']
+                    registro['atraso_minutos'] = calculo['atraso_minutos']
+                    registro['entrada_antecipada_minutos'] = calculo['entrada_antecipada_minutos']
+                    registro['saida_antecipada_minutos'] = calculo['saida_antecipada_minutos']
+                    registro['horas_trabalhadas_minutos'] = calculo['horas_trabalhadas_minutos']
+                    
+                    # Formatar para exibição
+                    registro['horas_extras_formatado'] = format_minutes_to_time(calculo['horas_extras_minutos'])
+                    registro['atraso_formatado'] = format_minutes_to_time(calculo['atraso_minutos'])
+            except Exception as e:
+                print(f"Erro ao calcular horas extras: {str(e)}")
+                # Continua o registro mesmo se falhar o cálculo
+        
+        # Salvar registro no DynamoDB
+        print(f"[REGISTRO] Salvando registro: company_id={company_id}, key={registro['employee_id#date_time']}, tipo={tipo}")
         tabela_registros.put_item(Item=registro)
+        print(f"[REGISTRO] ✅ Registro salvo com sucesso!")
 
         return jsonify({
             'success': True,
             'funcionario': funcionario_nome,
-            'hora': registro['data_hora'],
+            'hora': data_hora_str,
             'tipo': tipo
         })
 
     except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
         print(f"Erro no registro de ponto: {str(e)}")
+        print(f"Traceback completo:\n{error_detail}")
         return jsonify({
             'success': False,
-            'message': 'Erro interno no servidor'
+            'message': f'Erro interno no servidor: {str(e)}'
         }), 500
 
 @routes.route('/funcionarios', methods=['GET'])
@@ -170,8 +491,12 @@ def registrar_ponto():
 def listar_funcionarios(payload):
     try:
         print('=== DEBUG FUNCIONARIOS ===')
-        empresa_id = payload.get('empresa_id')
+        empresa_id = payload.get('company_id')
         print(f'empresa_id: {empresa_id}')
+        
+        # Parâmetro opcional para incluir funcionários inativos
+        include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+        print(f'include_inactive: {include_inactive}')
         
         # TESTE 1: Scan sem filtro (retorna TODOS os funcionários)
         try:
@@ -187,12 +512,25 @@ def listar_funcionarios(payload):
             # TESTE 2: Filtrar manualmente em Python (não no DynamoDB)
             empresa_funcionarios = []
             for item in all_items:
-                item_empresa_id = item.get('empresa_id')
+                item_empresa_id = item.get('company_id')
                 print(f'Comparando: "{item_empresa_id}" == "{empresa_id}"')
+                
+                # Filtrar apenas funcionários ativos (exclusão lógica) ou incluir inativos se solicitado
+                is_active = item.get('is_active', item.get('ativo', True))
+                
                 if item_empresa_id == empresa_id:
-                    empresa_funcionarios.append(item)
+                    if is_active or include_inactive:
+                        empresa_funcionarios.append(item)
+                    elif not is_active:
+                        print(f'  -> Funcionário inativo ignorado: {item.get("nome")} (deleted_at: {item.get("deleted_at")})')
                     
-            print(f'Funcionários filtrados para empresa {empresa_id}: {len(empresa_funcionarios)}')
+            print(f'Funcionários ativos filtrados para empresa {empresa_id}: {len(empresa_funcionarios)}')
+            
+            # Debug: verificar foto_url e data_cadastro
+            for func in empresa_funcionarios:
+                print(f'[DEBUG] Funcionário: {func.get("nome")}')
+                print(f'  - foto_url: {func.get("foto_url", "AUSENTE")}')
+                print(f'  - data_cadastro: {func.get("data_cadastro", "AUSENTE")}')
             
             return jsonify({
                 'success': True,
@@ -213,64 +551,155 @@ def listar_funcionarios(payload):
 @token_required
 def obter_funcionario(payload, funcionario_id):
     try:
-        empresa_id = payload.get('empresa_id')
-        response = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-        funcionario = response.get('Item')
-        if not funcionario or funcionario.get('empresa_id') != empresa_id:
+        empresa_id = payload.get('company_id')
+        
+        if not empresa_id:
+            return jsonify({'error': 'Company ID não encontrado no token'}), 400
+        
+        # Query usando composite key (company_id + id)
+        try:
+            response = tabela_funcionarios.get_item(Key={
+                'company_id': empresa_id,
+                'id': funcionario_id
+            })
+            funcionario = response.get('Item')
+        except Exception as e:
+            print(f"[GET] Erro ao buscar funcionário: {str(e)}")
+            # Fallback: scan
+            response = tabela_funcionarios.scan(
+                FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(empresa_id)
+            )
+            items = response.get('Items', [])
+            funcionario = items[0] if items else None
+        
+        if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
+        
+        # Verificar se funcionário está ativo
+        is_active = funcionario.get('is_active', funcionario.get('ativo', True))
+        if not is_active:
+            return jsonify({
+                'error': 'Funcionário inativo',
+                'deleted_at': funcionario.get('deleted_at')
+            }), 404
+        
         return jsonify(funcionario)
     except Exception as e:
+        print(f"[GET] Erro geral: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @routes.route('/funcionarios/<funcionario_id>', methods=['PUT'])
 @token_required
 def atualizar_funcionario(payload, funcionario_id):
     try:
-        empresa_id = payload.get('empresa_id')
-        response = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-        funcionario = response.get('Item')
-        if not funcionario or funcionario.get('empresa_id') != empresa_id:
+        empresa_id = payload.get('company_id')
+        
+        if not empresa_id:
+            return jsonify({'error': 'Company ID não encontrado no token'}), 400
+        
+        # Buscar funcionário usando composite key
+        try:
+            response = tabela_funcionarios.get_item(Key={
+                'company_id': empresa_id,
+                'id': funcionario_id
+            })
+            funcionario = response.get('Item')
+        except Exception as e:
+            print(f"[PUT] Erro ao buscar funcionário: {str(e)}")
+            # Fallback: scan
+            response = tabela_funcionarios.scan(
+                FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(empresa_id)
+            )
+            items = response.get('Items', [])
+            funcionario = items[0] if items else None
+        
+        if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
         
         # Corrigir: ler nome/cargo de request.form (FormData)
         nome = request.form.get('nome')
         cargo = request.form.get('cargo')
+        email = request.form.get('email')
+        senha = request.form.get('senha')
+        horario_entrada = request.form.get('horario_entrada')  # Novo: horário de entrada
+        horario_saida = request.form.get('horario_saida')  # Novo: horário de saída
+        home_office = request.form.get('home_office', 'false').lower() == 'true'
+        
         if not nome or not cargo:
             return jsonify({'error': 'Nome e cargo são obrigatórios'}), 400
+        
+        # Validar email se fornecido
+        if email and email.strip():
+            # Verificar se email já existe em outro funcionário da empresa
+            try:
+                response_check = tabela_funcionarios.scan(
+                    FilterExpression=Attr('company_id').eq(empresa_id) & 
+                                   Attr('email').eq(email) & 
+                                   Attr('id').ne(funcionario_id)
+                )
+                if response_check.get('Items'):
+                    return jsonify({"error": "Email já cadastrado para outro funcionário"}), 400
+            except Exception as e:
+                print(f"Erro ao verificar email: {e}")
+        
+        # Hash da senha se fornecida
+        if senha and senha.strip():
+            from auth import hash_password
+            senha_hash = hash_password(senha)
+            funcionario['senha_hash'] = senha_hash
+            print(f"[PUT] Nova senha definida para funcionário {funcionario_id}")
             
         # Atualizar foto se fornecida
         if 'foto' in request.files:
             foto = request.files['foto']
             temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uuid.uuid4().hex}.jpg")
             foto.save(temp_path)
-            s3.upload_file(
-                temp_path,
-                BUCKET,
-                f"funcionarios/{funcionario_id}.jpg",
-                ExtraArgs={'ContentType': 'image/jpeg'}
-            )
-            foto_url = f"https://{BUCKET}.s3.{REGIAO}.amazonaws.com/funcionarios/{funcionario_id}.jpg"
-            if 'face_id' in funcionario:
-                rekognition.delete_faces(
-                    CollectionId=COLLECTION,
-                    FaceIds=[funcionario['face_id']]
-                )
+            # Upload into company folder
+            foto_url = enviar_s3(temp_path, f"funcionarios/{funcionario_id}.jpg", empresa_id)
+            if 'face_id' in funcionario and rekognition:
+                try:
+                    rekognition.delete_faces(
+                        CollectionId=COLLECTION,
+                        FaceIds=[funcionario['face_id']]
+                    )
+                except Exception as e:
+                    print(f"Aviso: falha ao deletar face anterior: {e}")
             with open(temp_path, 'rb') as image:
-                rekognition_response = rekognition.index_faces(
-                    CollectionId=COLLECTION,
-                    Image={'Bytes': image.read()},
-                    ExternalImageId=funcionario_id,
-                    MaxFaces=1,
-                    QualityFilter="AUTO",
-                    DetectionAttributes=["ALL"]
-                )
-            face_id = rekognition_response['FaceRecords'][0]['Face']['FaceId']
+                if rekognition:
+                    rekognition_response = rekognition.index_faces(
+                        CollectionId=COLLECTION,
+                        Image={'Bytes': image.read()},
+                        ExternalImageId=f"{empresa_id}_{funcionario_id}",
+                        MaxFaces=1,
+                        QualityFilter="AUTO",
+                        DetectionAttributes=["ALL"]
+                    )
+                else:
+                    rekognition_response = {'FaceRecords': []}
+            face_id = rekognition_response.get('FaceRecords', [{}])[0].get('Face', {}).get('FaceId')
             os.remove(temp_path)
             funcionario['foto_url'] = foto_url
             funcionario['face_id'] = face_id
             
         funcionario['nome'] = nome
         funcionario['cargo'] = cargo
+        
+        # Atualizar email se fornecido
+        if email and email.strip():
+            funcionario['email'] = email.strip()
+        elif email == '':  # Se enviou string vazia, remover email
+            funcionario.pop('email', None)
+            funcionario.pop('senha_hash', None)  # Remover senha também
+        
+        # Atualizar horários se fornecidos
+        if horario_entrada:
+            funcionario['horario_entrada'] = horario_entrada
+        if horario_saida:
+            funcionario['horario_saida'] = horario_saida
+        
+        # Atualizar home_office
+        funcionario['home_office'] = home_office
+        
         tabela_funcionarios.put_item(Item=funcionario)
         return jsonify({'message': 'Funcionário atualizado com sucesso!'}), 200
     except Exception as e:
@@ -286,26 +715,55 @@ def atualizar_foto_funcionario(payload, funcionario_id):
     temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uuid.uuid4().hex}.jpg")
     foto.save(temp_path)
     try:
-        empresa_id = payload.get('empresa_id')
-        response = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-        funcionario = response.get('Item')
-        if not funcionario or funcionario.get('empresa_id') != empresa_id:
+        empresa_id = payload.get('company_id')
+        
+        if not empresa_id:
+            return jsonify({'error': 'Company ID não encontrado no token'}), 400
+        
+        # Buscar funcionário usando composite key
+        try:
+            response = tabela_funcionarios.get_item(Key={
+                'company_id': empresa_id,
+                'id': funcionario_id
+            })
+            funcionario = response.get('Item')
+        except Exception as e:
+            print(f"[PUT FOTO] Erro ao buscar funcionário: {str(e)}")
+            # Fallback: scan
+            response = tabela_funcionarios.scan(
+                FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(empresa_id)
+            )
+            items = response.get('Items', [])
+            funcionario = items[0] if items else None
+        
+        if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
-        response_faces = rekognition.list_faces(CollectionId=COLLECTION)
-        for face in response_faces['Faces']:
-            if face['ExternalImageId'] == funcionario_id:
-                rekognition.delete_faces(
-                    CollectionId=COLLECTION,
-                    FaceIds=[face['FaceId']]
-                )
-                break
-        foto_nome = f"{funcionario_id}.jpg"
-        foto_url = enviar_s3(temp_path, foto_nome)
-        rekognition.index_faces(
-            CollectionId=COLLECTION,
-            Image={'S3Object': {'Bucket': BUCKET, 'Name': foto_nome}},
-            ExternalImageId=funcionario_id
-        )
+
+        if rekognition:
+            response_faces = rekognition.list_faces(CollectionId=COLLECTION)
+            for face in response_faces.get('Faces', []):
+                external = face.get('ExternalImageId', '')
+                # Match either raw id or prefixed company_id#id
+                if external == funcionario_id or external.endswith(f"#{funcionario_id}"):
+                    try:
+                        rekognition.delete_faces(
+                            CollectionId=COLLECTION,
+                            FaceIds=[face['FaceId']]
+                        )
+                    except Exception as e:
+                        print(f"Aviso: falha ao deletar face: {e}")
+                    break
+
+        foto_nome = f"funcionarios/{funcionario_id}.jpg"
+        # Upload under company prefix and index the S3 object
+        foto_url = enviar_s3(temp_path, foto_nome, empresa_id)
+        if rekognition:
+            rekognition.index_faces(
+                CollectionId=COLLECTION,
+                Image={'S3Object': {'Bucket': BUCKET, 'Name': f"{empresa_id}/{foto_nome}"}},
+                ExternalImageId=f"{empresa_id}_{funcionario_id}"
+            )
+
         tabela_funcionarios.update_item(
             Key={'id': funcionario_id},
             UpdateExpression='SET foto_url = :url',
@@ -335,32 +793,105 @@ def excluir_funcionario(funcionario_id):
         if not payload:
             return jsonify({'error': 'Token inválido'}), 401
 
-        empresa_id = payload.get('empresa_id')
+        empresa_id = payload.get('company_id')
 
-        # Buscar funcionário
-        response = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-        funcionario = response.get('Item')
+        if not empresa_id:
+            return jsonify({'error': 'Company ID não encontrado no token'}), 400
 
-        if not funcionario or funcionario.get('empresa_id') != empresa_id:
+        # Buscar funcionário usando composite key (company_id + id)
+        try:
+            response = tabela_funcionarios.get_item(Key={
+                'company_id': empresa_id,
+                'id': funcionario_id
+            })
+            funcionario = response.get('Item')
+        except Exception as e:
+            print(f"[DELETE] Erro ao buscar funcionário: {str(e)}")
+            # Fallback: tentar scan se get_item falhar
+            response = tabela_funcionarios.scan(
+                FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(empresa_id)
+            )
+            items = response.get('Items', [])
+            funcionario = items[0] if items else None
+
+        if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
 
-        # Remover face do Rekognition
+        # EXCLUSÃO LÓGICA: marcar como inativo ao invés de deletar
+        from datetime import datetime
+        
+        # Remover face do Rekognition (segurança e LGPD)
         try:
+            external_image_id = f"{empresa_id}_{funcionario_id}"
+            print(f"[DELETE] Tentando remover face do Rekognition: {external_image_id}")
             rekognition_response = rekognition.list_faces(CollectionId=COLLECTION)
             for face in rekognition_response['Faces']:
-                if face['ExternalImageId'] == funcionario_id:
+                if face['ExternalImageId'] == external_image_id:
                     rekognition.delete_faces(
                         CollectionId=COLLECTION,
                         FaceIds=[face['FaceId']]
                     )
+                    print(f"[DELETE] Face removida do Rekognition: {face['FaceId']}")
                     break
         except Exception as e:
-            print(f"Erro ao excluir face no Rekognition: {str(e)}")
+            print(f"[DELETE] Erro ao excluir face no Rekognition: {str(e)}")
+            # Não falhar se não conseguir remover do Rekognition
 
-        # Remover funcionário do DynamoDB
-        tabela_funcionarios.delete_item(Key={'id': funcionario_id})
+        # Atualizar funcionário com exclusão lógica
+        try:
+            # Timestamp atual
+            deleted_timestamp = datetime.now().isoformat()
+            
+            # Campos para remover (LGPD)
+            updates = {
+                'is_active': False,
+                'ativo': False,
+                'deleted_at': deleted_timestamp,
+                'senha_hash': None,  # Remover senha
+                'email': None,  # Opcional: remover email
+                'foto_url': None,  # Remover URL da foto
+                'foto_s3_key': None  # Remover chave S3
+            }
+            
+            # Construir UpdateExpression
+            update_expr = "SET "
+            expr_attr_values = {}
+            expr_attr_names = {}
+            
+            for i, (key, value) in enumerate(updates.items()):
+                attr_name = f"#{key}"
+                attr_value = f":val{i}"
+                
+                if i > 0:
+                    update_expr += ", "
+                
+                update_expr += f"{attr_name} = {attr_value}"
+                expr_attr_names[attr_name] = key
+                expr_attr_values[attr_value] = value if value is not None else ""
+            
+            # Atualizar registro
+            tabela_funcionarios.update_item(
+                Key={
+                    'company_id': empresa_id,
+                    'id': funcionario_id
+                },
+                UpdateExpression=update_expr,
+                ExpressionAttributeNames=expr_attr_names,
+                ExpressionAttributeValues=expr_attr_values
+            )
+            
+            print(f"[DELETE] Funcionário marcado como inativo (exclusão lógica): {funcionario_id}")
+            print(f"[DELETE] Data da exclusão: {deleted_timestamp}")
+            print(f"[INFO] Registros históricos (TimeRecords, DailySummary, MonthlySummary) foram mantidos")
+            
+        except Exception as e:
+            print(f"[DELETE] Erro ao fazer exclusão lógica: {str(e)}")
+            raise
 
-        return jsonify({'message': 'Funcionário excluído com sucesso'}), 200
+        return jsonify({
+            'message': 'Funcionário excluído com sucesso',
+            'info': 'Exclusão lógica realizada. Registros históricos foram mantidos.'
+        }), 200
 
     except Exception as e:
         print(f"Erro ao excluir funcionário: {str(e)}")
@@ -370,57 +901,148 @@ def excluir_funcionario(funcionario_id):
 @token_required
 def cadastrar_funcionario(payload):
     try:
-        # Dados recebidos via FormData (nome, cargo, foto)
-        nome = request.form.get('nome')
-        cargo = request.form.get('cargo')
-        foto = request.files.get('foto')
+        # Suportar tanto FormData (com foto) quanto JSON (sem foto para testes)
+        if request.content_type and 'application/json' in request.content_type:
+            # Modo JSON (sem foto - para testes)
+            data = request.get_json()
+            nome = data.get('nome')
+            cargo = data.get('cargo')
+            cpf = data.get('cpf')
+            horario_entrada = data.get('horario_entrada')
+            horario_saida = data.get('horario_saida')
+            email = data.get('email')
+            senha = data.get('senha')
+            home_office = data.get('home_office', False)
+            foto = None
+            
+            if not all([nome, cargo]):
+                return jsonify({"error": "Nome e cargo são obrigatórios"}), 400
+                
+        else:
+            # Modo FormData (com foto)
+            nome = request.form.get('nome')
+            cargo = request.form.get('cargo')
+            foto = request.files.get('foto')
+            cpf = request.form.get('cpf')
+            horario_entrada = request.form.get('horario_entrada')
+            horario_saida = request.form.get('horario_saida')
+            email = request.form.get('email')
+            senha = request.form.get('senha')
+            home_office = request.form.get('home_office', 'false').lower() == 'true'
+            
+            if not all([nome, cargo, foto]):
+                return jsonify({"error": "Nome, cargo e foto são obrigatórios"}), 400
 
-        if not all([nome, cargo, foto]):
-            return jsonify({"error": "Nome, cargo e foto são obrigatórios"}), 400
-
-        # Criar ID único para o funcionário
-        funcionario_id = f"{nome.lower().replace(' ', '_')}_{uuid.uuid4().hex[:6]}"
-        foto_nome = f"funcionarios/{funcionario_id}.jpg"
-
-        # Salvar a foto temporariamente e enviar para S3
-        temp_path = os.path.join(tempfile.gettempdir(), foto_nome.split('/')[-1])
-        foto.save(temp_path)
-        foto_url = enviar_s3(temp_path, foto_nome)
-
-        # Indexar no Rekognition
-        with open(temp_path, 'rb') as image:
-            rekognition_response = rekognition.index_faces(
-                CollectionId=COLLECTION,
-                Image={'Bytes': image.read()},
-                ExternalImageId=funcionario_id,
-                MaxFaces=1,
-                QualityFilter="AUTO",
-                DetectionAttributes=["DEFAULT"]
-            )
-
-        if not rekognition_response['FaceRecords']:
-            os.remove(temp_path)
-            return jsonify({"error": "Nenhum rosto detectado na imagem."}), 400
-
-        face_id = rekognition_response['FaceRecords'][0]['Face']['FaceId']
-
+        # Validar email se fornecido
+        if email:
+            # Verificar se email já existe na empresa
+            try:
+                response_check = tabela_funcionarios.scan(
+                    FilterExpression=Attr('company_id').eq(payload.get('company_id')) & Attr('email').eq(email)
+                )
+                if response_check.get('Items'):
+                    return jsonify({"error": "Email já cadastrado para outro funcionário"}), 400
+            except Exception as e:
+                print(f"Erro ao verificar email: {e}")
+        
+        # Hash da senha se fornecida
+        senha_hash = None
+        if senha:
+            from auth import hash_password
+            senha_hash = hash_password(senha)
+        
+        # Criar ID único para o funcionário (normalizar nome para remover acentos)
+        nome_normalizado = normalizar_string(nome.lower().replace(' ', '_'))
+        funcionario_id = f"{nome_normalizado}_{uuid.uuid4().hex[:6]}"
+        print(f"[CADASTRO] Nome original: {nome}, Nome normalizado: {nome_normalizado}, ID: {funcionario_id}")
+        
         # Dados da empresa a partir do token
         empresa_nome = payload.get('empresa_nome')
-        empresa_id = payload.get('empresa_id')
+        empresa_id = payload.get('company_id')
+        
+        foto_url = None
+        face_id = None
+        temp_path = None
+        
+        # Processar foto se fornecida
+        if foto:
+            foto_nome = f"funcionarios/{funcionario_id}.jpg"
+            temp_path = os.path.join(tempfile.gettempdir(), foto_nome.split('/')[-1])
+            foto.save(temp_path)
+            foto_url = enviar_s3(temp_path, foto_nome, empresa_id)
 
-        # Salvar no DynamoDB
-        tabela_funcionarios.put_item(Item={
-            'id': funcionario_id,
+            # Indexar no Rekognition
+            with open(temp_path, 'rb') as image:
+                if rekognition:
+                    rekognition_response = rekognition.index_faces(
+                        CollectionId=COLLECTION,
+                        Image={'Bytes': image.read()},
+                        ExternalImageId=f"{empresa_id}_{funcionario_id}",
+                        MaxFaces=1,
+                        QualityFilter="AUTO",
+                        DetectionAttributes=["DEFAULT"]
+                    )
+                else:
+                    rekognition_response = {'FaceRecords': []}
+
+            if not rekognition_response['FaceRecords']:
+                if temp_path:
+                    os.remove(temp_path)
+                return jsonify({"error": "Nenhum rosto detectado na imagem."}), 400
+
+            face_id = rekognition_response['FaceRecords'][0]['Face']['FaceId']
+
+        # Preparar item do funcionário
+        # Usar timezone do Brasil (UTC-3)
+        try:
+            br_tz = ZoneInfo('America/Sao_Paulo')
+            data_hoje = datetime.now(br_tz).strftime('%Y-%m-%d')
+        except:
+            # Fallback se zoneinfo não estiver disponível
+            data_hoje = datetime.now().strftime('%Y-%m-%d')
+        
+        print(f'[CADASTRO] Data de cadastro sendo salva: {data_hoje}')
+        
+        funcionario_item = {
+            'company_id': empresa_id,  # Partition key
+            'id': funcionario_id,      # Sort key
             'nome': nome,
             'cargo': cargo,
-            'foto_url': foto_url,
-            'face_id': face_id,
             'empresa_nome': empresa_nome,
-            'empresa_id': empresa_id,
-            'data_cadastro': datetime.now().strftime('%Y-%m-%d')
-        })
-
-        os.remove(temp_path)
+            'data_cadastro': data_hoje
+        }
+        
+        # Adicionar campos opcionais
+        if foto_url:
+            funcionario_item['foto_url'] = foto_url
+            print(f'[CADASTRO] foto_url salva no DynamoDB: {foto_url}')
+        if face_id:
+            funcionario_item['face_id'] = face_id
+        if cpf:
+            funcionario_item['cpf'] = cpf
+        if horario_entrada:
+            funcionario_item['horario_entrada'] = horario_entrada
+        if horario_saida:
+            funcionario_item['horario_saida'] = horario_saida
+        if email:
+            funcionario_item['email'] = email
+        if senha_hash:
+            funcionario_item['senha_hash'] = senha_hash
+        
+        # Campo home_office (para não exigir geolocalização)
+        funcionario_item['home_office'] = home_office
+        
+        # Campos de exclusão lógica (iniciar como ativo)
+        funcionario_item['is_active'] = True
+        funcionario_item['ativo'] = True
+        funcionario_item['deleted_at'] = None
+        
+        # Salvar no DynamoDB (Employees table uses company_id as partition key)
+        tabela_funcionarios.put_item(Item=funcionario_item)
+        
+        # Limpar arquivo temporário se foi criado
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
         return jsonify({
             "success": True,
@@ -443,7 +1065,12 @@ def listar_registros(payload):
     funcionario_id = request.args.get('funcionario_id')
     
     try:
-        empresa_id = payload.get('empresa_id')
+        # Verificar se é um token de funcionário tentando acessar
+        tipo = payload.get('tipo')
+        if tipo == 'funcionario':
+            return jsonify({'error': 'Acesso negado. Use o endpoint /api/funcionario/registros'}), 403
+        
+        empresa_id = payload.get('company_id')
         print(f"[DEBUG] empresa_id: {empresa_id}")
         
         if not empresa_id:
@@ -453,7 +1080,7 @@ def listar_registros(payload):
         
         # Buscar apenas funcionários da empresa
         try:
-            filtro_func = Attr('empresa_id').eq(empresa_id)
+            filtro_func = Attr('company_id').eq(empresa_id)
             if nome_funcionario:
                 filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
             
@@ -477,30 +1104,87 @@ def listar_registros(payload):
             print("[DEBUG] Nenhum funcionário encontrado na empresa")
             return jsonify([])
         
-        # Construir filtro de registros de forma mais segura
+        # Construir filtro de registros para o novo schema TimeRecords
         try:
-            filtro_registros = Attr('empresa_id').eq(empresa_id)
+            # Tabela TimeRecords usa: company_id (HASH) + employee_id#date_time (RANGE)
+            filtro_registros = Attr('company_id').eq(empresa_id)
             
-            # Adicionar filtro de data se fornecido
+            # Adicionar filtro de data se fornecido (formato ISO: YYYY-MM-DD)
             if data_inicio and data_fim:
-                filtro_registros = filtro_registros & Attr('data_hora').between(
-                    f"{data_inicio} 00:00:00", 
-                    f"{data_fim} 23:59:59"
+                # employee_id#date_time formato: "miguel_123#2025-11-10 14:30:00"
+                # Precisamos buscar registros entre as datas
+                filtro_registros = filtro_registros & Attr('employee_id#date_time').between(
+                    f"#{data_inicio} 00:00:00",  # Prefixo com # para pegar qualquer employee_id
+                    f"~{data_fim} 23:59:59"      # ~ é maior que qualquer caractere normal
                 )
+                print(f"[DEBUG] Filtro de data aplicado: {data_inicio} até {data_fim}")
             
-            # Adicionar filtro de funcionários de forma segura
-            if funcionarios_filtrados:
-                # Usar apenas funcionários que realmente existem
-                funcionarios_validos = [fid for fid in funcionarios_filtrados if fid]
-                if funcionarios_validos:
-                    filtro_registros = filtro_registros & Attr('funcionario_id').is_in(funcionarios_validos)
-                else:
-                    return jsonify([])
-            
-            print(f"[DEBUG] Executando scan com filtro...")
+            print(f"[DEBUG] Executando scan na tabela TimeRecords...")
             response = tabela_registros.scan(FilterExpression=filtro_registros)
             registros = response.get('Items', [])
-            print(f"[DEBUG] Encontrados {len(registros)} registros")
+            print(f"[DEBUG] Encontrados {len(registros)} registros após scan")
+            
+            # Debug: mostrar estrutura dos registros
+            if registros:
+                print(f"[DEBUG] Exemplo de registro (novo schema): {registros[0]}")
+            
+            # Converter schema novo para formato esperado pelo frontend
+            registros_formatados = []
+            for reg in registros:
+                # Extrair employee_id e data_hora do campo composto
+                composite_key = reg.get('employee_id#date_time', '')
+                if '#' in composite_key:
+                    employee_id, data_hora = composite_key.split('#', 1)
+                else:
+                    employee_id = reg.get('funcionario_id', '')
+                    data_hora = reg.get('data_hora', '')
+                
+                # Filtrar por funcionário específico se solicitado
+                if funcionario_id and employee_id != funcionario_id:
+                    continue
+                
+                # Filtrar por nome se não foi específico por ID
+                if not funcionario_id and funcionarios_filtrados and employee_id not in funcionarios_filtrados:
+                    continue
+                
+                # Criar registro formatado para o frontend
+                registro_formatado = {
+                    'registro_id': f"{reg.get('company_id', '')}_{composite_key}",  # ID único
+                    'funcionario_id': employee_id,
+                    'data_hora': data_hora,
+                    'tipo': reg.get('tipo', ''),
+                    'funcionario_nome': reg.get('funcionario_nome', ''),
+                }
+                
+                # Adicionar campos opcionais se existirem
+                if 'horas_extras_minutos' in reg:
+                    registro_formatado['horas_extras_minutos'] = reg['horas_extras_minutos']
+                if 'atraso_minutos' in reg:
+                    registro_formatado['atraso_minutos'] = reg['atraso_minutos']
+                
+                registros_formatados.append(registro_formatado)
+            
+            registros = registros_formatados
+            print(f"[DEBUG] {len(registros)} registros após formatação e filtros")
+            
+            # Nome do funcionário já vem no registro do novo schema
+            # Mas garantir que está presente em todos
+            for reg in registros:
+                if not reg.get('funcionario_nome'):
+                    func_id = reg.get('funcionario_id')
+                    if func_id:
+                        try:
+                            func_resp = tabela_funcionarios.get_item(
+                                Key={'company_id': empresa_id, 'id': func_id}
+                            )
+                            funcionario = func_resp.get('Item')
+                            if funcionario:
+                                reg['funcionario_nome'] = funcionario.get('nome', 'N/A')
+                            else:
+                                reg['funcionario_nome'] = 'N/A'
+                        except Exception as e:
+                            print(f"[DEBUG] Erro ao buscar nome do funcionário {func_id}: {e}")
+                            reg['funcionario_nome'] = 'N/A'
             
         except Exception as e:
             print(f"[DEBUG] Erro no scan de registros: {str(e)}")
@@ -516,81 +1200,269 @@ def listar_registros(payload):
                 except (ValueError, IndexError) as e:
                     print(f"[DEBUG] Erro ao formatar data {reg.get('data_hora', 'N/A')}: {str(e)}")
         
-        # Se solicitou funcionário específico, retornar registros com nome
-        if funcionario_id:
-            try:
-                funcionario = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-                funcionario_nome = funcionario.get('Item', {}).get('nome', 'Desconhecido')
-                for registro in registros:
-                    registro['funcionario_nome'] = funcionario_nome
-                return jsonify(registros)
-            except Exception as e:
-                print(f"[DEBUG] Erro ao buscar nome do funcionário: {str(e)}")
-                return jsonify(registros)  # Retornar sem nome em caso de erro
-        
-        # Calcular horas trabalhadas por funcionário
-        try:
-            horas_trabalhadas_por_funcionario = {}
-            for registro in registros:
-                funcionario_id = registro['funcionario_id']
-                if funcionario_id not in horas_trabalhadas_por_funcionario:
-                    horas_trabalhadas_por_funcionario[funcionario_id] = {
-                        'nome': '',
-                        'horas_trabalhadas': timedelta()
-                    }
-                
-                if registro['tipo'] == 'entrada':
-                    try:
-                        horas_trabalhadas_por_funcionario[funcionario_id]['ultima_entrada'] = datetime.strptime(
-                            registro['data_hora'], '%d-%m-%Y %H:%M:%S'
-                        )
-                    except ValueError:
-                        try:
-                            horas_trabalhadas_por_funcionario[funcionario_id]['ultima_entrada'] = datetime.strptime(
-                                registro['data_hora'], '%d-%m-%Y %H:%M'
-                            )
-                        except ValueError as e:
-                            print(f"[DEBUG] Erro ao parsear entrada: {registro['data_hora']}: {str(e)}")
-                
-                elif registro['tipo'] == 'saída' and 'ultima_entrada' in horas_trabalhadas_por_funcionario[funcionario_id]:
-                    try:
-                        try:
-                            saida = datetime.strptime(registro['data_hora'], '%d-%m-%Y %H:%M:%S')
-                        except ValueError:
-                            saida = datetime.strptime(registro['data_hora'], '%d-%m-%Y %H:%M')
-                        
-                        entrada = horas_trabalhadas_por_funcionario[funcionario_id].pop('ultima_entrada')
-                        horas_trabalhadas_por_funcionario[funcionario_id]['horas_trabalhadas'] += saida - entrada
-                    except ValueError as e:
-                        print(f"[DEBUG] Erro ao parsear saída: {registro['data_hora']}: {str(e)}")
-            
-            # Buscar nomes dos funcionários
-            for funcionario_id, dados in horas_trabalhadas_por_funcionario.items():
-                try:
-                    funcionario = tabela_funcionarios.get_item(Key={'id': funcionario_id})
-                    dados['nome'] = funcionario.get('Item', {}).get('nome', 'Desconhecido')
-                except Exception as e:
-                    print(f"[DEBUG] Erro ao buscar nome do funcionário {funcionario_id}: {str(e)}")
-                    dados['nome'] = 'Desconhecido'
-            
-            resultado = [
-                {
-                    'funcionario': dados['nome'],
-                    'funcionario_id': funcionario_id,
-                    'horas_trabalhadas': str(dados['horas_trabalhadas'])
-                }
-                for funcionario_id, dados in horas_trabalhadas_por_funcionario.items()
-            ]
-            
-            return jsonify(resultado)
-            
-        except Exception as e:
-            print(f"[DEBUG] Erro ao calcular horas: {str(e)}")
-            # Em caso de erro no cálculo, retornar registros simples
-            return jsonify(registros)
+        # SEMPRE retornar registros individuais completos
+        print(f"[DEBUG] Retornando {len(registros)} registros individuais")
+        return jsonify(registros)
             
     except Exception as e:
         print(f"Erro geral ao filtrar registros: {str(e)}")
+        return jsonify({'error': 'Erro interno no servidor', 'message': str(e)}), 500
+
+@routes.route('/registros/resumo', methods=['GET'])
+@token_required
+def listar_registros_resumo(payload):
+    """
+    Endpoint para retornar resumo agregado de horas trabalhadas, extras e atrasos por funcionário
+    """
+    data_inicio = request.args.get('inicio')
+    data_fim = request.args.get('fim')
+    nome_funcionario = request.args.get('nome')
+    funcionario_id = request.args.get('funcionario_id')
+    
+    try:
+        # Verificar se é um token de funcionário tentando acessar
+        tipo = payload.get('tipo')
+        if tipo == 'funcionario':
+            return jsonify({'error': 'Acesso negado. Funcionários não podem acessar resumo de outros'}), 403
+        
+        empresa_id = payload.get('company_id')
+        print(f"[DEBUG RESUMO] empresa_id: {empresa_id}")
+        
+        if not empresa_id:
+            return jsonify({'error': 'Empresa ID não encontrado no token'}), 400
+        
+        # Buscar configurações da empresa
+        try:
+            config_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+            configuracoes = config_response.get('Item', {})
+            print(f"[DEBUG RESUMO] Configurações: {configuracoes}")
+        except Exception as e:
+            print(f"[DEBUG RESUMO] Erro ao buscar configurações: {e}")
+            configuracoes = {}
+        
+        # Valores padrão
+        tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
+        hora_extra_entrada_antecipada = configuracoes.get('hora_extra_entrada_antecipada', False)
+        arredondamento_horas_extras = int(configuracoes.get('arredondamento_horas_extras', 5))
+        intervalo_automatico = configuracoes.get('intervalo_automatico', False)
+        duracao_intervalo = int(configuracoes.get('duracao_intervalo', 60))
+        
+        funcionarios_filtrados = []
+        
+        # Buscar funcionários da empresa
+        try:
+            filtro_func = Attr('company_id').eq(empresa_id)
+            if nome_funcionario:
+                filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
+            
+            response_func = tabela_funcionarios.scan(FilterExpression=filtro_func)
+            funcionarios_filtrados = response_func.get('Items', [])
+            print(f"[DEBUG RESUMO] Funcionários encontrados: {len(funcionarios_filtrados)}")
+        except Exception as e:
+            print(f"[DEBUG RESUMO] Erro ao buscar funcionários: {str(e)}")
+            return jsonify({'error': 'Erro ao buscar funcionários da empresa'}), 500
+        
+        # Filtrar por funcionario_id se fornecido
+        if funcionario_id:
+            funcionarios_filtrados = [f for f in funcionarios_filtrados if f['id'] == funcionario_id]
+        
+        if not funcionarios_filtrados:
+            print("[DEBUG RESUMO] Nenhum funcionário encontrado")
+            return jsonify([])
+        
+        # Buscar registros usando o novo schema
+        try:
+            registros_raw = []
+            func_ids = [f['id'] for f in funcionarios_filtrados]
+            
+            # Buscar registros para cada funcionário
+            for func_id in func_ids:
+                if data_inicio and data_fim:
+                    # Usar query com composite key
+                    key_condition = Key('company_id').eq(empresa_id) & Key('employee_id#date_time').between(
+                        f"{func_id}#{data_inicio} 00:00:00",
+                        f"{func_id}#{data_fim} 23:59:59"
+                    )
+                    response = tabela_registros.query(KeyConditionExpression=key_condition)
+                else:
+                    # Scan com filtro se não tem data
+                    filtro = Attr('company_id').eq(empresa_id)
+                    response = tabela_registros.scan(FilterExpression=filtro)
+                
+                registros_raw.extend(response.get('Items', []))
+            
+            print(f"[DEBUG RESUMO] Registros raw encontrados: {len(registros_raw)}")
+            
+            # Converter schema novo para antigo
+            registros = []
+            for reg in registros_raw:
+                composite_key = reg.get('employee_id#date_time', '')
+                if '#' in composite_key:
+                    employee_id, data_hora = composite_key.split('#', 1)
+                    
+                    # Converter data de YYYY-MM-DD para DD-MM-YYYY
+                    try:
+                        data_part, hora_part = data_hora.split(' ')
+                        yyyy, mm, dd = data_part.split('-')
+                        data_hora_formatada = f"{dd}-{mm}-{yyyy} {hora_part}"
+                    except (ValueError, IndexError) as e:
+                        print(f"[DEBUG RESUMO] Erro ao formatar data {data_hora}: {e}")
+                        data_hora_formatada = data_hora
+                    
+                    registro_formatado = {
+                        'funcionario_id': employee_id,
+                        'data_hora': data_hora_formatada,
+                        'tipo': reg.get('tipo'),
+                        'funcionario_nome': reg.get('funcionario_nome')
+                    }
+                    registros.append(registro_formatado)
+            
+            print(f"[DEBUG RESUMO] Registros formatados: {len(registros)}")
+        except Exception as e:
+            print(f"[DEBUG RESUMO] Erro ao buscar registros: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Erro ao buscar registros: {str(e)}'}), 500
+        
+        # Agrupar registros por funcionário e data
+        registros_por_funcionario_data = {}
+        for reg in registros:
+            func_id = reg.get('funcionario_id')
+            data_hora_completa = reg.get('data_hora', '')
+            
+            if not func_id or not data_hora_completa:
+                continue
+                
+            data = data_hora_completa.split(' ')[0]  # DD-MM-YYYY
+            
+            if func_id not in registros_por_funcionario_data:
+                registros_por_funcionario_data[func_id] = {}
+            
+            if data not in registros_por_funcionario_data[func_id]:
+                registros_por_funcionario_data[func_id][data] = []
+            
+            registros_por_funcionario_data[func_id][data].append(reg)
+        
+        # Calcular resumo para cada funcionário
+        resultado_resumo = []
+        
+        for funcionario in funcionarios_filtrados:
+            func_id = funcionario['id']
+            func_nome = funcionario.get('nome', 'Desconhecido')
+            horario_entrada_esperado = funcionario.get('horario_entrada')
+            horario_saida_esperado = funcionario.get('horario_saida')
+            
+            total_horas_trabalhadas_min = 0
+            total_horas_extras_min = 0
+            total_atrasos_min = 0
+            
+            # Se o funcionário tem registros
+            if func_id in registros_por_funcionario_data:
+                for data, regs_do_dia in registros_por_funcionario_data[func_id].items():
+                    # Ordenar registros por hora
+                    regs_do_dia.sort(key=lambda x: x['data_hora'])
+                    
+                    # Encontrar primeira entrada e última saída
+                    entrada = None
+                    saida = None
+                    
+                    for reg in regs_do_dia:
+                        if reg['tipo'] == 'entrada' and not entrada:
+                            entrada = reg['data_hora']
+                        elif reg['tipo'] == 'saída':
+                            saida = reg['data_hora']
+                    
+                    if entrada and saida:
+                        try:
+                            # Converter para datetime
+                            entrada_dt = datetime.strptime(entrada, '%d-%m-%Y %H:%M:%S')
+                            saida_dt = datetime.strptime(saida, '%d-%m-%Y %H:%M:%S')
+                            
+                            # Calcular horas trabalhadas brutas
+                            horas_brutas = saida_dt - entrada_dt
+                            horas_brutas_min = int(horas_brutas.total_seconds() / 60)
+                            
+                            # Subtrair intervalo se configurado
+                            if intervalo_automatico:
+                                horas_brutas_min = max(0, horas_brutas_min - duracao_intervalo)
+                            
+                            # Se tem horários esperados, calcular extras e atrasos
+                            if horario_entrada_esperado and horario_saida_esperado:
+                                try:
+                                    entrada_esperada = datetime.strptime(f"{data} {horario_entrada_esperado}", '%d-%m-%Y %H:%M')
+                                    saida_esperada = datetime.strptime(f"{data} {horario_saida_esperado}", '%d-%m-%Y %H:%M')
+                                    
+                                    # Atraso (descontando tolerância)
+                                    atraso_real = max(0, int((entrada_dt - entrada_esperada).total_seconds() / 60))
+                                    atraso_min = max(0, atraso_real - tolerancia_atraso)
+                                    
+                                    # Horas extras após saída esperada
+                                    if saida_dt > saida_esperada:
+                                        horas_extras = saida_dt - saida_esperada
+                                        horas_extras_min_calc = int(horas_extras.total_seconds() / 60)
+                                        
+                                        # Arredondar horas extras
+                                        if arredondamento_horas_extras > 0:
+                                            horas_extras_min_calc = (horas_extras_min_calc // arredondamento_horas_extras) * arredondamento_horas_extras
+                                        
+                                        horas_extras_min = horas_extras_min_calc
+                                    else:
+                                        horas_extras_min = 0
+                                    
+                                    # Horas extras por entrada antecipada (se configurado)
+                                    if hora_extra_entrada_antecipada and entrada_dt < entrada_esperada:
+                                        antecipacao = entrada_esperada - entrada_dt
+                                        antecipacao_min = int(antecipacao.total_seconds() / 60)
+                                        if arredondamento_horas_extras > 0:
+                                            antecipacao_min = (antecipacao_min // arredondamento_horas_extras) * arredondamento_horas_extras
+                                        horas_extras_min += antecipacao_min
+                                    
+                                    # Horas trabalhadas = horário esperado (se trabalhou pelo menos isso)
+                                    jornada_esperada_min = int((saida_esperada - entrada_esperada).total_seconds() / 60)
+                                    if intervalo_automatico:
+                                        jornada_esperada_min -= duracao_intervalo
+                                    
+                                    horas_trabalhadas_min = min(horas_brutas_min, jornada_esperada_min)
+                                    
+                                    total_horas_trabalhadas_min += horas_trabalhadas_min
+                                    total_horas_extras_min += horas_extras_min
+                                    total_atrasos_min += atraso_min
+                                    
+                                except Exception as e:
+                                    print(f"[DEBUG RESUMO] Erro ao processar horários esperados: {e}")
+                                    # Fallback: usar horas brutas
+                                    total_horas_trabalhadas_min += horas_brutas_min
+                            else:
+                                # Sem horários esperados: todas são horas trabalhadas
+                                total_horas_trabalhadas_min += horas_brutas_min
+                        
+                        except Exception as e:
+                            print(f"[DEBUG RESUMO] Erro ao calcular horas para {func_id} em {data}: {str(e)}")
+            
+            # Formatar para HH:MM
+            def min_para_hhmm(minutos):
+                horas = minutos // 60
+                mins = minutos % 60
+                return f"{horas:02d}:{mins:02d}"
+            
+            resultado_resumo.append({
+                'funcionario_id': func_id,
+                'funcionario_nome': func_nome,
+                'horas_trabalhadas': min_para_hhmm(total_horas_trabalhadas_min),
+                'horas_extras': min_para_hhmm(total_horas_extras_min),
+                'atrasos': min_para_hhmm(total_atrasos_min),
+                'horas_trabalhadas_minutos': total_horas_trabalhadas_min,
+                'horas_extras_minutos': total_horas_extras_min,
+                'atraso_minutos': total_atrasos_min
+            })
+        
+        print(f"[DEBUG RESUMO] Retornando resumo com {len(resultado_resumo)} funcionários")
+        return jsonify(resultado_resumo)
+    
+    except Exception as e:
+        print(f"[DEBUG RESUMO] Erro geral: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'Erro interno no servidor', 'message': str(e)}), 500
 
 @routes.route('/funcionarios/nome', methods=['GET'])
@@ -598,9 +1470,9 @@ def listar_registros(payload):
 def buscar_nomes(payload):
     nome_parcial = request.args.get('nome', '')
     try:
-        empresa_id = payload.get('empresa_id')
+        empresa_id = payload.get('company_id')
         response = tabela_funcionarios.scan(
-            FilterExpression=Attr('empresa_id').eq(empresa_id) & Attr('nome').contains(nome_parcial)
+            FilterExpression=Attr('company_id').eq(empresa_id) & Attr('nome').contains(nome_parcial)
         )
         nomes = [funcionario['nome'] for funcionario in response['Items']]
         return jsonify(nomes)
@@ -672,24 +1544,93 @@ def registrar_ponto_manual(payload):
         
     # Verifica se o funcionário existe e se pertence à empresa do usuário
     empresa_nome = payload.get('empresa_nome')
-    empresa_id = payload.get('empresa_id')
-    response = tabela_funcionarios.get_item(Key={'id': funcionario_id})
+    empresa_id = payload.get('company_id')
+    # Tabela Employees usa company_id + id como chave composta
+    response = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': funcionario_id})
     funcionario = response.get('Item')
-    if not funcionario or funcionario.get('empresa_nome') != empresa_nome or funcionario.get('empresa_id') != empresa_id:
+    if not funcionario:
         return jsonify({'mensagem': 'Funcionário não encontrado'}), 404
+    
+    # Verificar se funcionário está ativo (exclusão lógica)
+    is_active = funcionario.get('is_active', funcionario.get('ativo', True))
+    if not is_active:
+        return jsonify({
+            'mensagem': 'Funcionário inativo. Não é possível registrar ponto.',
+            'deleted_at': funcionario.get('deleted_at')
+        }), 403
         
     id_registro = str(uuid.uuid4())
+    
+    # Tabela TimeRecords usa: company_id (HASH) + employee_id#date_time (RANGE)
+    sort_key = f"{funcionario_id}#{data_hora}"
+    
+    # Preparar o registro base
+    registro = {
+        'company_id': empresa_id,           # Partition key
+        'employee_id#date_time': sort_key,  # Sort key
+        'registro_id': id_registro,
+        'funcionario_id': funcionario_id,
+        'employee_id': funcionario_id,      # Manter ambos para compatibilidade
+        'data_hora': data_hora,
+        'tipo': tipo,
+        'empresa_nome': empresa_nome
+    }
+    
+    # Se for saída, calcular horas extras
+    if tipo == 'saída':
+        try:
+            # Buscar configurações da empresa
+            config_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+            
+            configuracoes = config_response.get('Item', {
+                'tolerancia_atraso': 5,
+                'hora_extra_entrada_antecipada': False,
+                'arredondamento_horas_extras': '5',
+                'intervalo_automatico': False,
+                'duracao_intervalo': 60
+            })
+            
+            # Pegar horários esperados do funcionário
+            horario_entrada_esperado = funcionario.get('horario_entrada')
+            horario_saida_esperado = funcionario.get('horario_saida')
+            
+            # Buscar registros do mesmo dia para encontrar a entrada
+            data_registro = data_hora.split(' ')[0]  # YYYY-MM-DD
+            response_registros = tabela_registros.scan(
+                FilterExpression=Attr('funcionario_id').eq(funcionario_id) & Attr('data_hora').begins_with(data_registro)
+            )
+            registros_do_dia = sorted(response_registros.get('Items', []), key=lambda x: x['data_hora'])
+            
+            if registros_do_dia and horario_entrada_esperado and horario_saida_esperado:
+                # Pegar horários reais
+                horario_entrada_real = registros_do_dia[0]['data_hora'].split(' ')[1][:5]  # HH:MM
+                horario_saida_real = data_hora.split(' ')[1][:5]  # HH:MM
+                
+                # Calcular
+                calculo = calculate_overtime(
+                    horario_entrada_esperado,
+                    horario_saida_esperado,
+                    horario_entrada_real,
+                    horario_saida_real,
+                    configuracoes,
+                    configuracoes.get('intervalo_automatico', False),
+                    configuracoes.get('duracao_intervalo', 60)
+                )
+                
+                # Adicionar informações ao registro
+                registro['horas_extras_minutos'] = calculo['horas_extras_minutos']
+                registro['atraso_minutos'] = calculo['atraso_minutos']
+                registro['entrada_antecipada_minutos'] = calculo['entrada_antecipada_minutos']
+                registro['saida_antecipada_minutos'] = calculo['saida_antecipada_minutos']
+                registro['horas_trabalhadas_minutos'] = calculo['horas_trabalhadas_minutos']
+                registro['horas_extras_formatado'] = format_minutes_to_time(calculo['horas_extras_minutos'])
+                registro['atraso_formatado'] = format_minutes_to_time(calculo['atraso_minutos'])
+        except Exception as e:
+            print(f"Erro ao calcular horas extras no ponto manual: {str(e)}")
+            # Continua o registro mesmo se falhar o cálculo
+    
     # Salva no DynamoDB
-    tabela_registros.put_item(
-        Item={
-            'registro_id': id_registro,
-            'funcionario_id': funcionario_id,
-            'data_hora': data_hora,
-            'tipo': tipo,
-            'empresa_nome': empresa_nome,
-            'empresa_id': empresa_id
-        }
-    )
+    tabela_registros.put_item(Item=registro)
     return jsonify({'mensagem': f'Ponto manual registrado como {tipo} com sucesso'}), 200
 
 @routes.route('/registros_protegido', methods=['GET'])
@@ -704,16 +1645,11 @@ def listar_registros_protegido(payload):
     return jsonify(registros)
 
 @routes.route('/login', methods=['POST', 'OPTIONS'])
-@cross_origin()
 def login():
+    # OPTIONS é tratado automaticamente pelo Flask-CORS
     if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        return response
-        
+        return '', 200
+    
     from auth import verify_password, get_secret_key  # Importar a nova função
     import datetime
     import jwt
@@ -727,48 +1663,46 @@ def login():
         usuario_id = data.get('usuario_id')
         senha = data.get('senha')
 
-        # Buscar o usuário na tabela UsuarioEmpresa pelo usuario_id
-        response = tabela_usuarioempresa.get_item(Key={'usuario_id': usuario_id})
-        usuario = response.get('Item')
+        # Buscar o usuário na tabela UserCompany (scan por user_id)
+        response = tabela_usuarioempresa.scan(
+            FilterExpression=Attr('user_id').eq(usuario_id)
+        )
+        
+        items = response.get('Items', [])
+        if not items:
+            return jsonify({'error': 'Credenciais inválidas'}), 401
+        
+        usuario = items[0]  # Pegar o primeiro resultado
 
-        if not usuario or not verify_password(senha, usuario['senha_hash']):
+        if not verify_password(senha, usuario['senha_hash']):
             return jsonify({'error': 'Credenciais inválidas'}), 401
 
         # ✅ CORREÇÃO: Usar get_secret_key() para garantir string
         secret_key = get_secret_key()
         
-        # Gerar token com info da empresa, incluindo empresa_id
+        # Gerar token com info da empresa
         token = jwt.encode({
-            'usuario_id': usuario['usuario_id'],
+            'usuario_id': usuario['user_id'],
             'empresa_nome': usuario['empresa_nome'],
-            'empresa_id': usuario.get('empresa_id'),
+            'company_id': usuario['company_id'],  # Usar company_id no token
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=12)
         }, secret_key, algorithm="HS256")
         
         print(f"[DEBUG] Token gerado com SECRET_KEY tipo: {type(secret_key)}")
         
-        response = jsonify({'token': token})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        return response
+        return jsonify({'token': token})
         
     except Exception as e:
         print(f"Erro no login: {str(e)}")
-        response = jsonify({'error': str(e)})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        return response, 500
+        return jsonify({'error': str(e)}), 500
 
 # Add CORS support to the cadastrar_usuario_empresa route
 @routes.route('/cadastrar_usuario_empresa', methods=['POST', 'OPTIONS'])
-@cross_origin()
 def cadastrar_usuario_empresa():
+    # OPTIONS é tratado automaticamente pelo Flask-CORS
     if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-        return response
-        
+        return '', 200
+    
     from auth import hash_password
     import re
     
@@ -792,40 +1726,419 @@ def cadastrar_usuario_empresa():
         if not re.match(email_regex, email):
             return jsonify({'error': 'Email inválido'}), 400
         
-        # Verifica se usuario_id já existe
-        response = tabela_usuarioempresa.get_item(Key={'usuario_id': usuario_id})
-        if 'Item' in response:
-            return jsonify({'error': 'Usuário já existe com esse usuario_id'}), 400
-        
-        senha_hash = hash_password(senha)
+        # Gerar empresa_id primeiro
         empresa_id = str(uuid.uuid4())
+        senha_hash = hash_password(senha)
         
+        # Debug: Log table info and AWS config
+        import boto3
+        from aws_utils import DYNAMODB_TABLE_USERS
+        print(f"[DEBUG] Tentando scan na tabela: {tabela_usuarioempresa.name}")
+        print(f"[DEBUG] DYNAMODB_TABLE_USERS env var: {DYNAMODB_TABLE_USERS}")
+        print(f"[DEBUG] FilterExpression: Attr('email').eq('{email}')")
+        
+        # Check AWS credentials
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        print(f"[DEBUG] AWS Credentials available: {credentials is not None}")
+        if credentials:
+            print(f"[DEBUG] Access Key ID: {credentials.access_key[:10]}...")
+        
+        # Check region
+        print(f"[DEBUG] DynamoDB Region: {tabela_usuarioempresa.meta.client.meta.region_name}")
+        
+        # Try to list tables
+        try:
+            dynamodb_client = boto3.client('dynamodb', region_name='us-east-1')
+            tables = dynamodb_client.list_tables()
+            print(f"[DEBUG] Available tables: {tables['TableNames']}")
+        except Exception as e:
+            print(f"[DEBUG] Error listing tables: {e}")
+        
+        # Verifica se email já existe (verificar unicidade)
+        try:
+            response = tabela_usuarioempresa.scan(
+                FilterExpression=Attr('email').eq(email)
+            )
+            print(f"[DEBUG] Scan successful, items found: {len(response.get('Items', []))}")
+            if response.get('Items'):
+                return jsonify({'error': 'Email já cadastrado'}), 400
+        except Exception as scan_error:
+            print(f"[ERROR] Scan failed: {str(scan_error)}")
+            print(f"[ERROR] Exception type: {type(scan_error).__name__}")
+            import traceback
+            print(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+            raise
+        
+        # Inserir na tabela UserCompany (usa company_id + user_id como chaves)
         tabela_usuarioempresa.put_item(Item={
-            'usuario_id': usuario_id,
+            'company_id': empresa_id,  # Partition key
+            'user_id': usuario_id,     # Sort key
             'email': email,
             'empresa_nome': empresa_nome,
-            'empresa_id': empresa_id,
             'senha_hash': senha_hash,
             'data_criacao': datetime.now().isoformat()
         })
         
-        response = jsonify({'success': True, 'usuario_id': usuario_id, 'empresa_id': empresa_id})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        return response, 201
+        return jsonify({'success': True, 'usuario_id': usuario_id, 'empresa_id': empresa_id}), 201
         
     except Exception as e:
         print(f"Erro ao cadastrar usuário empresa: {str(e)}")
-        response = jsonify({'error': str(e)})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        return response, 500
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/funcionario/login', methods=['POST', 'OPTIONS'])
+def login_funcionario():
+    """
+    Login para funcionários (para app mobile)
+    Requer: email e senha
+    Retorna: token JWT com funcionario_id, nome, empresa_id
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    from auth import verify_password, get_secret_key
+    import datetime
+    import jwt
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON inválido ou ausente'}), 400
+        
+        email = data.get('email')
+        senha = data.get('senha')
+        
+        if not email or not senha:
+            return jsonify({'error': 'Email e senha são obrigatórios'}), 400
+        
+        # Buscar funcionário por email
+        print(f"[LOGIN FUNC] Buscando funcionário com email: {email}")
+        response = tabela_funcionarios.scan(
+            FilterExpression=Attr('email').eq(email)
+        )
+        
+        items = response.get('Items', [])
+        if not items:
+            print(f"[LOGIN FUNC] Nenhum funcionário encontrado com email: {email}")
+            return jsonify({'error': 'Email ou senha inválidos'}), 401
+        
+        funcionario = items[0]
+        print(f"[LOGIN FUNC] Funcionário encontrado: {funcionario.get('nome')}")
+        
+        # Verificar se funcionário está ativo (exclusão lógica)
+        is_active = funcionario.get('is_active', funcionario.get('ativo', True))
+        if not is_active:
+            print(f"[LOGIN FUNC] Funcionário inativo (excluído em {funcionario.get('deleted_at')})")
+            return jsonify({'error': 'Acesso negado. Funcionário inativo. Contate o RH.'}), 403
+        
+        # Verificar se tem senha cadastrada
+        if not funcionario.get('senha_hash'):
+            print(f"[LOGIN FUNC] Funcionário não tem senha cadastrada")
+            return jsonify({'error': 'Funcionário não tem acesso configurado. Contate o RH.'}), 403
+        
+        # Verificar senha
+        if not verify_password(senha, funcionario['senha_hash']):
+            print(f"[LOGIN FUNC] Senha inválida")
+            return jsonify({'error': 'Email ou senha inválidos'}), 401
+        
+        # Gerar token JWT
+        secret_key = get_secret_key()
+        token = jwt.encode({
+            'funcionario_id': funcionario['id'],
+            'nome': funcionario['nome'],
+            'empresa_nome': funcionario.get('empresa_nome', ''),
+            'company_id': funcionario['company_id'],
+            'cargo': funcionario.get('cargo', ''),
+            'tipo': 'funcionario',  # Identificar que é login de funcionário
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+        }, secret_key, algorithm="HS256")
+        
+        print(f"[LOGIN FUNC] Login bem-sucedido para: {funcionario.get('nome')}")
+        
+        return jsonify({
+            'token': token,
+            'funcionario': {
+                'id': funcionario['id'],
+                'nome': funcionario['nome'],
+                'cargo': funcionario.get('cargo', ''),
+                'email': funcionario.get('email', ''),
+                'horario_entrada': funcionario.get('horario_entrada', ''),
+                'horario_saida': funcionario.get('horario_saida', '')
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"[LOGIN FUNC] Erro no login: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/funcionario/registros', methods=['GET'])
+@token_required
+def meus_registros(payload):
+    """
+    Endpoint para funcionário ver seus próprios registros
+    Requer token de funcionário
+    """
+    try:
+        # Verificar se é um token de funcionário
+        tipo = payload.get('tipo')
+        if tipo != 'funcionario':
+            return jsonify({'error': 'Acesso permitido apenas para funcionários'}), 403
+        
+        funcionario_id = payload.get('funcionario_id')
+        empresa_id = payload.get('company_id')
+        
+        # Parâmetros de filtro
+        data_inicio = request.args.get('inicio')
+        data_fim = request.args.get('fim')
+        
+        print(f"[MEUS REGISTROS] Buscando registros de {funcionario_id}")
+        
+        # Buscar registros do funcionário
+        filtro = Attr('company_id').eq(empresa_id) & Attr('funcionario_id').eq(funcionario_id)
+        
+        if data_inicio and data_fim:
+            filtro = filtro & Attr('data_hora').between(
+                f"{data_inicio} 00:00:00",
+                f"{data_fim} 23:59:59"
+            )
+        
+        response = tabela_registros.scan(FilterExpression=filtro)
+        registros = response.get('Items', [])
+        
+        # Formatar datas para DD-MM-YYYY
+        for reg in registros:
+            if 'data_hora' in reg:
+                try:
+                    data_part, hora_part = reg['data_hora'].split(' ')
+                    yyyy, mm, dd = data_part.split('-')
+                    reg['data_hora'] = f"{dd}-{mm}-{yyyy} {hora_part}"
+                except (ValueError, IndexError) as e:
+                    print(f"[DEBUG] Erro ao formatar data: {e}")
+        
+        print(f"[MEUS REGISTROS] Encontrados {len(registros)} registros")
+        
+        return jsonify(registros), 200
+        
+    except Exception as e:
+        print(f"[MEUS REGISTROS] Erro: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/horarios', methods=['GET', 'OPTIONS'])
+@token_required
+def listar_horarios_preset(payload):
+    """Lista horários únicos extraídos dos funcionários da empresa"""
+    try:
+        empresa_id = payload.get('company_id')
+        
+        # Buscar todos os funcionários da empresa
+        response = tabela_funcionarios.scan(
+            FilterExpression=Attr('company_id').eq(empresa_id)
+        )
+        funcionarios = response.get('Items', [])
+        
+        # Extrair horários únicos
+        horarios_unicos = {}
+        for func in funcionarios:
+            entrada = func.get('horario_entrada')
+            saida = func.get('horario_saida')
+            
+            if entrada and saida:
+                # Usar entrada-saida como chave única
+                key = f"{entrada}-{saida}"
+                if key not in horarios_unicos:
+                    horarios_unicos[key] = {
+                        'id': key,
+                        'horario_entrada': entrada,
+                        'horario_saida': saida,
+                        'nome': f"{entrada} às {saida}"
+                    }
+        
+        # Converter dict para lista
+        horarios = list(horarios_unicos.values())
+        
+        return jsonify(horarios)
+    except Exception as e:
+        print(f"Erro ao listar horários: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/horarios', methods=['POST'])
+@token_required
+def criar_horario_preset(payload):
+    """
+    Endpoint mantido para compatibilidade com frontend.
+    Horários agora são salvos diretamente nos funcionários.
+    Este endpoint apenas valida os dados.
+    """
+    try:
+        empresa_id = payload.get('company_id')
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'JSON inválido ou ausente'}), 400
+        
+        horario_entrada = data.get('horario_entrada')  # ex: "08:00"
+        horario_saida = data.get('horario_saida')  # ex: "17:00"
+        
+        if not all([horario_entrada, horario_saida]):
+            return jsonify({'error': 'horario_entrada e horario_saida são obrigatórios'}), 400
+        
+        # Validar formato HH:MM
+        import re
+        time_pattern = r'^([01]\d|2[0-3]):([0-5]\d)$'
+        if not re.match(time_pattern, horario_entrada) or not re.match(time_pattern, horario_saida):
+            return jsonify({'error': 'Formato de horário inválido. Use HH:MM'}), 400
+        
+        # Horários são salvos diretamente nos funcionários agora
+        # Apenas retornar sucesso
+        horario_id = f"{horario_entrada}-{horario_saida}"
+        nome = f"{horario_entrada} às {horario_saida}"
+        
+        return jsonify({
+            'success': True,
+            'id': horario_id,
+            'nome': nome,
+            'horario_entrada': horario_entrada,
+            'horario_saida': horario_saida
+        }), 201
+        
+    except Exception as e:
+        print(f"Erro ao criar horário preset: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# ========== CONFIGURAÇÕES DA EMPRESA ==========
+@routes.route('/configuracoes', methods=['GET', 'PUT', 'OPTIONS'])
+def configuracoes_empresa():
+    """Gerencia configurações da empresa (GET/PUT)"""
+    # Tratar OPTIONS primeiro (CORS preflight)
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    # Verificar token para GET e PUT
+    token = None
+    if 'Authorization' in request.headers:
+        auth_header = request.headers['Authorization']
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+    
+    if not token:
+        return jsonify({'error': 'Token ausente'}), 401
+    
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido'}), 401
+    
+    empresa_id = payload.get('company_id')
+    
+    # GET - Obter configurações
+    if request.method == 'GET':
+        try:
+            # Buscar configurações
+            response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+            
+            if 'Item' in response:
+                return jsonify(response['Item']), 200
+            else:
+                # Retornar configurações padrão
+                configuracoes_padrao = {
+                    'company_id': empresa_id,
+                    'tolerancia_atraso': 5,  # 5 minutos
+                    'hora_extra_entrada_antecipada': False,
+                    'arredondamento_horas_extras': '5',  # 5, 10, 15 ou 'exato'
+                    'intervalo_automatico': False,
+                    'duracao_intervalo': 60,  # minutos
+                    'compensar_saldo_horas': False
+                }
+                return jsonify(configuracoes_padrao), 200
+                
+        except Exception as e:
+            print(f"Erro ao obter configurações: {str(e)}")
+            return jsonify({'error': str(e)}), 500
+    
+    # PUT - Atualizar configurações
+    elif request.method == 'PUT':
+        try:
+            data = request.get_json()
+            
+            tolerancia_atraso = data.get('tolerancia_atraso', 5)
+            hora_extra_entrada_antecipada = data.get('hora_extra_entrada_antecipada', False)
+            arredondamento_horas_extras = data.get('arredondamento_horas_extras', '5')
+            intervalo_automatico = data.get('intervalo_automatico', False)
+            duracao_intervalo = data.get('duracao_intervalo', 60)
+            compensar_saldo_horas = data.get('compensar_saldo_horas', False)
+            
+            # Novos campos de geolocalização
+            latitude_empresa = data.get('latitude_empresa')
+            longitude_empresa = data.get('longitude_empresa')
+            raio_permitido = data.get('raio_permitido', 100)  # metros
+            exigir_localizacao = data.get('exigir_localizacao', False)
+            
+            # Validações
+            if not isinstance(tolerancia_atraso, int) or tolerancia_atraso < 0:
+                return jsonify({'error': 'Tolerância de atraso deve ser um número inteiro positivo'}), 400
+            
+            if arredondamento_horas_extras not in ['5', '10', '15', 'exato']:
+                return jsonify({'error': 'Arredondamento deve ser 5, 10, 15 ou exato'}), 400
+            
+            if not isinstance(duracao_intervalo, int) or duracao_intervalo < 0:
+                return jsonify({'error': 'Duração do intervalo deve ser um número inteiro positivo'}), 400
+            
+            # Validar geolocalização
+            if exigir_localizacao and (latitude_empresa is None or longitude_empresa is None):
+                return jsonify({'error': 'Latitude e longitude são obrigatórias quando geolocalização está ativa'}), 400
+            
+            if raio_permitido and (not isinstance(raio_permitido, int) or raio_permitido < 0):
+                return jsonify({'error': 'Raio permitido deve ser um número inteiro positivo'}), 400
+            
+            # Preparar item para salvar
+            config_item = {
+                'company_id': empresa_id,
+                'tolerancia_atraso': tolerancia_atraso,
+                'hora_extra_entrada_antecipada': hora_extra_entrada_antecipada,
+                'arredondamento_horas_extras': arredondamento_horas_extras,
+                'intervalo_automatico': intervalo_automatico,
+                'duracao_intervalo': duracao_intervalo,
+                'compensar_saldo_horas': compensar_saldo_horas,
+                'exigir_localizacao': exigir_localizacao,
+                'raio_permitido': raio_permitido,
+                'data_atualizacao': datetime.now().isoformat()
+            }
+            
+            # Adicionar coordenadas se fornecidas
+            if latitude_empresa is not None:
+                config_item['latitude_empresa'] = float(latitude_empresa)
+            if longitude_empresa is not None:
+                config_item['longitude_empresa'] = float(longitude_empresa)
+            
+            # Salvar configurações
+            tabela_configuracoes.put_item(Item=config_item)
+            
+            response_data = {
+                'success': True,
+                'tolerancia_atraso': tolerancia_atraso,
+                'hora_extra_entrada_antecipada': hora_extra_entrada_antecipada,
+                'arredondamento_horas_extras': arredondamento_horas_extras,
+                'intervalo_automatico': intervalo_automatico,
+                'duracao_intervalo': duracao_intervalo,
+                'compensar_saldo_horas': compensar_saldo_horas,
+                'exigir_localizacao': exigir_localizacao,
+                'raio_permitido': raio_permitido
+            }
+            
+            if latitude_empresa is not None:
+                response_data['latitude_empresa'] = latitude_empresa
+            if longitude_empresa is not None:
+                response_data['longitude_empresa'] = longitude_empresa
+            
+            return jsonify(response_data), 200
+            
+        except Exception as e:
+            print(f"Erro ao atualizar configurações: {str(e)}")
+            return jsonify({'error': str(e)}), 500
 
 @routes.route('/teste', methods=['GET', 'OPTIONS'])
-@cross_origin()
 def teste():
-    if request.method == 'OPTIONS':
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
-        return response
     return jsonify({'mensagem': 'Rota de teste funcionando!'}), 200
