@@ -79,14 +79,28 @@ const EmployeesPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const response = await apiService.getEmployees();
-      const employeesList = response.funcionarios || [];
+      
+      // Tentar diferentes formas de extrair a lista de funcionários
+      let employeesList = [];
+      if (response.funcionarios) {
+        employeesList = response.funcionarios;
+      } else if (response.data && response.data.funcionarios) {
+        employeesList = response.data.funcionarios;
+      } else if (Array.isArray(response)) {
+        employeesList = response;
+      } else if (Array.isArray(response.data)) {
+        employeesList = response.data;
+      }
+      
       console.log('[EmployeesPage] Funcionários carregados:', employeesList);
-      console.log('[EmployeesPage] Exemplo de foto_url:', employeesList[0]?.foto_url);
       setEmployees(employeesList);
     } catch (err: any) {
       console.error('Error loading employees:', err);
       setError('Erro ao carregar funcionários');
-      toast.error('Erro ao carregar funcionários');
+      // Não mostrar toast de erro no carregamento inicial para evitar spam
+      if (employees.length === 0) {
+        toast.error('Erro ao carregar funcionários');
+      }
     } finally {
       setLoading(false);
     }
@@ -108,13 +122,30 @@ const EmployeesPage: React.FC = () => {
   const handleCreateEmployee = async (formData: FormData) => {
     try {
       setSubmitting(true);
-      await apiService.createEmployee(formData);
-      toast.success('Funcionário cadastrado com sucesso!');
-      setFormOpen(false);
-      loadEmployees();
+      const response = await apiService.createEmployee(formData);
+      
+      // Verificar se a resposta indica sucesso
+      if (response && (response.success || response.status === 'success' || response.message)) {
+        toast.success('Funcionário cadastrado com sucesso!');
+        setFormOpen(false);
+        loadEmployees();
+      } else {
+        // Se não há indicação clara de sucesso, ainda assim considerar como sucesso se não houver erro
+        toast.success('Funcionário cadastrado com sucesso!');
+        setFormOpen(false);
+        loadEmployees();
+      }
     } catch (err: any) {
       console.error('Error creating employee:', err);
-      toast.error('Erro ao cadastrar funcionário');
+      
+      // Verificar se é realmente um erro ou se foi criado com sucesso
+      if (err.response?.status === 200 || err.response?.status === 201) {
+        toast.success('Funcionário cadastrado com sucesso!');
+        setFormOpen(false);
+        loadEmployees();
+      } else {
+        toast.error(err.response?.data?.message || 'Erro ao cadastrar funcionário');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -125,14 +156,33 @@ const EmployeesPage: React.FC = () => {
 
     try {
       setSubmitting(true);
-      await apiService.updateEmployee(editingEmployee.id, formData);
-      toast.success('Funcionário atualizado com sucesso!');
-      setFormOpen(false);
-      setEditingEmployee(null);
-      loadEmployees();
+      const response = await apiService.updateEmployee(editingEmployee.id, formData);
+      
+      // Verificar se a resposta indica sucesso
+      if (response && (response.success || response.status === 'success' || response.message)) {
+        toast.success('Funcionário atualizado com sucesso!');
+        setFormOpen(false);
+        setEditingEmployee(null);
+        loadEmployees();
+      } else {
+        // Se não há indicação clara de sucesso, ainda assim considerar como sucesso se não houver erro
+        toast.success('Funcionário atualizado com sucesso!');
+        setFormOpen(false);
+        setEditingEmployee(null);
+        loadEmployees();
+      }
     } catch (err: any) {
       console.error('Error updating employee:', err);
-      toast.error('Erro ao atualizar funcionário');
+      
+      // Verificar se é realmente um erro ou se foi atualizado com sucesso
+      if (err.response?.status === 200 || err.response?.status === 201) {
+        toast.success('Funcionário atualizado com sucesso!');
+        setFormOpen(false);
+        setEditingEmployee(null);
+        loadEmployees();
+      } else {
+        toast.error(err.response?.data?.message || 'Erro ao atualizar funcionário');
+      }
     } finally {
       setSubmitting(false);
     }

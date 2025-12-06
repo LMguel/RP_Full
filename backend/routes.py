@@ -44,10 +44,13 @@ def normalizar_string(texto):
 CORS(routes, resources={
     r"/*": {
         "origins": [
-            "http://localhost:3000", 
+            "http://localhost:3000",
+            "http://localhost:3001",
             "https://localhost:3000",
             "http://localhost:5173",  # Vite dev server
-            "http://127.0.0.1:5173"   # Vite alternative
+            "http://127.0.0.1:5173",   # Vite alternative
+            "http://127.0.0.1:3000",
+            "http://192.168.0.39:3000"
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
@@ -1270,26 +1273,39 @@ def listar_registros_resumo(payload):
             print("[DEBUG RESUMO] Nenhum funcionário encontrado")
             return jsonify([])
         
-        # Buscar registros usando o novo schema
+        # Buscar registros usando o novo schema (OTIMIZADO)
         try:
+            print(f"[DEBUG RESUMO] Iniciando busca de registros - Período: {data_inicio} até {data_fim}")
             registros_raw = []
-            func_ids = [f['id'] for f in funcionarios_filtrados]
+            func_ids = [f['id'] for f in funcionarios_filtrados][:10]  # Limitar a 10 funcionários para evitar timeout
             
-            # Buscar registros para cada funcionário
-            for func_id in func_ids:
+            print(f"[DEBUG RESUMO] Buscando para {len(func_ids)} funcionários")
+            
+            # Buscar registros para cada funcionário (com limite)
+            for i, func_id in enumerate(func_ids):
+                print(f"[DEBUG RESUMO] Processando funcionário {i+1}/{len(func_ids)}: {func_id}")
+                
                 if data_inicio and data_fim:
                     # Usar query com composite key
                     key_condition = Key('company_id').eq(empresa_id) & Key('employee_id#date_time').between(
                         f"{func_id}#{data_inicio} 00:00:00",
                         f"{func_id}#{data_fim} 23:59:59"
                     )
-                    response = tabela_registros.query(KeyConditionExpression=key_condition)
+                    response = tabela_registros.query(
+                        KeyConditionExpression=key_condition,
+                        Limit=500  # Limitar para evitar timeout
+                    )
                 else:
-                    # Scan com filtro se não tem data
-                    filtro = Attr('company_id').eq(empresa_id)
-                    response = tabela_registros.scan(FilterExpression=filtro)
+                    # Scan com filtro se não tem data (limitado)
+                    filtro = Attr('company_id').eq(empresa_id) & Attr('funcionario_id').eq(func_id)
+                    response = tabela_registros.scan(
+                        FilterExpression=filtro,
+                        Limit=200  # Limite menor para scan
+                    )
                 
-                registros_raw.extend(response.get('Items', []))
+                items = response.get('Items', [])
+                print(f"[DEBUG RESUMO] Funcionário {func_id}: {len(items)} registros")
+                registros_raw.extend(items)
             
             print(f"[DEBUG RESUMO] Registros raw encontrados: {len(registros_raw)}")
             
@@ -1343,14 +1359,27 @@ def listar_registros_resumo(payload):
             
             registros_por_funcionario_data[func_id][data].append(reg)
         
-        # Calcular resumo para cada funcionário
+        # Calcular resumo para cada funcionário (OTIMIZADO)
         resultado_resumo = []
         
+        print(f"[DEBUG RESUMO] Calculando resumo para {len(funcionarios_filtrados)} funcionários")
+        
+        # Limitar processamento para evitar timeout
+        max_funcionarios = 20  
+        funcionarios_processados = 0
+        
         for funcionario in funcionarios_filtrados:
+            # Parar se atingir limite
+            if funcionarios_processados >= max_funcionarios:
+                print(f"[DEBUG RESUMO] Limite de {max_funcionarios} funcionários atingido")
+                break
+                
             func_id = funcionario['id']
             func_nome = funcionario.get('nome', 'Desconhecido')
             horario_entrada_esperado = funcionario.get('horario_entrada')
             horario_saida_esperado = funcionario.get('horario_saida')
+            
+            print(f"[DEBUG RESUMO] Processando funcionário: {func_nome} ({func_id})")
             
             total_horas_trabalhadas_min = 0
             total_horas_extras_min = 0
@@ -1455,6 +1484,8 @@ def listar_registros_resumo(payload):
                 'horas_extras_minutos': total_horas_extras_min,
                 'atraso_minutos': total_atrasos_min
             })
+            
+            funcionarios_processados += 1
         
         print(f"[DEBUG RESUMO] Retornando resumo com {len(resultado_resumo)} funcionários")
         return jsonify(resultado_resumo)
@@ -1670,12 +1701,12 @@ def login():
         
         items = response.get('Items', [])
         if not items:
-            return jsonify({'error': 'Credenciais inválidas'}), 401
+            return jsonify({'error': 'Login ou senha incorretos'}), 401
         
         usuario = items[0]  # Pegar o primeiro resultado
 
         if not verify_password(senha, usuario['senha_hash']):
-            return jsonify({'error': 'Credenciais inválidas'}), 401
+            return jsonify({'error': 'Login ou senha incorretos'}), 401
 
         # ✅ CORREÇÃO: Usar get_secret_key() para garantir string
         secret_key = get_secret_key()
@@ -2032,17 +2063,28 @@ def configuracoes_empresa():
         return jsonify({'error': 'Token inválido'}), 401
     
     empresa_id = payload.get('company_id')
+    print(f"[CONFIGURACOES] Company ID: {empresa_id}")
+    
+    if not empresa_id:
+        return jsonify({'error': 'Company ID não encontrado no token'}), 401
     
     # GET - Obter configurações
     if request.method == 'GET':
         try:
             # Buscar configurações
+            print(f"[CONFIGURACOES] Buscando configurações para empresa: {empresa_id}")
             response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
             
             if 'Item' in response:
-                return jsonify(response['Item']), 200
+                config_data = response['Item']
+                # Se tem configurações salvas, não é primeiro acesso
+                # Verificar se tem o campo first_configuration_completed
+                is_first_access = not config_data.get('first_configuration_completed', False)
+                config_data['is_first_access'] = is_first_access
+                print(f"[CONFIGURACOES] Configurações encontradas. first_configuration_completed: {config_data.get('first_configuration_completed')}, is_first_access: {is_first_access}")
+                return jsonify(config_data), 200
             else:
-                # Retornar configurações padrão
+                # Retornar configurações padrão com flag de primeiro acesso
                 configuracoes_padrao = {
                     'company_id': empresa_id,
                     'tolerancia_atraso': 5,  # 5 minutos
@@ -2050,7 +2092,8 @@ def configuracoes_empresa():
                     'arredondamento_horas_extras': '5',  # 5, 10, 15 ou 'exato'
                     'intervalo_automatico': False,
                     'duracao_intervalo': 60,  # minutos
-                    'compensar_saldo_horas': False
+                    'compensar_saldo_horas': False,
+                    'is_first_access': True  # Indica que é primeiro acesso
                 }
                 return jsonify(configuracoes_padrao), 200
                 
@@ -2104,7 +2147,8 @@ def configuracoes_empresa():
                 'compensar_saldo_horas': compensar_saldo_horas,
                 'exigir_localizacao': exigir_localizacao,
                 'raio_permitido': raio_permitido,
-                'data_atualizacao': datetime.now().isoformat()
+                'data_atualizacao': datetime.now().isoformat(),
+                'first_configuration_completed': True  # Marca que configuração inicial foi feita
             }
             
             # Adicionar coordenadas se fornecidas

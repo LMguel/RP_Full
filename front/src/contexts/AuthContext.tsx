@@ -7,9 +7,12 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
+  isFirstAccess: boolean;
   login: (credentials: LoginRequest) => Promise<boolean>;
   register: (userData: RegisterRequest) => Promise<boolean>;
   logout: () => void;
+  checkFirstAccess: () => Promise<void>;
+  markConfigurationComplete: () => void;
   isAuthenticated: boolean;
 }
 
@@ -31,23 +34,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFirstAccess, setIsFirstAccess] = useState(false);
 
   useEffect(() => {
     // Check for existing token and user data on app start
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    const initAuth = async () => {
+      const storedToken = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
 
-    if (storedToken && storedUser) {
-      try {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Error parsing stored user data:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+      if (storedToken && storedUser) {
+        try {
+          setToken(storedToken);
+          setUser(JSON.parse(storedUser));
+          // Verificar primeiro acesso para usuários já logados
+          await checkFirstAccess();
+        } catch (error) {
+          console.error('Error parsing stored user data:', error);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
       }
-    }
-    setIsLoading(false);
+      setIsLoading(false);
+    };
+
+    initAuth();
   }, []);
 
   const login = async (credentials: LoginRequest): Promise<boolean> => {
@@ -75,12 +85,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
         
         toast.success('Login realizado com sucesso!');
+        
+        // Verificar se é primeiro acesso após login bem-sucedido
+        await checkFirstAccess();
+        
         return true;
       }
       return false;
     } catch (error: any) {
       console.error('Login error:', error);
-      const errorMessage = error.response?.data?.error || 'Erro ao fazer login';
+      const statusCode = error.response?.status;
+      const errorMessage = error.response?.data?.error || (statusCode === 401
+        ? 'Login ou senha incorretos. Verifique suas credenciais.'
+        : 'Erro ao fazer login');
       toast.error(errorMessage);
       return false;
     } finally {
@@ -108,9 +125,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const checkFirstAccess = async () => {
+    try {
+      const settings = await apiService.getCompanySettings();
+      console.log('Company settings response:', settings);
+      // Verificar se é primeiro acesso (true explícito ou se não tem o campo first_configuration_completed)
+      const isFirst = settings.is_first_access === true;
+      console.log('Setting isFirstAccess to:', isFirst);
+      setIsFirstAccess(isFirst);
+    } catch (error: any) {
+      console.error('Error checking first access:', error);
+      console.error('Error details:', error.response?.data || error.message);
+      // Em caso de erro, assumir que não é primeiro acesso para não bloquear o usuário
+      setIsFirstAccess(false);
+    }
+  };
+
+  const markConfigurationComplete = () => {
+    setIsFirstAccess(false);
+  };
+
   const logout = () => {
     setUser(null);
     setToken(null);
+    setIsFirstAccess(false);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     toast.error('Logout realizado com sucesso!');
@@ -120,9 +158,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     token,
     isLoading,
+    isFirstAccess,
     login,
     register,
     logout,
+    checkFirstAccess,
+    markConfigurationComplete,
     isAuthenticated: !!user && !!token,
   };
 

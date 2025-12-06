@@ -9,9 +9,8 @@ export interface DailySummary {
   first_entry_time?: string; // HH:MM:SS
   last_exit_time?: string; // HH:MM:SS
   worked_hours: number; // em horas decimais (ex: 8.5)
-  expected_hours: number; // em horas decimais
   difference_minutes: number; // positivo = extra, negativo = deficit
-  status: 'normal' | 'late' | 'extra' | 'absent' | 'missing_exit' | 'incomplete';
+  status: 'normal' | 'late' | 'extra' | 'absent' | 'missing_exit' | 'incomplete' | 'compensated';
   overtime_minutes: number;
   delay_minutes: number;
   balance_minutes: number;
@@ -44,6 +43,8 @@ export interface DailySummaryFilters {
   employee_id?: string;
   status?: DailySummary['status'];
   date?: string; // dia específico YYYY-MM-DD
+  start_date?: string; // formato YYYY-MM-DD para filtro por período
+  end_date?: string; // formato YYYY-MM-DD para filtro por período
 }
 
 export interface DailyRecordsResponse {

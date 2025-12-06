@@ -124,31 +124,51 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     # Ordenar registros por horário
     records.sort(key=lambda x: x.get('data_hora', ''))
     
-    # Extrair entrada/saída
+    # Extrair entrada/saída e intervalos
     entrada = None
     saida = None
-    breaks = []
+    breaks: List[Dict[str, str]] = []
+    has_location_issues = False
     
     print(f"[DEBUG] Processando {len(records)} registros para {employee_id} em {date_str}")
     
     for record in records:
         # Suportar ambos os nomes de campo: 'tipo' (novo) e 'tipo_registro' (legado)
-        record_type = record.get('tipo') or record.get('tipo_registro', 'entrada')
+        record_type_raw = record.get('tipo') or record.get('tipo_registro', 'entrada')
+        normalized_type = str(record_type_raw).lower()
+        normalized_type = normalized_type.replace('í', 'i').replace('á', 'a').replace('ã', 'a')
+        normalized_type = normalized_type.replace('-', '_')
         dt_str = record.get('data_hora', '')
         
-        print(f"[DEBUG] Registro: tipo={record_type}, data_hora={dt_str[:16] if dt_str else 'N/A'}")
+        print(f"[DEBUG] Registro: tipo={record_type_raw}, data_hora={dt_str[:16] if dt_str else 'N/A'}")
         
-        if record_type in ['entrada', 'in']:
+        if not has_location_issues:
+            location_info = record.get('location') or {}
+            inside_radius = location_info.get('inside_radius')
+            inside_radius_flag = str(inside_radius).lower() if inside_radius is not None else None
+            record_inside = record.get('inside_radius')
+            record_inside_flag = str(record_inside).lower() if record_inside is not None else None
+            if (
+                inside_radius is False or inside_radius_flag == 'false' or
+                record_inside is False or record_inside_flag == 'false' or
+                record.get('location_valid') is False or record.get('localizacao_valida') is False
+            ):
+                has_location_issues = True
+
+        if normalized_type in ['entrada', 'in']:
             if not entrada:
                 entrada = dt_str
                 print(f"[DEBUG] Entrada definida: {entrada}")
-        elif record_type in ['saida', 'saída', 'out']:  # Aceitar COM e SEM acento
+        elif normalized_type in ['saida', 'saida', 'out']:
             saida = dt_str
             print(f"[DEBUG] Saída definida: {saida}")
-        elif record_type == 'break_start':
+        elif normalized_type in ['break_start', 'intervalo_inicio', 'pausa_inicio', 'almoco_inicio', 'start_break']:
             breaks.append({'start': dt_str})
-        elif record_type == 'break_end' and breaks:
-            breaks[-1]['end'] = dt_str
+        elif normalized_type in ['break_end', 'intervalo_fim', 'pausa_fim', 'almoco_fim', 'end_break'] and breaks:
+            for br in reversed(breaks):
+                if 'end' not in br:
+                    br['end'] = dt_str
+                    break
     
     print(f"[DEBUG] Resultado final - Entrada: {entrada[:16] if entrada else 'None'}, Saída: {saida[:16] if saida else 'None'}")
     
@@ -168,8 +188,9 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     if entrada and saida:
         entrada_time = datetime.fromisoformat(entrada.replace('Z', '+00:00'))
         saida_time = datetime.fromisoformat(saida.replace('Z', '+00:00'))
-        worked_minutes = (saida_time - entrada_time).total_seconds() / 60
-        worked_hours = Decimal(worked_minutes) / Decimal('60')
+        worked_minutes_float = (saida_time - entrada_time).total_seconds() / 60
+        if worked_minutes_float > 0:
+            worked_hours = Decimal(str(worked_minutes_float)) / Decimal('60')
     
     # Buscar configurações
     config_response = table_config.get_item(Key={'company_id': company_id})
@@ -179,8 +200,36 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     break_auto = config.get('break_auto', True) or config.get('intervalo_automatico', True)
     break_duration = config.get('break_duration', 60) or config.get('duracao_intervalo', 60)
     
-    if break_auto and worked_hours > 0:
-        worked_hours -= Decimal(break_duration) / Decimal('60')
+    # Intervalos registrados manualmente
+    break_minutes = Decimal('0')
+    for br in breaks:
+        start_str = br.get('start')
+        end_str = br.get('end')
+        if not start_str or not end_str:
+            continue
+        try:
+            start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+            minutes_float = (end_dt - start_dt).total_seconds() / 60
+            if minutes_float > 0:
+                break_minutes += Decimal(str(minutes_float))
+        except Exception as interval_error:
+            print(f"[WARN] Erro ao calcular intervalo: {interval_error}")
+
+    breaks_total_hours = Decimal('0')
+    if worked_hours > 0:
+        if break_minutes > 0:
+            breaks_total_hours = break_minutes / Decimal('60')
+            if breaks_total_hours > worked_hours:
+                breaks_total_hours = worked_hours
+            worked_hours -= breaks_total_hours
+        elif break_auto:
+            auto_break_hours = Decimal(break_duration) / Decimal('60')
+            breaks_total_hours = auto_break_hours if auto_break_hours < worked_hours else worked_hours
+            worked_hours -= breaks_total_hours
+
+    if worked_hours < 0:
+        worked_hours = Decimal('0')
     
     # Calcular atraso e horas extras
     delay_minutes = Decimal('0')
@@ -196,10 +245,11 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         if diff > tolerance:
             delay_minutes = Decimal(diff - tolerance)
     
-    # Horas extras
+    # Horas extras (considerando intervalos)
     if worked_hours > expected_hours:
-        extra_minutes = (worked_hours - expected_hours) * Decimal('60')
-        extra_hours = extra_minutes / Decimal('60')
+        extra_hours = worked_hours - expected_hours
+    else:
+        extra_hours = Decimal('0')
     
     # Compensação
     compensated_minutes = Decimal('0')
@@ -221,12 +271,17 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     
     # Determinar status
     status: DayStatus = "normal"
-    if delay_minutes > 0:
-        status = "late"
-    elif extra_hours > 0:
-        status = "extra"
-    if compensated_minutes > 0:
-        status = "compensated"
+    missing_exit = saida is None
+    if missing_exit and scheduled_end:
+        status = "missing_exit"
+        daily_balance = Decimal('0')
+    else:
+        if delay_minutes > 0:
+            status = "late"
+        elif extra_hours > 0:
+            status = "extra"
+        if compensated_minutes > 0:
+            status = "compensated"
     
     # Criar resumo
     # Extrair horários de entrada/saída (suportar vários formatos)
@@ -260,7 +315,10 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         compensated_minutes=compensated_minutes,
         daily_balance=daily_balance,
         status=status,
-        records_count=len(records)
+        breaks_total=breaks_total_hours,
+        records_count=len(records),
+        missing_exit=missing_exit,
+        has_location_issues=has_location_issues
     )
     
     return summary

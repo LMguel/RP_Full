@@ -39,6 +39,8 @@ class DailySummary:
     
     # Status
     status: DayStatus = "normal"
+    missing_exit: bool = False
+    has_location_issues: bool = False
     
     # Metadados
     breaks_total: Decimal = Decimal('0')

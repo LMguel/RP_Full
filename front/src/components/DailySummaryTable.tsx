@@ -37,7 +37,6 @@ interface DailySummary {
   actual_start?: string;
   actual_end?: string;
   worked_hours: number; // minutes
-  expected_hours: number; // minutes
   delay_minutes: number;
   extra_minutes: number;
   compensated_minutes: number;

@@ -41,6 +41,13 @@ class ApiService {
       },
       (error) => {
         if (error.response?.status === 401) {
+          const requestUrl = error.config?.url ?? '';
+          const isAuthRequest = requestUrl.includes('/api/login') || requestUrl.includes('/api/funcionario/login');
+
+          if (isAuthRequest) {
+            return Promise.reject(error);
+          }
+
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           window.location.href = '/login';
@@ -181,7 +188,8 @@ class ApiService {
   }
 
   async deleteTimeRecord(registroId: string) {
-    const response = await this.api.delete(`/api/registros/${registroId}`);
+    const safeId = encodeURIComponent(registroId);
+    const response = await this.api.delete(`/api/registros/${safeId}`);
     return response.data;
   }
 
@@ -220,37 +228,55 @@ class ApiService {
     location?: { latitude: number; longitude: number };
     work_mode: 'presencial' | 'remoto' | 'hibrido';
   }) {
-    const response = await this.api.post('/v2/registrar-ponto', data);
+    const response = await this.api.post('/api/v2/registrar-ponto', data);
     return response.data;
   }
 
   // Get daily summary for an employee
   async getDailySummary(employeeId: string, date: string) {
-    const response = await this.api.get(`/v2/daily-summary/${employeeId}/${date}`);
+    const response = await this.api.get(`/api/v2/daily-summary/${employeeId}/${date}`);
     return response.data;
   }
 
   // Get monthly summary for an employee
   async getMonthlySummary(employeeId: string, year: number, month: number) {
-    const response = await this.api.get(`/v2/monthly-summary/${employeeId}/${year}/${month}`);
+    const response = await this.api.get(`/api/v2/monthly-summary/${employeeId}/${year}/${month}`);
     return response.data;
   }
 
   // Get company dashboard (all employees for a specific date)
   async getCompanyDashboard(date: string) {
-    const response = await this.api.get(`/v2/dashboard/company/${date}`);
+    const response = await this.api.get(`/api/v2/dashboard/company/${date}`);
     return response.data;
   }
 
   // Get employee personal dashboard (requires auth)
   async getEmployeeDashboard() {
-    const response = await this.api.get('/v2/dashboard/employee');
+    const response = await this.api.get('/api/v2/dashboard/employee');
     return response.data;
   }
 
   // Get individual time records for a specific day
   async getEmployeeRecords(employeeId: string, date: string) {
-    const response = await this.api.get(`/v2/records/${employeeId}/${date}`);
+    const response = await this.api.get(`/api/v2/records/${employeeId}/${date}`);
+    return response.data;
+  }
+
+  // Company settings
+  async getCompanySettings() {
+    try {
+      console.log('Making request to /api/configuracoes');
+      const response = await this.api.get('/api/configuracoes');
+      console.log('Company settings response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Error in getCompanySettings:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async updateCompanySettings(settings: any) {
+    const response = await this.api.put('/api/configuracoes', settings);
     return response.data;
   }
 

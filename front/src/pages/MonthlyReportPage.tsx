@@ -8,13 +8,13 @@ import {
   CircularProgress,
   Alert,
   Paper,
-  TextField,
   Button,
   MenuItem,
   Select,
   FormControl,
   InputLabel,
 } from '@mui/material';
+import { DateRangePicker } from '../components/DateRangePicker';
 import {
   CalendarMonth as CalendarIcon,
   TrendingUp as TrendingUpIcon,
@@ -26,12 +26,15 @@ import { motion } from 'framer-motion';
 import { apiService } from '../services/api';
 
 const MonthlyReportPage: React.FC = () => {
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
+  const currentDate = new Date();
+  const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
   const [employeeId, setEmployeeId] = useState('');
-  const [year, setYear] = useState(currentYear);
-  const [month, setMonth] = useState(currentMonth);
+  const [dateRange, setDateRange] = useState({
+    start_date: currentMonthStart.toISOString().split('T')[0],
+    end_date: currentMonthEnd.toISOString().split('T')[0]
+  });
   const [summary, setSummary] = useState<any>(null);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -60,16 +63,21 @@ const MonthlyReportPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      console.log('📊 Carregando resumo mensal:', { employeeId, year, month });
+      console.log('📊 Carregando resumo por período:', { employeeId, dateRange });
       
-      const data = await apiService.getMonthlySummary(employeeId, year, month);
+      // Usar endpoint de registros com filtro por data
+      const data = await apiService.getTimeRecords({
+        funcionario_id: employeeId,
+        inicio: dateRange.start_date,
+        fim: dateRange.end_date
+      });
       
-      console.log('✅ Resumo mensal recebido:', data);
+      console.log('✅ Dados do período recebidos:', data);
       setSummary(data);
 
     } catch (err: any) {
-      console.error('❌ Erro ao carregar resumo mensal:', err);
-      setError(err.response?.data?.error || 'Erro ao carregar resumo mensal');
+      console.error('❌ Erro ao carregar resumo do período:', err);
+      setError(err.response?.data?.error || 'Erro ao carregar resumo do período');
     } finally {
       setLoading(false);
     }
@@ -134,10 +142,10 @@ const MonthlyReportPage: React.FC = () => {
         >
           <h1 className="text-3xl font-bold text-white flex items-center gap-3 mb-2">
             <CalendarIcon />
-            Relatório Mensal
+            Relatório por Período
           </h1>
           <p className="text-white/70 mb-6">
-            Visualize o resumo mensal de horas trabalhadas
+            Visualize o resumo de horas trabalhadas em qualquer período
           </p>
         </motion.div>
 
@@ -152,8 +160,8 @@ const MonthlyReportPage: React.FC = () => {
             mb: 4,
           }}
         >
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <FormControl sx={{ flex: '1 1 300px', minWidth: '200px' }}>
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <FormControl sx={{ flex: '1 1 300px', minWidth: '250px' }}>
               <InputLabel sx={{ color: 'rgba(255,255,255,0.7)' }}>Funcionário</InputLabel>
               <Select
                 value={employeeId}
@@ -175,47 +183,19 @@ const MonthlyReportPage: React.FC = () => {
               </Select>
             </FormControl>
 
-            <FormControl sx={{ flex: '0 1 150px', minWidth: '100px' }}>
-              <InputLabel sx={{ color: 'rgba(255,255,255,0.7)' }}>Mês</InputLabel>
-              <Select
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
-                label="Mês"
-                sx={{
-                  color: '#fff',
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.5)' },
-                  '& .MuiSvgIcon-root': { color: 'rgba(255,255,255,0.7)' },
-                }}
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                  <MenuItem key={m} value={m}>
-                    {new Date(2000, m - 1).toLocaleString('pt-BR', { month: 'long' })}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <TextField
-              type="number"
-              label="Ano"
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              sx={{
-                flex: '0 1 120px',
-                '& .MuiOutlinedInput-root': {
-                  color: '#fff',
-                  '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                  '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
-                },
-                '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
-              }}
-            />
+            <Box sx={{ flex: '1 1 280px', minWidth: '280px' }}>
+              <DateRangePicker
+                value={dateRange}
+                onChange={setDateRange}
+                placeholder="Selecionar período do relatório"
+                className="w-full"
+              />
+            </Box>
 
             <Button
               variant="contained"
               onClick={loadSummary}
-              disabled={loading}
+              disabled={loading || !employeeId}
               sx={{
                 flex: '0 1 auto',
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -223,9 +203,10 @@ const MonthlyReportPage: React.FC = () => {
                   background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
                 },
                 minHeight: '56px',
+                px: 3,
               }}
             >
-              {loading ? <CircularProgress size={24} /> : 'Buscar'}
+              {loading ? <CircularProgress size={24} /> : 'Buscar Relatório'}
             </Button>
           </Box>
         </Paper>

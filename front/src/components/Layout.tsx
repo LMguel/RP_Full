@@ -218,7 +218,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                           key={subItem.path}
                           onClick={() => handleNavigation(subItem.path)}
                           sx={{
-                            borderRadius: '8px',
                             mx: 1,
                             py: 0.75,
                             color: isSubActive ? 'white' : 'rgba(255, 255, 255, 0.6)',
@@ -252,12 +251,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     </Box>
   );
 
+  // Aplicar estilo ao body para garantir que não apareça fundo branco
+  React.useEffect(() => {
+    document.body.style.background = 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)';
+    document.body.style.margin = '0';
+    document.body.style.padding = '0';
+    document.documentElement.style.background = 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)';
+    
+    return () => {
+      // Limpar estilos quando o componente for desmontado
+      document.body.style.background = '';
+      document.body.style.margin = '';
+      document.body.style.padding = '';
+      document.documentElement.style.background = '';
+    };
+  }, []);
+
   return (
     <Box 
       sx={{ 
         display: 'flex', 
-        height: '100vh', 
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)'
+        minHeight: '100vh',
+        height: 'auto', 
+        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
+        position: 'relative'
       }}
     >
       <AppBar
@@ -394,7 +411,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       >
         <Box
           sx={{
-            minHeight: 'calc(100vh - 64px)',
+            minHeight: '100vh',
             width: '100%',
             background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
             position: 'relative',
@@ -407,7 +424,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               position: 'relative', 
               zIndex: 1, 
               py: 4, 
-              px: { xs: 2, md: 6 } 
+              px: { xs: 2, md: 6 },
+              minHeight: 'calc(100vh - 64px)'
             }}
           >
             <AnimatePresence mode="wait">

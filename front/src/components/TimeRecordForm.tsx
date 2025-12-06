@@ -9,17 +9,17 @@ import {
   Box,
   Typography,
   IconButton,
+  CircularProgress,
+  Autocomplete,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  CircularProgress,
 } from '@mui/material';
 import {
   Close as CloseIcon,
   AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
-import { motion } from 'framer-motion';
 import { apiService } from '../services/api';
 import { Employee } from '../types';
 
@@ -50,13 +50,14 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     tipo: 'entrada' as 'entrada' | 'saída',
   });
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeInput, setEmployeeInput] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadingEmployees, setLoadingEmployees] = useState(false);
 
   useEffect(() => {
     if (open) {
       if (propEmployees.length > 0) {
-        setEmployees(propEmployees.sort((a, b) => a.nome.localeCompare(b.nome)));
+        setEmployees([...propEmployees].sort((a, b) => a.nome.localeCompare(b.nome)));
       } else {
         loadEmployees();
       }
@@ -69,14 +70,12 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       const day = String(brasiliaTime.getDate()).padStart(2, '0');
       const hours = String(brasiliaTime.getHours()).padStart(2, '0');
       const minutes = String(brasiliaTime.getMinutes()).padStart(2, '0');
-        // Inicializar date e time
-        setFormData(prev => ({
-          ...prev,
-          date: `${year}-${month}-${day}`,
-          time: `${hours}:${minutes}`,
+      setFormData(prev => ({
+        ...prev,
+        date: `${year}-${month}-${day}`,
+        time: `${hours}:${minutes}`,
       }));
-      // Preencher campos manuais também
-  // Preencher campos manuais também
+      setEmployeeInput('');
     }
   }, [open, propEmployees]);
 
@@ -85,11 +84,10 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       setLoadingEmployees(true);
       const response = await apiService.getEmployees();
       const employeesList = response.funcionarios || [];
-      interface SortableEmployee {
-        nome: string;
-        [key: string]: any;
-      }
-      setEmployees(employeesList.sort((a: SortableEmployee, b: SortableEmployee) => a.nome.localeCompare(b.nome)));
+      const sortedEmployees = [...employeesList].sort((a: Employee, b: Employee) =>
+        (a.nome || '').localeCompare(b.nome || '')
+      );
+      setEmployees(sortedEmployees);
     } catch (err) {
       console.error('Error loading employees:', err);
     } finally {
@@ -98,21 +96,6 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-    
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: '',
-      }));
-    }
-  };
-
-  const handleSelectChange = (e: any) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -268,6 +251,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       time: '',
       tipo: 'entrada',
     });
+    setEmployeeInput('');
     setErrors({});
     onClose();
   };
@@ -339,65 +323,105 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
             </Box>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <FormControl 
-                fullWidth 
-                error={!!errors.funcionario_id}
-                sx={{
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    '&.Mui-focused': {
-                      color: 'rgba(255, 255, 255, 0.9)'
+              <Box sx={{ width: '100%' }}>
+                <Autocomplete
+                  options={employees}
+                  getOptionLabel={(option) => option.nome || ''}
+                  value={employees.find(emp => emp.id === formData.funcionario_id) || null}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  onChange={(_, newValue) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      funcionario_id: newValue ? newValue.id : '',
+                    }));
+                    if (!newValue && !employeeInput) {
+                      setErrors(prev => ({ ...prev, funcionario_id: 'Funcionário é obrigatório' }));
+                    } else {
+                      setErrors(prev => {
+                        const { funcionario_id, ...rest } = prev;
+                        return rest;
+                      });
                     }
-                  },
-                  '& .MuiOutlinedInput-root': {
-                    color: 'white',
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.3)',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.5)',
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.7)',
-                    },
-                    background: 'rgba(255, 255, 255, 0.05)',
-                  },
-                  '& .MuiSelect-icon': {
-                    color: 'rgba(255, 255, 255, 0.7)'
-                  }
-                }}
-              >
-                <InputLabel>Funcionário</InputLabel>
-                <Select
-                  name="funcionario_id"
-                  value={formData.funcionario_id}
-                  onChange={handleSelectChange}
-                  label="Funcionário"
+                  }}
+                  inputValue={employeeInput}
+                  onInputChange={(_, newInputValue) => {
+                    setEmployeeInput(newInputValue);
+                    if (newInputValue) {
+                      setErrors(prev => {
+                        const { funcionario_id, ...rest } = prev;
+                        return rest;
+                      });
+                    }
+                    if (!newInputValue) {
+                      setFormData(prev => ({ ...prev, funcionario_id: '' }));
+                    }
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Funcionário"
+                      placeholder="Digite o nome do funcionário"
+                      error={!!errors.funcionario_id}
+                      helperText={errors.funcionario_id}
+                    />
+                  )}
+                  renderOption={(props, option) => (
+                    <li {...props} key={option.id}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
+                          {option.nome}
+                        </Typography>
+                        {option.cargo && (
+                          <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.65)' }}>
+                            {option.cargo}
+                          </Typography>
+                        )}
+                      </Box>
+                    </li>
+                  )}
                   disabled={loading}
-                  MenuProps={{
-                    PaperProps: {
-                      sx: {
-                        background: 'rgba(255, 255, 255, 0.95)',
-                        backdropFilter: 'blur(20px)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                  loading={loadingEmployees}
+                  ListboxProps={{
+                    sx: {
+                      background: 'rgba(15, 23, 42, 0.95)',
+                      color: 'white',
+                      '& .MuiAutocomplete-option': {
+                        '&.Mui-focused': {
+                          backgroundColor: 'rgba(59, 130, 246, 0.35)'
+                        }
                       }
                     }
                   }}
-                >
-                  {employees.map((employee) => (
-                    <MenuItem key={employee.id} value={employee.id}>
-                      {employee.nome} - {employee.cargo}
-                    </MenuItem>
-                  ))}
-                </Select>
-                {errors.funcionario_id && (
-                  <Typography variant="caption" sx={{ color: '#ef4444', mt: 1 }}>
-                    {errors.funcionario_id}
-                  </Typography>
-                )}
-              </FormControl>
+                  noOptionsText={employeeInput ? 'Nenhum funcionário encontrado' : 'Digite o nome do funcionário'}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      '&.Mui-focused': {
+                        color: 'rgba(255, 255, 255, 0.9)'
+                      }
+                    },
+                    '& .MuiAutocomplete-popupIndicator': {
+                      color: 'rgba(255, 255, 255, 0.7)'
+                    },
+                    '& .MuiCircularProgress-root': {
+                      color: 'white'
+                    }
+                  }}
+                />
+              </Box>
 
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                 <TextField
@@ -500,7 +524,19 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                 <Select
                   name="tipo"
                   value={formData.tipo}
-                  onChange={handleSelectChange}
+                  onChange={(event) => {
+                    const value = event.target.value as 'entrada' | 'saída';
+                    setFormData(prev => ({
+                      ...prev,
+                      tipo: value,
+                    }));
+                    if (errors.tipo) {
+                      setErrors(prev => {
+                        const { tipo, ...rest } = prev;
+                        return rest;
+                      });
+                    }
+                  }}
                   label="Tipo de Registro"
                   disabled={loading}
                   MenuProps={{

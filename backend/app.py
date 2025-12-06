@@ -1,8 +1,11 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, make_response, request
 from flask_cors import CORS
 from routes import routes
 from routes_v2 import routes_v2
 from routes_daily import daily_routes
+from routes_dashboard import dashboard_routes
+from routes_admin_auth import auth_admin_routes
+from routes_admin import admin_routes
 import os
 import os
 import json
@@ -26,14 +29,16 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback-secret-key-for-deve
 CORS(app, resources={
     r"/*": {
         "origins": [
-            "http://localhost:3000", 
+            "http://localhost:3000",
             "http://localhost:3001",  # Vite porta alternativa
             "http://localhost:3002",  # Vite porta alternativa 2
             "http://localhost:5173", 
-            "http://127.0.0.1:5173"
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            "http://192.168.0.39:3000"  # Network access
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
         "supports_credentials": False,
         "expose_headers": ["Content-Type", "Authorization"]
     }
@@ -45,6 +50,22 @@ app.register_blueprint(routes, url_prefix='/api')
 app.register_blueprint(routes_v2)
 # Registra rotas de registros diários
 app.register_blueprint(daily_routes)
+# Registra rotas do novo dashboard
+app.register_blueprint(dashboard_routes)
+# Registra rotas de autenticação admin
+app.register_blueprint(auth_admin_routes)
+# Registra rotas de admin portal
+app.register_blueprint(admin_routes)
+
+# Handler global para OPTIONS (preflight)
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+        response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS")
+        return response
 
 # Debug: listar todas as rotas registradas
 @app.route('/debug/routes', methods=['GET'])

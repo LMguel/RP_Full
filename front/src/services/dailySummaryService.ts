@@ -20,6 +20,8 @@ export const getDailySummaries = async (
   if (filters.employee_id) params.append('employee_id', filters.employee_id);
   if (filters.status) params.append('status', filters.status);
   if (filters.date) params.append('date', filters.date);
+  if (filters.start_date) params.append('start_date', filters.start_date);
+  if (filters.end_date) params.append('end_date', filters.end_date);
   
   params.append('page', page.toString());
   params.append('page_size', pageSize.toString());

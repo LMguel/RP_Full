@@ -1,0 +1,149 @@
+/* DateRangePicker Styles - Custom Calendar */
+
+/* Animações */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Container principal */
+.date-range-picker-container {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  z-index: 1;
+}
+
+/* Estilos para o dropdown do calendário customizado */
+.date-range-picker-container > div > div[class*="absolute"] {
+  animation: slideDown 0.2s ease-out;
+}
+
+/* Responsivo - Mobile */
+@media (max-width: 768px) {
+  .date-range-picker-container > div > div[class*="absolute"] {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translate(-50%, -50%) !important;
+    max-width: 90vw;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+}
+
+/* Scrollbar customizada para mobile */
+@media (max-width: 768px) {
+  .date-range-picker-container > div > div[class*="absolute"]::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .date-range-picker-container > div > div[class*="absolute"]::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+  }
+  
+  .date-range-picker-container > div > div[class*="absolute"]::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+  }
+  
+  .date-range-picker-container > div > div[class*="absolute"]::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Efeito de hover nos dias */
+.date-range-picker-container button:not(:disabled):hover {
+  transform: scale(1.05);
+  transition: all 0.2s ease;
+}
+
+/* Dia atual (indicador) */
+.date-range-picker-container button > div[class*="absolute"] {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Estilos para dias selecionados */
+.date-range-picker-container button[class*="from-purple-500"] {
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+/* Transições suaves */
+.date-range-picker-container * {
+  transition: all 0.2s ease;
+}
+
+/* Estados de loading (opcional) */
+.date-range-picker-loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.date-range-picker-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Efeitos de foco acessibilidade */
+.date-range-picker-container button:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 2px;
+}
+
+/* Melhorias de contraste para acessibilidade */
+@media (prefers-contrast: high) {
+  .date-range-picker-container button {
+    border: 1px solid currentColor;
+  }
+}
+
+/* Suporte para modo escuro */
+@media (prefers-color-scheme: dark) {
+  .date-range-picker-container > div > div[class*="bg-white"] {
+    background: #1f2937 !important;
+    border-color: #374151 !important;
+  }
+  
+  .date-range-picker-container button:not([class*="from-purple"]) {
+    color: #e5e7eb;
+  }
+}
+
+/* Estilos para impressão */
+@media print {
+  .date-range-picker-container > div > div[class*="absolute"] {
+    display: none !important;
+  }
+}

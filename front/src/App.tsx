@@ -18,6 +18,10 @@ import EmployeeRecordsPage from './pages/EmployeeRecordsPage';
 import DailyRecordsPage from './pages/DailyRecordsPage';
 import SettingsPage from './pages/SettingsPage';
 
+// Components
+import FirstAccessModal from './components/FirstAccessModal';
+import ErrorBoundary from './components/ErrorBoundary';
+
 // Create theme
 const theme = createTheme({
   palette: {
@@ -122,9 +126,21 @@ const theme = createTheme({
 });
 
 const AppRoutes: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isFirstAccess, markConfigurationComplete } = useAuth();
+  const [showFirstAccessModal, setShowFirstAccessModal] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isAuthenticated && isFirstAccess) {
+      setShowFirstAccessModal(true);
+    }
+  }, [isAuthenticated, isFirstAccess]);
+
+  const handleCloseFirstAccessModal = () => {
+    setShowFirstAccessModal(false);
+  };
 
   return (
+    <>
     <Routes>
       {/* Public Routes */}
       <Route 
@@ -144,11 +160,7 @@ const AppRoutes: React.FC = () => {
       <Route
         path="/"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <Navigate to="/dashboard" replace />
-            </Layout>
-          </ProtectedRoute>
+          <Navigate to="/dashboard" replace />
         }
       />
       <Route
@@ -156,7 +168,9 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <Layout>
-              <DashboardPage />
+              <ErrorBoundary>
+                <DashboardPage />
+              </ErrorBoundary>
             </Layout>
           </ProtectedRoute>
         }
@@ -225,6 +239,13 @@ const AppRoutes: React.FC = () => {
       {/* Catch all route */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    
+    {/* First Access Modal */}
+    <FirstAccessModal 
+      open={showFirstAccessModal}
+      onClose={handleCloseFirstAccessModal}
+    />
+    </>
   );
 };
 

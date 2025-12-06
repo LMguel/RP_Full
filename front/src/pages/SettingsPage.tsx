@@ -39,6 +39,7 @@ import { CompanySettings } from '../types';
 
 // Componente para configurações de ponto e horas extras
 const TimeTrackingSettings: React.FC = () => {
+  const { isFirstAccess, markConfigurationComplete } = useAuth();
   const [settings, setSettings] = useState<CompanySettings>({
     empresa_id: '',
     tolerancia_atraso: 5,
@@ -46,7 +47,6 @@ const TimeTrackingSettings: React.FC = () => {
     arredondamento_horas_extras: '5',
     intervalo_automatico: false,
     duracao_intervalo: 60, // minutos
-    compensar_saldo_horas: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -66,7 +66,6 @@ const TimeTrackingSettings: React.FC = () => {
         arredondamento_horas_extras: '5',
         intervalo_automatico: false,
         duracao_intervalo: 60,
-        compensar_saldo_horas: false,
       };
       
       // Mesclar resposta da API com valores padrão e garantir tipos corretos
@@ -77,7 +76,6 @@ const TimeTrackingSettings: React.FC = () => {
         hora_extra_entrada_antecipada: Boolean(response.hora_extra_entrada_antecipada),
         intervalo_automatico: Boolean(response.intervalo_automatico),
         duracao_intervalo: Number(response.duracao_intervalo) || defaultSettings.duracao_intervalo,
-        compensar_saldo_horas: Boolean(response.compensar_saldo_horas),
       };
       
       setSettings(mergedSettings);
@@ -100,14 +98,19 @@ const TimeTrackingSettings: React.FC = () => {
         arredondamento_horas_extras: settings.arredondamento_horas_extras,
         intervalo_automatico: Boolean(settings.intervalo_automatico),
         duracao_intervalo: Number(settings.duracao_intervalo) || 60,
-        compensar_saldo_horas: Boolean(settings.compensar_saldo_horas),
       };
 
       // Validations...
       
       await apiService.put('/api/configuracoes', dataToSend);
       
-      toast.success('Configurações salvas com sucesso!');
+      // Marcar configuração como completa se for primeiro acesso
+      if (isFirstAccess) {
+        markConfigurationComplete();
+        toast.success('Configuração inicial concluída! Sistema pronto para uso.');
+      } else {
+        toast.success('Configurações salvas com sucesso!');
+      }
     } catch (err: any) {
       console.error('Error saving settings:', err);
       toast.error('Erro ao salvar configurações');
@@ -398,47 +401,7 @@ const TimeTrackingSettings: React.FC = () => {
             </Box>
           </Grid>
 
-          {/* Compensar Saldo de Horas */}
-          <Grid size={{ xs: 12, md: 3 }}>
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <CheckCircleIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
-                <Typography 
-                  variant="subtitle2" 
-                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
-                >
-                  Compensar Saldo de Horas
-                </Typography>
-              </Box>
-              <Typography 
-                variant="caption" 
-                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
-              >
-                Atrasos são compensados com horas extras
-              </Typography>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.compensar_saldo_horas}
-                    onChange={(e) => setSettings({ ...settings, compensar_saldo_horas: e.target.checked })}
-                    sx={{
-                      '& .MuiSwitch-switchBase.Mui-checked': {
-                        color: '#10b981',
-                      },
-                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                        backgroundColor: '#10b981',
-                      },
-                    }}
-                  />
-                }
-                label={
-                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                    {settings.compensar_saldo_horas ? 'Ativado' : 'Desativado'}
-                  </Typography>
-                }
-              />
-            </Box>
-          </Grid>
+
         </Grid>
 
         <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)', my: 3 }} />
@@ -465,7 +428,7 @@ const TimeTrackingSettings: React.FC = () => {
 };
 
 const SettingsPage: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, isFirstAccess } = useAuth();
   const [loading, setLoading] = useState(false);
   
   // Security Settings
@@ -524,6 +487,24 @@ const SettingsPage: React.FC = () => {
         transition={{ duration: 0.5 }}
       >
         <Box sx={{ mb: 4 }}>
+          {isFirstAccess && (
+            <Alert 
+              severity="info" 
+              sx={{ 
+                mb: 3,
+                backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                border: '1px solid rgba(33, 150, 243, 0.2)',
+                color: 'white',
+                '& .MuiAlert-icon': {
+                  color: '#2196f3'
+                }
+              }}
+            >
+              <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                🎉 Primeira configuração do sistema! Configure os parâmetros básicos para começar a utilizar.
+              </Typography>
+            </Alert>
+          )}
           <Typography 
             variant="h4" 
             sx={{ 

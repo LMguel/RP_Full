@@ -26,6 +26,7 @@ import {
   DialogContent,
   DialogActions,
 } from '@mui/material';
+import { DateRangePicker } from '../components/DateRangePicker';
 import {
   Search as SearchIcon,
   Clear as ClearIcon,
@@ -48,6 +49,7 @@ interface EmployeeSummary {
   horas_trabalhadas: number; // minutos
   horas_extras: number;      // minutos
   atrasos: number;           // minutos
+  total_registros?: number;
 }
 
 
@@ -69,8 +71,14 @@ const RecordsSummaryPage: React.FC = () => {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   
   // Estados para filtros
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const currentDate = new Date();
+  const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+  
+  const [dateRange, setDateRange] = useState({
+    start_date: currentMonthStart.toISOString().split('T')[0],
+    end_date: currentMonthEnd.toISOString().split('T')[0]
+  });
   const [selectedMonth, setSelectedMonth] = useState('');
   
   // Estados para snackbar
@@ -185,7 +193,7 @@ const RecordsSummaryPage: React.FC = () => {
 
   // Função para buscar registros
   const buscarRegistros = useCallback(async () => {
-    if (dateFrom && dateTo && dateFrom > dateTo) {
+    if (dateRange.start_date && dateRange.end_date && dateRange.start_date > dateRange.end_date) {
       setError('A data de início não pode ser maior que a data de fim.');
       setEmployeeSummaries([]);
       return;
@@ -201,8 +209,8 @@ const RecordsSummaryPage: React.FC = () => {
         funcionario_id?: string;
       } = {};
       
-      if (dateFrom) params.inicio = dateFrom;
-      if (dateTo) params.fim = dateTo;
+      if (dateRange.start_date) params.inicio = dateRange.start_date;
+      if (dateRange.end_date) params.fim = dateRange.end_date;
       if (selectedEmployeeId) params.funcionario_id = selectedEmployeeId;
 
       // Usar o novo endpoint de resumo que calcula tudo no backend
@@ -210,18 +218,65 @@ const RecordsSummaryPage: React.FC = () => {
       const response = await apiService.getTimeRecordsSummary(params);
       console.log('📊 [API] Resposta do resumo:', response);
       
+      const toNumber = (value: any): number => {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          const normalized = value.replace(',', '.');
+          const parsed = parseFloat(normalized);
+          return Number.isFinite(parsed) ? parsed : 0;
+        }
+        if (typeof value === 'boolean') return value ? 1 : 0;
+        if (typeof value === 'bigint') return Number(value);
+        return 0;
+      };
+
       let summaries: EmployeeSummary[] = [];
-      
+
       // Processar resposta do endpoint de resumo
       if (Array.isArray(response)) {
-        summaries = response.map((item: any) => ({
-          funcionario_id: item.funcionario_id || item.id,
-          funcionario: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
-          funcionario_nome: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
-          horas_trabalhadas: item.horas_trabalhadas_minutos || 0,
-          horas_extras: item.horas_extras_minutos || 0,
-          atrasos: item.atraso_minutos || 0,
-        } as EmployeeSummary));
+        summaries = response.reduce((acc: EmployeeSummary[], item: any) => {
+          const horasTrabalhadas = toNumber(
+            item.horas_trabalhadas_minutos ?? item.total_minutos_trabalhados ?? item.horas_trabalhadas
+          );
+          const horasExtras = toNumber(
+            item.horas_extras_minutos ?? item.total_minutos_extras ?? item.horas_extras
+          );
+          const atrasos = toNumber(
+            item.atraso_minutos ?? item.total_minutos_atraso ?? item.atrasos
+          );
+          const totalRegistros = toNumber(
+            item.total_registros ??
+            item.totalRegistros ??
+            item.total_registros_periodo ??
+            item.registros_count ??
+            (Array.isArray(item.registros) ? item.registros.length : 0)
+          );
+
+          const hasRegistros =
+            totalRegistros > 0 ||
+            horasTrabalhadas > 0 ||
+            horasExtras > 0 ||
+            atrasos > 0 ||
+            (Array.isArray(item.registros) && item.registros.length > 0) ||
+            item.tem_registro === true ||
+            item.possui_registros === true;
+
+          if (!hasRegistros) {
+            return acc;
+          }
+
+          acc.push({
+            funcionario_id: item.funcionario_id || item.id,
+            funcionario: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
+            funcionario_nome: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
+            horas_trabalhadas: horasTrabalhadas,
+            horas_extras: horasExtras,
+            atrasos,
+            total_registros: totalRegistros,
+          });
+
+          return acc;
+        }, []);
       }
       
       console.log('📊 [RESUMO] Summaries processados:', summaries);
@@ -234,7 +289,7 @@ const RecordsSummaryPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, selectedEmployeeId]);
+  }, [dateRange.start_date, dateRange.end_date, selectedEmployeeId]);
 
   // Busca de funcionários conforme digita
   const handleSearchChange = useCallback((value: string) => {
@@ -291,47 +346,40 @@ const RecordsSummaryPage: React.FC = () => {
     setSelectedMonth(month);
     if (month) {
       // Quando um mês é selecionado, definir as datas automaticamente
-      setDateFrom(getFirstDayOfMonth(month));
-      setDateTo(getLastDayOfMonth(month));
+      setDateRange({
+        start_date: getFirstDayOfMonth(month),
+        end_date: getLastDayOfMonth(month)
+      });
     } else {
       // Se mês for limpo, limpar também as datas
-      setDateFrom('');
-      setDateTo('');
+      setDateRange({
+        start_date: currentMonthStart.toISOString().split('T')[0],
+        end_date: currentMonthEnd.toISOString().split('T')[0]
+      });
     }
   };
 
-  const handleDateFromChange = (date: string) => {
-    setDateFrom(date);
-    // Verificar se as datas são de meses diferentes
-    if (date && dateTo) {
-      const monthFrom = getMonthFromDate(date);
-      const monthTo = getMonthFromDate(dateTo);
-      if (monthFrom !== monthTo) {
-        setSelectedMonth(''); // Limpar filtro de mês se datas são de meses diferentes
-      } else if (monthFrom) {
-        setSelectedMonth(monthFrom); // Definir mês se datas são do mesmo mês
-      }
-    }
-  };
-
-  const handleDateToChange = (date: string) => {
-    setDateTo(date);
-    // Verificar se as datas são de meses diferentes
-    if (dateFrom && date) {
-      const monthFrom = getMonthFromDate(dateFrom);
-      const monthTo = getMonthFromDate(date);
-      if (monthFrom !== monthTo) {
-        setSelectedMonth(''); // Limpar filtro de mês se datas são de meses diferentes
-      } else if (monthTo) {
-        setSelectedMonth(monthTo); // Definir mês se datas são do mesmo mês
+  const handleDateRangeChange = (newRange: typeof dateRange) => {
+    setDateRange(newRange);
+    
+    // Atualizar mês selecionado se as datas estão no mesmo mês
+    if (newRange.start_date && newRange.end_date) {
+      const monthFromDate = getMonthFromDate(newRange.start_date);
+      const monthToDate = getMonthFromDate(newRange.end_date);
+      if (monthFromDate === monthToDate) {
+        setSelectedMonth(monthFromDate);
+      } else {
+        setSelectedMonth('');
       }
     }
   };
 
   // Limpar filtros (incluindo mês)
   const handleClearFilters = () => {
-    setDateFrom('');
-    setDateTo('');
+    setDateRange({
+      start_date: currentMonthStart.toISOString().split('T')[0],
+      end_date: currentMonthEnd.toISOString().split('T')[0]
+    });
     setSelectedMonth('');
     handleClearSearch();
   };
@@ -359,8 +407,10 @@ const RecordsSummaryPage: React.FC = () => {
     const currentMonth = getCurrentMonth();
     setSelectedMonth(currentMonth);
     // Definir datas do mês atual
-    setDateFrom(getFirstDayOfMonth(currentMonth));
-    setDateTo(getLastDayOfMonth(currentMonth));
+    setDateRange({
+      start_date: getFirstDayOfMonth(currentMonth),
+      end_date: getLastDayOfMonth(currentMonth)
+    });
   }, []);
 
   // Snackbar
@@ -407,18 +457,65 @@ const RecordsSummaryPage: React.FC = () => {
 
   // Exportar para Excel
   const exportToExcel = () => {
+    const formatDate = (dateValue?: string) => {
+      if (!dateValue) return '';
+      const trimmed = dateValue.trim();
+      const isoCandidate = trimmed.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
+        const [year, month, day] = isoCandidate.split('-');
+        return `${day}/${month}/${year}`;
+      }
+      const parsed = new Date(trimmed);
+      return Number.isNaN(parsed.getTime())
+        ? trimmed
+        : parsed.toLocaleDateString('pt-BR');
+    };
+
+    const formatDateForFilename = (dateValue?: string) => {
+      if (!dateValue) return '';
+      const trimmed = dateValue.trim();
+      const isoCandidate = trimmed.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
+        const [year, month, day] = isoCandidate.split('-');
+        return `${day}-${month}-${year}`;
+      }
+      const parsed = new Date(trimmed);
+      if (Number.isNaN(parsed.getTime())) {
+        return trimmed.replace(/[\\/:*?"<>|\s]+/g, '-');
+      }
+      const day = String(parsed.getDate()).padStart(2, '0');
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const year = parsed.getFullYear();
+      return `${day}-${month}-${year}`;
+    };
+
+    const headerInfo = [
+      ['Período do relatório', `${formatDate(dateRange.start_date) || 'Início'} até ${formatDate(dateRange.end_date) || 'Fim'}`],
+      []
+    ];
+
     const dataToExport = employeeSummaries.map(summary => ({
-      'ID Funcionário': summary.funcionario_id,
       'Nome Funcionário': summary.funcionario_nome || summary.funcionario,
       'Horas Trabalhadas': formatMinutesToHHMM(summary.horas_trabalhadas || 0),
       'Horas Extras': formatMinutesToHHMM(summary.horas_extras || 0),
       'Atrasos': formatMinutesToHHMM(summary.atrasos || 0),
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = XLSX.utils.aoa_to_sheet(headerInfo);
+    XLSX.utils.sheet_add_json(ws, dataToExport, {
+      origin: 'A3',
+      header: ['Nome Funcionário', 'Horas Trabalhadas', 'Horas Extras', 'Atrasos']
+    });
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Resumo Funcionarios');
-    XLSX.writeFile(wb, 'resumo_funcionarios.xlsx');
+    const fileName = (() => {
+      const startLabel = formatDateForFilename(dateRange.start_date) || 'inicio';
+      const endLabel = formatDateForFilename(dateRange.end_date) || 'fim';
+      return `Relatorio-(${startLabel}_a_${endLabel}).xlsx`;
+    })();
+
+    XLSX.writeFile(wb, fileName);
     showSnackbar('Resumo de funcionários exportado para Excel com sucesso!', 'success');
   };
 
@@ -523,43 +620,18 @@ const RecordsSummaryPage: React.FC = () => {
                 }}
               />
 
-              {/* Data Início */}
-              <TextField
-                label="Data Início"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => handleDateFromChange(e.target.value)}
-                size="small"
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-
-              {/* Data Fim */}
-              <TextField
-                label="Data Fim"
-                type="date"
-                value={dateTo}
-                onChange={(e) => handleDateToChange(e.target.value)}
-                size="small"
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
+              {/* Período */}
+              <Box sx={{ flex: '1 1 300px' }}>
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, fontSize: '0.75rem' }}>
+                  Período de Consulta
+                </Typography>
+                <DateRangePicker
+                  value={dateRange}
+                  onChange={handleDateRangeChange}
+                  placeholder="Selecionar período dos registros"
+                  className="w-full"
+                />
+              </Box>
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>

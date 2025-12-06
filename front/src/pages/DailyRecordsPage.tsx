@@ -1,19 +1,58 @@
-import React from 'react';
-import { Box, Typography, Button, Paper } from '@mui/material';
-import { Download, FileText } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Typography } from '@mui/material';
+import { Add as AddIcon } from '@mui/icons-material';
 import PageLayout from '../sections/PageLayout';
 import DailyRecordsTable from '../components/DailyRecordsTable';
+import TimeRecordForm from '../components/TimeRecordForm';
+import { apiService } from '../services/api';
+import { Employee } from '../types';
 import { toast } from 'react-hot-toast';
 
 const DailyRecordsPage: React.FC = () => {
-  const handleExportExcel = () => {
-    toast.success('Funcionalidade de exportação em breve');
-    // TODO: Implementar exportação para Excel
+  const [formOpen, setFormOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        const response = await apiService.getEmployees();
+        setEmployees(response.funcionarios || []);
+      } catch (error) {
+        console.error('Erro ao carregar funcionários:', error);
+        toast.error('Erro ao carregar funcionários');
+      }
+    };
+
+    fetchEmployees();
+  }, []);
+
+  const handleAddRecord = () => {
+    setFormOpen(true);
   };
 
-  const handleGenerateReport = () => {
-    toast.success('Funcionalidade de relatório em breve');
-    // TODO: Implementar geração de relatório PDF
+  const handleCloseForm = () => {
+    setFormOpen(false);
+  };
+
+  const handleSaveRecord = async (recordData: {
+    funcionario_id: string;
+    data_hora: string;
+    tipo: 'entrada' | 'saída';
+  }) => {
+    setSubmitting(true);
+    try {
+      await apiService.registerTimeManual(recordData);
+      toast.success('Registro adicionado com sucesso!');
+      setFormOpen(false);
+      setReloadToken((prev) => prev + 1);
+    } catch (error) {
+      console.error('Erro ao adicionar registro:', error);
+      toast.error('Erro ao adicionar registro');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -22,36 +61,32 @@ const DailyRecordsPage: React.FC = () => {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              📊 Registros Diários
+            <h1 className="text-3xl font-bold text-white">
+              Registros Diários
             </h1>
-            <p className="text-white/70 mt-1">
-              Visualização consolidada por dia com filtros avançados
-            </p>
           </div>
-
-          <div className="flex gap-3">
+          <div>
             <button
-              onClick={handleGenerateReport}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-all font-semibold backdrop-blur"
+              onClick={handleAddRecord}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
             >
-              <FileText size={18} />
-              Gerar Relatório
-            </button>
-
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
-            >
-              <Download size={18} />
-              Exportar Excel
+              <AddIcon />
+              Adicionar Registro
             </button>
           </div>
         </div>
 
         {/* Card com Glassmorphism */}
-        <DailyRecordsTable />
+        <DailyRecordsTable reloadToken={reloadToken} />
       </div>
+
+      <TimeRecordForm
+        open={formOpen}
+        onClose={handleCloseForm}
+        onSubmit={handleSaveRecord}
+        loading={submitting}
+        employees={employees}
+      />
     </PageLayout>
   );
 };

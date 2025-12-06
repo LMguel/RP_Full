@@ -12,6 +12,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Typography,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -19,15 +20,17 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { Employee } from '../types';
+import { DateRangePicker } from './DateRangePicker';
+
+interface DateRange {
+  start_date: string;
+  end_date: string;
+}
 
 interface RecordsFiltersProps {
   // Filtros gerais
-  dateFrom: string;
-  dateTo: string;
-  onDateFromChange: (value: string) => void;
-  onDateToChange: (value: string) => void;
-  selectedMonth?: string;
-  onMonthChange?: (value: string) => void;
+  dateRange: DateRange;
+  onDateRangeChange: (range: DateRange) => void;
   onClearFilters: () => void;
   
   // Para aba de resumo
@@ -48,12 +51,8 @@ interface RecordsFiltersProps {
 }
 
 const RecordsFilters: React.FC<RecordsFiltersProps> = ({
-  dateFrom,
-  dateTo,
-  onDateFromChange,
-  onDateToChange,
-  selectedMonth,
-  onMonthChange,
+  dateRange,
+  onDateRangeChange,
   onClearFilters,
   nome,
   onNomeChange,
@@ -84,98 +83,45 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
       >
         <CardContent>
           <Grid container spacing={3}>
-            {/* Filtros para vista individual */}
-            {isIndividualView ? (
-              <>
-                <Grid size={{ xs: 12, md: 4 }}>
-                  <TextField
-                    fullWidth
-                    label="Data Início"
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => onDateFromChange(e.target.value)}
-                    InputLabelProps={{ 
-                      shrink: true,
-                      sx: {
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        '&.Mui-focused': {
-                          color: 'rgba(255, 255, 255, 0.9)'
-                        }
-                      }
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'white',
-                        '& fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.3)',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        background: 'rgba(255, 255, 255, 0.05)',
-                      }
-                    }}
-                    variant="outlined"
-                  />
-                </Grid>
-                
-                <Grid size={{ xs: 12, md: 4 }}>
-                  <TextField
-                    fullWidth
-                    label="Data Fim"
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => onDateToChange(e.target.value)}
-                    InputLabelProps={{ 
-                      shrink: true,
-                      sx: {
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        '&.Mui-focused': {
-                          color: 'rgba(255, 255, 255, 0.9)'
-                        }
-                      }
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'white',
-                        '& fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.3)',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        background: 'rgba(255, 255, 255, 0.05)',
-                      }
-                    }}
-                    variant="outlined"
-                  />
-                </Grid>
-                
-                <Grid size={{ xs: 12, md: 2 }}>
-                  <IconButton
-                    onClick={onClearFilters}
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                      },
-                      width: '100%',
-                      height: '56px',
-                      borderRadius: '8px'
-                    }}
-                  >
-                    <ClearIcon />
-                  </IconButton>
-                </Grid>
-              </>
-            ) : (
+            {/* Período - Comum para todas as vistas */}
+            <Grid size={{ xs: 12, md: isIndividualView ? 8 : 4 }}>
+              <Box>
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, fontSize: '0.75rem' }}>
+                  Período de Consulta
+                </Typography>
+                <DateRangePicker
+                  value={dateRange}
+                  onChange={onDateRangeChange}
+                  placeholder="Selecionar período dos registros"
+                  className="w-full"
+                />
+              </Box>
+            </Grid>
+
+            {/* Botão Limpar */}
+            <Grid size={{ xs: 12, md: 2 }}>
+              <Box sx={{ height: '24px', mb: 1 }} /> {/* Spacer para alinhar com o label */}
+              <IconButton
+                onClick={onClearFilters}
+                sx={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  },
+                  width: '100%',
+                  height: '56px',
+                  borderRadius: '8px'
+                }}
+                title="Limpar filtros"
+              >
+                <ClearIcon />
+              </IconButton>
+            </Grid>
+
+            {/* Filtros específicos por vista */}
+            {!isIndividualView ? (
+              /* Filtros para vista de resumo */
               <>
                 {/* Filtros para vista geral */}
                 <Grid size={{ xs: 12, md: 4 }}>
@@ -316,132 +262,57 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
                   </Grid>
                 )}
                 
-                {/* Filtro de mês */}
-                <Grid size={{ xs: 12, md: 2 }}>
-                  <TextField
-                    fullWidth
-                    label="Mês"
-                    type="month"
-                    value={selectedMonth || ''}
-                    onChange={(e) => onMonthChange?.(e.target.value)}
-                    InputLabelProps={{ 
-                      shrink: true,
-                      sx: {
+
+            ) : (
+              /* Filtros para vista individual */
+              isIndividualView && (
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <FormControl 
+                    fullWidth 
+                    variant="outlined"
+                    sx={{
+                      '& .MuiInputLabel-root': {
                         color: 'rgba(255, 255, 255, 0.7)',
                         '&.Mui-focused': {
                           color: 'rgba(255, 255, 255, 0.9)'
                         }
-                      }
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'white',
-                        '& fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.3)',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        background: 'rgba(255, 255, 255, 0.05)',
-                      }
-                    }}
-                    variant="outlined"
-                  />
-                </Grid>
-                
-                <Grid size={{ xs: 12, md: 2 }}>
-                  <TextField
-                    fullWidth
-                    label="Data Início"
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => onDateFromChange(e.target.value)}
-                    InputLabelProps={{ 
-                      shrink: true,
-                      sx: {
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        '&.Mui-focused': {
-                          color: 'rgba(255, 255, 255, 0.9)'
-                        }
-                      }
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'white',
-                        '& fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.3)',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        background: 'rgba(255, 255, 255, 0.05)',
-                      }
-                    }}
-                    variant="outlined"
-                    inputProps={{ max: dateTo || undefined }}
-                  />
-                </Grid>
-                
-                <Grid size={{ xs: 12, md: 2 }}>
-                  <TextField
-                    fullWidth
-                    label="Data Fim"
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => onDateToChange(e.target.value)}
-                    InputLabelProps={{ 
-                      shrink: true,
-                      sx: {
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        '&.Mui-focused': {
-                          color: 'rgba(255, 255, 255, 0.9)'
-                        }
-                      }
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'white',
-                        '& fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.3)',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.7)',
-                        },
-                        background: 'rgba(255, 255, 255, 0.05)',
-                      }
-                    }}
-                    variant="outlined"
-                    inputProps={{ min: dateFrom || undefined }}
-                  />
-                </Grid>
-                
-                <Grid size={{ xs: 12, md: 1 }}>
-                  <IconButton
-                    onClick={onClearFilters}
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
                       },
-                      width: '100%',
-                      height: '56px',
-                      borderRadius: '8px'
+                      '& .MuiOutlinedInput-root': {
+                        color: 'white',
+                        '& fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.3)',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.5)',
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.7)',
+                        },
+                        background: 'rgba(255, 255, 255, 0.05)',
+                      },
+                      '& .MuiSelect-icon': {
+                        color: 'rgba(255, 255, 255, 0.7)',
+                      }
                     }}
                   >
-                    <ClearIcon />
-                  </IconButton>
+                    <InputLabel>Funcionário</InputLabel>
+                    <Select
+                      value={selectedEmployeeFilter || ''}
+                      label="Funcionário"
+                      onChange={(e) => onSelectedEmployeeFilterChange?.(e.target.value)}
+                    >
+                      <MenuItem value="">
+                        <em>Todos os funcionários</em>
+                      </MenuItem>
+                      {employees.map((employee) => (
+                        <MenuItem key={employee.id} value={employee.id}>
+                          {employee.nome}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Grid>
-              </>
+              )
             )}
           </Grid>
         </CardContent>

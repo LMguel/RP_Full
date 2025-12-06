@@ -213,6 +213,8 @@ def get_daily_summaries():
         employee_id_filter = request.args.get('employee_id')
         status_filter = request.args.get('status')
         date_filter = request.args.get('date')  # YYYY-MM-DD
+        start_date_param = request.args.get('start_date')
+        end_date_param = request.args.get('end_date')
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 50))
         
@@ -220,6 +222,11 @@ def get_daily_summaries():
         if date_filter:
             start_date = date_filter
             end_date = date_filter
+        elif start_date_param or end_date_param:
+            start_date = start_date_param or end_date_param
+            end_date = end_date_param or start_date_param or start_date
+            if start_date > end_date:
+                start_date, end_date = end_date, start_date
         elif month:
             year, month_num = map(int, month.split('-'))
             start_date = f"{year:04d}-{month_num:02d}-01"
@@ -239,19 +246,32 @@ def get_daily_summaries():
         
         # MUDANÇA: Buscar registros REAIS da tabela TimeRecords ao invés de DailySummary cache
         try:
-            # Buscar todos os registros do período
+            print(f"[DEBUG] Iniciando busca de registros - company_id: {company_id}")
+            
+            # Otimização: Limitar a busca para evitar timeout
+            # Usar scan com limite e filtro mais específico
+            filter_expr = Attr('company_id').eq(company_id)
+            
             response = table_records.scan(
-                FilterExpression=Attr('company_id').eq(company_id)
+                FilterExpression=filter_expr,
+                Limit=2000,  # Limitar quantidade para evitar timeout
+                Select='ALL_ATTRIBUTES'
             )
             all_records = response.get('Items', [])
             
-            # Filtrar por data
+            print(f"[DEBUG] Registros encontrados (bruto): {len(all_records)}")
+            
+            # Filtrar por data de forma mais eficiente
             records_in_range = []
             for record in all_records:
                 data_hora = record.get('data_hora', '')
-                if data_hora:
+                if data_hora and len(data_hora) >= 10:
                     record_date = data_hora[:10]  # YYYY-MM-DD
                     if start_date <= record_date <= end_date:
+                        if employee_id_filter:
+                            rec_emp = record.get('funcionario_id') or record.get('employee_id')
+                            if rec_emp != employee_id_filter:
+                                continue
                         records_in_range.append(record)
             
             print(f"[DEBUG] TimeRecords encontrados no período: {len(records_in_range)}")
@@ -271,14 +291,26 @@ def get_daily_summaries():
             
             # Calcular sumário para cada grupo usando summary_calculator
             from summary_calculator import calculate_daily_summary
-            from datetime import datetime
             items = []
-            for key, records in grouped.items():
+            
+            # Limitar quantidade para evitar timeout
+            max_groups = 200  # Processar no máximo 200 grupos por vez
+            group_count = 0
+            
+            grouped_items = sorted(grouped.items(), key=lambda kv: kv[0].split('#')[1], reverse=True)
+            for key, records in grouped_items:
+                if group_count >= max_groups:
+                    print(f"[DEBUG] Limite de {max_groups} grupos atingido, parando processamento")
+                    break
+                    
                 emp_id, date_str = key.split('#')
                 try:
                     # Converter string YYYY-MM-DD para objeto date
                     target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    
+                    print(f"[DEBUG] Calculando sumário para {emp_id} em {date_str}")
                     summary = calculate_daily_summary(company_id, emp_id, target_date)
+                    
                     if summary:
                         # Converter para dict
                         summary_dict = {
@@ -296,8 +328,11 @@ def get_daily_summaries():
                             'records_count': summary.records_count
                         }
                         items.append(summary_dict)
+                        group_count += 1
                 except Exception as calc_error:
                     print(f"[ERRO] Erro ao calcular sumário para {key}: {calc_error}")
+                    # Continuar processamento mesmo com erro
+                    group_count += 1
             
             print(f"[DEBUG] Sumários calculados: {len(items)}")
             if items:
@@ -311,12 +346,16 @@ def get_daily_summaries():
             print(f"[INFO] Tabela DailySummary pode não existir, retornando lista vazia")
             items = []
         
-        # Buscar nomes dos funcionários
+        # Buscar nomes dos funcionários (otimizado)
         employee_names = {}
         if items:
             try:
-                emp_response = table_employees.query(
-                    KeyConditionExpression=Key('company_id').eq(company_id)
+                print(f"[DEBUG] Buscando nomes de funcionários para {len(items)} items")
+                
+                # Otimização: usar scan com limite
+                emp_response = table_employees.scan(
+                    FilterExpression=Attr('company_id').eq(company_id),
+                    Limit=100  # Limitar para evitar timeout
                 )
                 for emp in emp_response.get('Items', []):
                     employee_names[emp.get('id')] = emp.get('nome', emp.get('id'))

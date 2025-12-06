@@ -53,6 +53,7 @@ import {
   Search as SearchIcon,
   Person as PersonIcon,
   Clear as ClearIcon,
+  CalendarMonth as CalendarIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
@@ -202,6 +203,40 @@ const RecordsDetailedPage: React.FC = () => {
   // Estados para filtros
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  
+  // Funções utilitárias para filtro de mês
+  const getFirstDayOfMonth = (yearMonth: string): string => {
+    const [year, month] = yearMonth.split('-').map(Number);
+    return `${year}-${month.toString().padStart(2, '0')}-01`;
+  };
+
+  const getLastDayOfMonth = (yearMonth: string): string => {
+    const [year, month] = yearMonth.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+  };
+
+  const getCurrentMonth = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    return `${year}-${month.toString().padStart(2, '0')}`;
+  };
+
+  const getMonthFromDate = (dateString: string): string => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    return `${year}-${month.toString().padStart(2, '0')}`;
+  };
+  
+  // Inicializar mês atual
+  useEffect(() => {
+    const currentMonth = getCurrentMonth();
+    setSelectedMonth(currentMonth);
+  }, []);
   
   // Efeito para capturar parâmetros de URL para filtros de data
   useEffect(() => {
@@ -575,19 +610,65 @@ const RecordsDetailedPage: React.FC = () => {
 
   // Exportar para Excel
   const exportToExcel = () => {
+    const formatDate = (value?: string) => {
+      if (!value) return '';
+      const trimmed = value.trim();
+      const isoCandidate = trimmed.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
+        const [year, month, day] = isoCandidate.split('-');
+        return `${day}/${month}/${year}`;
+      }
+      const parsed = new Date(trimmed);
+      return Number.isNaN(parsed.getTime()) ? trimmed : parsed.toLocaleDateString('pt-BR');
+    };
+
+    const formatDateForFilename = (value?: string) => {
+      if (!value) return '';
+      const trimmed = value.trim();
+      const isoCandidate = trimmed.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
+        const [year, month, day] = isoCandidate.split('-');
+        return `${day}-${month}-${year}`;
+      }
+      const parsed = new Date(trimmed);
+      if (Number.isNaN(parsed.getTime())) {
+        return trimmed.replace(/[\\/:*?"<>|\s]+/g, '-');
+      }
+      const day = String(parsed.getDate()).padStart(2, '0');
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const year = parsed.getFullYear();
+      return `${day}-${month}-${year}`;
+    };
+
+    const reportStart = dateFrom || (selectedMonth ? getFirstDayOfMonth(selectedMonth) : '');
+    const reportEnd = dateTo || (selectedMonth ? getLastDayOfMonth(selectedMonth) : '');
+
+    const headerInfo = [
+      ['Período do relatório', `${formatDate(reportStart) || 'Início'} até ${formatDate(reportEnd) || 'Fim'}`],
+      []
+    ];
+
     const dataToExport = filteredRecords.map(record => ({
       'ID Registro': record.registro_id,
-      'ID Funcionário': record.funcionario_id,
       'Nome Funcionário': record.funcionario_nome,
       'Data/Hora': formatDateTime(record.data_hora),
       'Tipo': record.tipo,
       'Status': getDetailedStatus(record).map(s => s.text).join(', '),
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = XLSX.utils.aoa_to_sheet(headerInfo);
+    XLSX.utils.sheet_add_json(ws, dataToExport, {
+      origin: 'A3',
+      header: ['ID Registro', 'Nome Funcionário', 'Data/Hora', 'Tipo', 'Status'],
+    });
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Registros Detalhados');
-    XLSX.writeFile(wb, 'registros_detalhados.xlsx');
+    const startLabel = formatDateForFilename(reportStart) || 'inicio';
+    const endLabel = formatDateForFilename(reportEnd) || 'fim';
+    const fileName = `Relatorio-(${startLabel}_a_${endLabel}).xlsx`;
+
+    XLSX.writeFile(wb, fileName);
     showSnackbar('Dados exportados para Excel com sucesso!', 'success');
   };
 
@@ -751,13 +832,88 @@ const RecordsDetailedPage: React.FC = () => {
               </Typography>
             </Box>
 
+            {/* Primeira linha: Campo de busca */}
+            <Box sx={{ mb: 3 }}>
+              <TextField
+                placeholder="Buscar funcionário..."
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                fullWidth
+                size="small"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+            </Box>
+
+            {/* Segunda linha: Mês, Data Início e Data Fim */}
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
+              {/* Mês */}
+              <TextField
+                label="Mês"
+                type="month"
+                value={selectedMonth || ''}
+                onChange={(e) => {
+                  const month = e.target.value;
+                  setSelectedMonth(month);
+                  if (month) {
+                    setDateFrom(getFirstDayOfMonth(month));
+                    setDateTo(getLastDayOfMonth(month));
+                  } else {
+                    setDateFrom('');
+                    setDateTo('');
+                  }
+                }}
+                size="small"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <CalendarIcon sx={{ fontSize: 18 }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+
               {/* Data Início */}
               <TextField
                 label="Data Início"
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  // Atualizar mês se mudou manualmente
+                  if (e.target.value && dateTo) {
+                    const monthFromDate = getMonthFromDate(e.target.value);
+                    const monthToDate = getMonthFromDate(dateTo);
+                    if (monthFromDate === monthToDate) {
+                      setSelectedMonth(monthFromDate);
+                    } else {
+                      setSelectedMonth('');
+                    }
+                  }
+                }}
                 size="small"
                 InputLabelProps={{ shrink: true }}
                 sx={{
@@ -776,7 +932,19 @@ const RecordsDetailedPage: React.FC = () => {
                 label="Data Fim"
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  // Atualizar mês se mudou manualmente
+                  if (dateFrom && e.target.value) {
+                    const monthFromDate = getMonthFromDate(dateFrom);
+                    const monthToDate = getMonthFromDate(e.target.value);
+                    if (monthFromDate === monthToDate) {
+                      setSelectedMonth(monthFromDate);
+                    } else {
+                      setSelectedMonth('');
+                    }
+                  }
+                }}
                 size="small"
                 InputLabelProps={{ shrink: true }}
                 sx={{
@@ -789,29 +957,6 @@ const RecordsDetailedPage: React.FC = () => {
                   '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
                 }}
               />
-
-              {/* Buscar */}
-              <TextField
-                placeholder="Buscar funcionário..."
-                value={searchTerm}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                size="small"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                }}
-              />
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
@@ -821,6 +966,7 @@ const RecordsDetailedPage: React.FC = () => {
                 onClick={() => {
                   setDateFrom('');
                   setDateTo('');
+                  setSelectedMonth('');
                   handleClearSearch();
                 }}
                 startIcon={<ClearIcon />}

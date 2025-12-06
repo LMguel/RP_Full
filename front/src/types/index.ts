@@ -36,7 +36,6 @@ export interface CompanySettings {
   arredondamento_horas_extras: '5' | '10' | '15' | 'exato';
   intervalo_automatico: boolean;
   duracao_intervalo: number;
-  compensar_saldo_horas: boolean;
   data_atualizacao?: string;
 }
 

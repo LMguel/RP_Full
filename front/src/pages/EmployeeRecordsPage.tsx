@@ -35,6 +35,7 @@ import {
   Close as CloseIcon,
   Clear as ClearIcon,
   FilterList as FilterIcon,
+  CalendarMonth as CalendarIcon,
 } from '@mui/icons-material';
 import { InputAdornment } from '@mui/material';
 import { motion } from 'framer-motion';
@@ -60,6 +61,34 @@ const EmployeeRecordsPage: React.FC = () => {
   // Estados para filtros
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  
+  // Funções utilitárias para filtro de mês
+  const getFirstDayOfMonth = (yearMonth: string): string => {
+    const [year, month] = yearMonth.split('-').map(Number);
+    return `${year}-${month.toString().padStart(2, '0')}-01`;
+  };
+
+  const getLastDayOfMonth = (yearMonth: string): string => {
+    const [year, month] = yearMonth.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+  };
+
+  const getCurrentMonth = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    return `${year}-${month.toString().padStart(2, '0')}`;
+  };
+
+  const getMonthFromDate = (dateString: string): string => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    return `${year}-${month.toString().padStart(2, '0')}`;
+  };
   
   // Estados para dialogs
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -184,7 +213,27 @@ const EmployeeRecordsPage: React.FC = () => {
       ];
       XLSX.utils.book_append_sheet(wb, ws, "Histórico");
       
-      const fileName = `Historico_${selectedEmployee.nome.replace(/\s+/g, '_')}_${dateFrom ? dateFrom.split('-').reverse().join('-') : 'inicio'}_a_${dateTo ? dateTo.split('-').reverse().join('-') : 'fim'}.xlsx`;
+      const formatDateForFilename = (value?: string) => {
+        if (!value) return '';
+        const trimmed = value.trim();
+        const isoCandidate = trimmed.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
+          const [year, month, day] = isoCandidate.split('-');
+          return `${day}-${month}-${year}`;
+        }
+        const parsed = new Date(trimmed);
+        if (Number.isNaN(parsed.getTime())) {
+          return trimmed.replace(/[\\/:*?"<>|\s]+/g, '-');
+        }
+        const day = String(parsed.getDate()).padStart(2, '0');
+        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+        const year = parsed.getFullYear();
+        return `${day}-${month}-${year}`;
+      };
+
+      const startLabel = formatDateForFilename(dateFrom) || 'inicio';
+      const endLabel = formatDateForFilename(dateTo) || 'fim';
+      const fileName = `Relatorio-(${startLabel}_a_${endLabel}).xlsx`;
       XLSX.writeFile(wb, fileName);
       showSnackbar(`Histórico de ${selectedEmployee.nome} exportado com sucesso!`, 'success');
     } catch (err) {
@@ -344,6 +393,7 @@ const EmployeeRecordsPage: React.FC = () => {
   const clearFilters = () => {
     setDateFrom('');
     setDateTo('');
+    setSelectedMonth('');
   };
 
   const handleBack = () => {
@@ -351,6 +401,12 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   // Effects
+  // Inicializar mês atual
+  useEffect(() => {
+    const currentMonth = getCurrentMonth();
+    setSelectedMonth(currentMonth);
+  }, []);
+
   useEffect(() => {
     if (employeeId) {
       buscarRegistrosFuncionario();
@@ -440,13 +496,60 @@ const EmployeeRecordsPage: React.FC = () => {
             </Typography>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
+            {/* Mês */}
+            <TextField
+              label="Mês"
+              type="month"
+              value={selectedMonth || ''}
+              onChange={(e) => {
+                const month = e.target.value;
+                setSelectedMonth(month);
+                if (month) {
+                  setDateFrom(getFirstDayOfMonth(month));
+                  setDateTo(getLastDayOfMonth(month));
+                } else {
+                  setDateFrom('');
+                  setDateTo('');
+                }
+              }}
+              size="small"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <CalendarIcon sx={{ fontSize: 18 }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                  '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                },
+                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+              }}
+            />
+
             {/* Data Início */}
             <TextField
               label="Data Início"
               type="date"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                // Atualizar mês se mudou manualmente
+                if (e.target.value && dateTo) {
+                  const monthFromDate = getMonthFromDate(e.target.value);
+                  const monthToDate = getMonthFromDate(dateTo);
+                  if (monthFromDate === monthToDate) {
+                    setSelectedMonth(monthFromDate);
+                  } else {
+                    setSelectedMonth('');
+                  }
+                }
+              }}
               size="small"
               InputLabelProps={{ shrink: true }}
               sx={{
@@ -465,7 +568,19 @@ const EmployeeRecordsPage: React.FC = () => {
               label="Data Fim"
               type="date"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                // Atualizar mês se mudou manualmente
+                if (dateFrom && e.target.value) {
+                  const monthFromDate = getMonthFromDate(dateFrom);
+                  const monthToDate = getMonthFromDate(e.target.value);
+                  if (monthFromDate === monthToDate) {
+                    setSelectedMonth(monthFromDate);
+                  } else {
+                    setSelectedMonth('');
+                  }
+                }
+              }}
               size="small"
               InputLabelProps={{ shrink: true }}
               sx={{
