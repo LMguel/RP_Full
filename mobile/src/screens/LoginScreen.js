@@ -59,7 +59,7 @@ export default function LoginScreen({ navigation }) {
         {/* Form */}
         <Animatable.View animation="fadeInUp" delay={300} style={styles.formContainer}>
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Usuário da Empresa</Text>
+            <Text style={styles.label}>Usuário (Empresa ou Funcionário)</Text>
             <TextInput
               style={styles.input}
               placeholder="Digite o usuário"
@@ -96,7 +96,7 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
 
           <Text style={styles.infoText}>
-            Use as mesmas credenciais da versão web
+            Use suas credenciais de empresa ou funcionário
           </Text>
         </Animatable.View>
       </View>

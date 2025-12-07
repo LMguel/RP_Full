@@ -38,14 +38,20 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  // Login para Empresa
+  // Login para Empresa ou Funcionário
+  // Agora suporta ambos os tipos via endpoint unificado /login
   async function signIn(usuario_id, senha, type = 'empresa') {
     try {
       const response = await ApiService.login(usuario_id, senha);
       setUser(response);
       setCompanyName(response.empresa_nome || '');
-      setUserType('empresa');
-      await ApiService.saveUserType('empresa');
+      
+      // Detectar tipo de usuário da resposta ou usar tipo padrão
+      const userType = response.tipo || 'empresa';
+      setUserType(userType);
+      await ApiService.saveUserType(userType);
+      
+      console.log(`[AUTH] Login realizado como: ${userType}`);
       return response;
     } catch (error) {
       throw error;

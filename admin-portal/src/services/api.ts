@@ -14,18 +14,18 @@ export interface CompanySummary {
   dateCreated: string;
   userId: string;
   activeEmployees: number; // Count of active employees
+  expectedEmployees: number; // Total expected employees
   payments: Payment; // Payment history by month/year
+  senha?: string; // Password (optional, returned from backend)
 }
 
 export interface CreateCompanyPayload {
+  userId: string; // user_id for UserCompany table
   companyName: string;
   email: string;
   password: string;
   confirmPassword: string;
-  responsible: string;
-  phone: string;
-  status: CompanyStatus;
-  cnpj?: string;
+  expectedEmployees?: number; // Total expected employees
 }
 
 export interface DashboardStats {
@@ -141,13 +141,11 @@ export async function createCompany(payload: CreateCompanyPayload): Promise<Comp
     const response = await fetchFromBackend("/api/admin/companies", {
       method: "POST",
       body: JSON.stringify({
+        user_id: payload.userId,
         company_name: payload.companyName,
         email: payload.email,
         password: payload.password,
-        responsible: payload.responsible,
-        phone: payload.phone,
-        cnpj: payload.cnpj,
-        status: payload.status,
+        expected_employees: payload.expectedEmployees || 0,
       }),
     });
 
@@ -187,5 +185,24 @@ export async function fetchCompanyRecords(companyId: string): Promise<CompanyRec
   } catch (error) {
     console.error("Erro ao buscar registros da empresa:", error);
     return [];
+  }
+}
+
+export async function updateCompanyPaymentStatus(
+  companyId: string,
+  monthYear: string,
+  isPaid: boolean
+): Promise<void> {
+  try {
+    await fetchFromBackend(`/api/admin/companies/${companyId}/payment-status`, {
+      method: "POST",
+      body: JSON.stringify({
+        monthYear,
+        isPaid,
+      }),
+    });
+  } catch (error) {
+    console.error("Erro ao atualizar status de pagamento:", error);
+    throw error;
   }
 }

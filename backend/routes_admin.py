@@ -14,6 +14,8 @@ from botocore.exceptions import ClientError
 from decimal import Decimal
 from datetime import datetime
 from boto3.dynamodb.conditions import Attr, Key
+import uuid
+import bcrypt
 
 admin_routes = Blueprint('admin_routes', __name__)
 
@@ -211,6 +213,7 @@ def get_companies():
                 'status': company.get('status', 'active'),
                 'dateCreated': company.get('data_criacao', ''),
                 'activeEmployees': active_employees,
+                'expectedEmployees': company.get('numero_funcionarios', 0),
                 'payments': payments,
                 'userId': company.get('user_id', '')
             })
@@ -225,6 +228,95 @@ def get_companies():
     except Exception as e:
         print(f"Error in get_companies: {e}")
         return jsonify({'error': 'Erro interno do servidor'}), 500
+
+
+@admin_routes.route('/api/admin/companies', methods=['POST'])
+def create_company():
+    """Create a new company with admin user.
+    
+    Expected payload:
+    {
+        "user_id": "admin",
+        "email": "admin@empresa.com",
+        "company_name": "Minha Empresa",
+        "password": "senha123"
+    }
+    
+    Returns:
+    {
+        "company": {
+            "companyId": "uuid",
+            "companyName": "Minha Empresa",
+            "email": "admin@empresa.com",
+            "userId": "admin",
+            ...
+        }
+    }
+    """
+    try:
+        data = request.get_json() or {}
+        
+        # Get required fields
+        user_id = data.get('user_id', '').strip()
+        email = data.get('email', '').strip()
+        company_name = data.get('company_name', '').strip()
+        password = data.get('password', '')
+        expected_employees = data.get('expected_employees', 0)
+        
+        # Validate required fields
+        if not all([user_id, email, company_name, password]):
+            return jsonify({'error': 'user_id, email, company_name e password são obrigatórios'}), 400
+        
+        print(f"[DEBUG] Creating company - user_id: {user_id}, email: {email}, company_name: {company_name}, expected_employees: {expected_employees}")
+        
+        # Generate company_id (UUID)
+        company_id = str(uuid.uuid4())
+        
+        # Hash password using bcrypt
+        senha_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # Create item for UserCompany table
+        company_item = {
+            'company_id': company_id,
+            'user_id': user_id,
+            'email': email,
+            'empresa_nome': company_name,
+            'senha_hash': senha_hash,
+            'senha': password,  # Store original password for display
+            'status': 'active',
+            'data_criacao': datetime.now().isoformat(),
+            'numero_funcionarios': int(expected_employees) if expected_employees else 0,
+            'payments': {}  # Initialize empty payments
+        }
+        
+        # Insert into UserCompany table
+        table_user_company.put_item(Item=company_item)
+        
+        print(f"[DEBUG] Company created successfully - company_id: {company_id}")
+        
+        return jsonify({
+            'company': {
+                'companyId': company_id,
+                'companyName': company_name,
+                'email': email,
+                'status': 'active',
+                'dateCreated': company_item['data_criacao'],
+                'userId': user_id,
+                'activeEmployees': 0,
+                'expectedEmployees': int(expected_employees) if expected_employees else 0,
+                'payments': {}
+            }
+        }), 201
+
+    except ClientError as e:
+        print(f"[ERROR] ClientError creating company: {e}")
+        print(f"[ERROR] Error code: {e.response.get('Error', {}).get('Code')}")
+        return jsonify({'error': 'Erro ao criar empresa', 'details': str(e)}), 500
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in create_company: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Erro interno do servidor', 'details': str(e)}), 500
 
 
 @admin_routes.route('/api/admin/companies/<company_id>', methods=['GET'])
@@ -267,7 +359,9 @@ def get_company_details(company_id: str):
                 'dateCreated': company.get('data_criacao', ''),
                 'userId': company.get('user_id', ''),
                 'activeEmployees': 0,  # Will be calculated separately if needed
-                'payments': company.get('payments', {})
+                'expectedEmployees': company.get('numero_funcionarios', 0),
+                'payments': company.get('payments', {}),
+                'senha': company.get('senha', '')  # Return original password
             }
         }), 200
 
@@ -410,6 +504,8 @@ def update_company_payment_status(company_id: str):
         month_year = data.get('monthYear', '')
         is_paid = data.get('isPaid', False)
 
+        print(f"[DEBUG] Updating payment status - company_id: {company_id}, month_year: {month_year}, is_paid: {is_paid}")
+
         if not month_year:
             return jsonify({'error': 'monthYear é obrigatório'}), 400
 
@@ -422,22 +518,51 @@ def update_company_payment_status(company_id: str):
         
         items_q = query_response.get('Items', [])
         if not items_q:
+            print(f"[ERROR] Company not found: {company_id}")
             return jsonify({'error': 'Empresa não encontrada'}), 404
         
         # Get the user_id of the first user in this company
         user_id = items_q[0].get('user_id')
+        print(f"[DEBUG] Found user_id: {user_id}")
         
         # Update company record with payment status
-        update_expr = 'SET payments.#my = :is_paid'
-        attr_names = {'#my': month_year}
-        attr_values = {':is_paid': is_paid}
+        # First, check if payments attribute exists, if not initialize it
+        try:
+            # Get current item to check if payments exists
+            current_item = items_q[0]
+            has_payments = 'payments' in current_item
+            
+            if has_payments:
+                # Payments already exists, just update the month
+                update_expr = 'SET payments.#my = :is_paid'
+                attr_names = {'#my': month_year}
+                attr_values = {':is_paid': is_paid}
+            else:
+                # Initialize payments map with the month
+                update_expr = 'SET payments = :payments_map'
+                attr_names = {}
+                attr_values = {':payments_map': {month_year: is_paid}}
+            
+            print(f"[DEBUG] Has payments: {has_payments}, UpdateExpression: {update_expr}")
+            
+            table_user_company.update_item(
+                Key={'company_id': company_id, 'user_id': user_id},
+                UpdateExpression=update_expr,
+                ExpressionAttributeNames=attr_names if attr_names else None,
+                ExpressionAttributeValues=attr_values
+            )
+        except Exception as update_error:
+            print(f"[ERROR] Update error: {update_error}")
+            # If direct update fails, try using put_item to replace the entire item
+            current_item = items_q[0]
+            if 'payments' not in current_item:
+                current_item['payments'] = {}
+            current_item['payments'][month_year] = is_paid
+            
+            print(f"[DEBUG] Using put_item fallback")
+            table_user_company.put_item(Item=current_item)
 
-        table_user_company.update_item(
-            Key={'company_id': company_id, 'user_id': user_id},
-            UpdateExpression=update_expr,
-            ExpressionAttributeNames=attr_names,
-            ExpressionAttributeValues=attr_values
-        )
+        print(f"[DEBUG] Update successful")
 
         return jsonify({
             'message': 'Status de pagamento atualizado com sucesso',
@@ -447,11 +572,15 @@ def update_company_payment_status(company_id: str):
         }), 200
 
     except ClientError as e:
-        print(f"Error updating payment status: {e}")
-        return jsonify({'error': 'Erro ao atualizar status de pagamento'}), 500
+        print(f"[ERROR] ClientError updating payment status: {e}")
+        print(f"[ERROR] Error code: {e.response.get('Error', {}).get('Code')}")
+        print(f"[ERROR] Error message: {e.response.get('Error', {}).get('Message')}")
+        return jsonify({'error': 'Erro ao atualizar status de pagamento', 'details': str(e)}), 500
     except Exception as e:
-        print(f"Error in update_company_payment_status: {e}")
-        return jsonify({'error': 'Erro interno do servidor'}), 500
+        print(f"[ERROR] Unexpected error in update_company_payment_status: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Erro interno do servidor', 'details': str(e)}), 500
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/suspend', methods=['POST'])

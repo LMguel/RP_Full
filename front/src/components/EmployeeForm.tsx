@@ -18,7 +18,6 @@ import {
   PhotoCamera as PhotoCameraIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-import { motion } from 'framer-motion';
 import { Employee, HorarioPreset } from '../types';
 import { config } from '../config';
 
@@ -42,7 +41,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [formData, setFormData] = useState({
     nome: employee?.nome || '',
     cargo: employee?.cargo || '',
-    email: employee?.email || '',
+    login: employee?.email || '',
     senha: '',
     confirmarSenha: '',
     horario_entrada: employee?.horario_entrada || '',
@@ -57,23 +56,23 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [loadingHorarios, setLoadingHorarios] = useState(false);
   const [nomeHorario, setNomeHorario] = useState('');
 
-  // Use only existing cargos from the company, sorted alphabetically
   const allCargos = [...new Set(existingCargos)].sort();
 
-  // Carregar horários preset ao abrir o modal
   React.useEffect(() => {
     const carregarHorarios = async () => {
       if (open) {
         setLoadingHorarios(true);
         try {
           const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-          const response = await fetch(`${config.API_URL}/horarios`, {
+          // Novo endpoint que retorna presets usados pelos funcionários
+          const response = await fetch(`${config.API_URL}/horarios/funcionarios`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
           });
           if (response.ok) {
             const data = await response.json();
+            // data é um array de strings: ["Padrão", "Manhã", "Noite"]
             setHorariosPreset(data);
           }
         } catch (error) {
@@ -91,7 +90,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setFormData({
         nome: employee.nome,
         cargo: employee.cargo,
-        email: employee.email || '',
+        login: employee.email || '',
         senha: '',
         confirmarSenha: '',
         horario_entrada: employee.horario_entrada || '',
@@ -102,7 +101,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setFormData({ 
         nome: '', 
         cargo: '', 
-        email: '', 
+        login: '', 
         senha: '',
         confirmarSenha: '',
         horario_entrada: '', 
@@ -145,19 +144,41 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   };
 
   const handleHorarioPresetChange = (event: any, newValue: HorarioPreset | string | null) => {
-    if (newValue && typeof newValue === 'object') {
-      // Selecionou um preset existente
+    if (typeof newValue === 'string' && newValue.trim()) {
+      // Se é uma string (nome do preset), buscar os horários
+      setNomeHorario(newValue);
+      buscarHorariosPorNome(newValue);
+    } else if (newValue && typeof newValue === 'object') {
       setFormData(prev => ({
         ...prev,
         horario_entrada: newValue.horario_entrada,
         horario_saida: newValue.horario_saida,
       }));
       setNomeHorario(newValue.nome);
-    } else if (typeof newValue === 'string') {
-      // Digitou um novo nome
-      setNomeHorario(newValue);
     } else {
       setNomeHorario('');
+    }
+  };
+
+  const buscarHorariosPorNome = async (nomeHorario: string) => {
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const response = await fetch(`${config.API_URL}/horarios/${encodeURIComponent(nomeHorario)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const horario = await response.json();
+        setFormData(prev => ({
+          ...prev,
+          horario_entrada: horario.horario_entrada,
+          horario_saida: horario.horario_saida,
+        }));
+      }
+    } catch (error) {
+      console.error('Erro ao buscar horários:', error);
     }
   };
 
@@ -184,21 +205,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       newErrors.cargo = 'Cargo é obrigatório';
     }
 
-    // Email é obrigatório se senha for fornecida
-    if (formData.senha && formData.senha.trim()) {
-      if (!formData.email || !formData.email.trim()) {
-        newErrors.email = 'Email é obrigatório quando senha é definida';
+    if (formData.senha || formData.confirmarSenha) {
+      if (!formData.login || !formData.login.trim()) {
+        newErrors.login = 'Login é obrigatório quando senha é definida';
       }
     }
 
-    if (formData.email && formData.email.trim()) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(formData.email)) {
-        newErrors.email = 'Email inválido';
-      }
-    }
-
-    // Validar senha
     if (formData.senha && formData.senha.trim()) {
       if (formData.senha.length < 6) {
         newErrors.senha = 'Senha deve ter no mínimo 6 caracteres';
@@ -227,8 +239,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     formDataToSend.append('nome', formData.nome);
     formDataToSend.append('cargo', formData.cargo);
     
-    if (formData.email && formData.email.trim()) {
-      formDataToSend.append('email', formData.email.trim());
+    if (formData.login && formData.login.trim()) {
+      formDataToSend.append('email', formData.login.trim());
     }
     
     if (formData.senha && formData.senha.trim()) {
@@ -239,7 +251,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       formDataToSend.append('foto', photo);
     }
     
-    // Adicionar horários se preenchidos
     if (formData.horario_entrada) {
       formDataToSend.append('horario_entrada', formData.horario_entrada);
     }
@@ -253,258 +264,523 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     await onSubmit(formDataToSend);
   };
 
+  const handleClose = () => {
+    setFormData({ 
+      nome: '', 
+      cargo: '', 
+      login: '', 
+      senha: '',
+      confirmarSenha: '',
+      horario_entrada: '', 
+      horario_saida: '' 
+    });
+    setPhoto(null);
+    setPhotoPreview(null);
+    setNomeHorario('');
+    setErrors({});
+    onClose();
+  };
+
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(event, reason) => {
+        if (reason === 'backdropClick') return;
+        if (reason === 'escapeKeyDown') return;
+        handleClose();
+      }}
+      disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
       PaperProps={{
-        sx: { borderRadius: 2 }
+        sx: {
+          background: 'rgba(255, 255, 255, 0.05)',
+          backdropFilter: 'blur(20px)',
+          borderRadius: '16px',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }
+      }}
+      sx={{
+        '& .MuiDialog-container': {
+          background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
+        }
       }}
     >
-      <DialogTitle className="flex items-center justify-between font-semibold">
-        <Box component="span">
-          {employee ? 'Editar Funcionário' : 'Cadastrar Funcionário'}
+      <DialogTitle 
+        sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          color: 'white',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          pb: 2,
+          fontWeight: 600
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }} component="span">
+          <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
+          <Box component="span">
+            {employee ? 'Editar Funcionário' : 'Cadastrar Funcionário'}
+          </Box>
         </Box>
-        <IconButton onClick={onClose} disabled={loading}>
+        <IconButton 
+          onClick={handleClose} 
+          disabled={loading}
+          sx={{ 
+            color: 'rgba(255, 255, 255, 0.7)',
+            '&:hover': {
+              color: 'white',
+              background: 'rgba(255, 255, 255, 0.1)'
+            }
+          }}
+        >
           <CloseIcon />
         </IconButton>
       </DialogTitle>
 
       <form onSubmit={handleSubmit}>
-        <DialogContent className="space-y-4">
-          {/* Photo Section */}
-          <Box className="flex flex-col items-center space-y-4">
-            <Avatar
-              src={photoPreview || undefined}
-              sx={{ width: 120, height: 120 }}
-              className="border-4 border-gray-200"
-            >
-              {!photoPreview && <PersonIcon sx={{ fontSize: 60 }} />}
-            </Avatar>
-            
-            <input
-              accept="image/*"
-              style={{ display: 'none' }}
-              id="photo-upload"
-              type="file"
-              onChange={handlePhotoChange}
-              disabled={loading}
-            />
-            <label htmlFor="photo-upload">
-              <Button
-                variant="outlined"
-                component="span"
-                startIcon={<PhotoCameraIcon />}
-                disabled={loading}
-                className="border-blue-600 text-blue-600 hover:bg-blue-50"
+        <DialogContent sx={{ py: 4 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {/* Photo Section */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <Avatar
+                src={photoPreview || undefined}
+                sx={{ width: 120, height: 120, background: 'rgba(255, 255, 255, 0.1)' }}
               >
-                {photo ? 'Alterar Foto' : 'Adicionar Foto'}
-              </Button>
-            </label>
-            
-            {errors.photo && (
-              <Typography variant="caption" color="error">
-                {errors.photo}
-              </Typography>
-            )}
-          </Box>
+                {!photoPreview && <PersonIcon sx={{ fontSize: 60, color: 'rgba(255, 255, 255, 0.5)' }} />}
+              </Avatar>
+              
+              <input
+                accept="image/*"
+                style={{ display: 'none' }}
+                id="photo-upload"
+                type="file"
+                onChange={handlePhotoChange}
+                disabled={loading}
+              />
+              <label htmlFor="photo-upload">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  startIcon={<PhotoCameraIcon />}
+                  disabled={loading}
+                  sx={{
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    '&:hover': {
+                      borderColor: 'rgba(255, 255, 255, 0.8)',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                    }
+                  }}
+                >
+                  {photo ? 'Alterar Foto' : 'Adicionar Foto'}
+                </Button>
+              </label>
+              
+              {errors.photo && (
+                <Typography variant="caption" sx={{ color: '#ef4444' }}>
+                  {errors.photo}
+                </Typography>
+              )}
+            </Box>
 
-          {/* Form Fields */}
-          <TextField
-            fullWidth
-            label="Nome Completo"
-            name="nome"
-            value={formData.nome}
-            onChange={handleChange}
-            error={!!errors.nome}
-            helperText={errors.nome}
-            disabled={loading}
-            variant="outlined"
-          />
-
-          <TextField
-            fullWidth
-            label="Email"
-            name="email"
-            type="email"
-            value={formData.email}
-            onChange={handleChange}
-            error={!!errors.email}
-            helperText={errors.email || 'Email para login no app mobile (obrigatório se definir senha)'}
-            disabled={loading}
-            variant="outlined"
-          />
-
-          {/* Campos de Senha */}
-          <Box className="space-y-3">
-            <Typography variant="subtitle2" className="font-semibold text-gray-700">
-              Acesso ao App Mobile (Opcional)
-            </Typography>
-            
+            {/* Name Field */}
             <TextField
               fullWidth
-              label={employee ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha'}
-              name="senha"
-              type="password"
-              value={formData.senha}
+              label="Nome Completo"
+              name="nome"
+              value={formData.nome}
               onChange={handleChange}
-              error={!!errors.senha}
-              helperText={
-                errors.senha || 
-                (employee 
-                  ? 'Preencha apenas se quiser redefinir a senha. Mínimo 6 caracteres.'
-                  : 'Mínimo 6 caracteres. Deixe em branco para não dar acesso ao app.')
-              }
+              error={!!errors.nome}
+              helperText={errors.nome}
               disabled={loading}
               variant="outlined"
-              autoComplete="new-password"
-              placeholder={employee ? 'Digite apenas se quiser alterar' : ''}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  '& fieldset': {
+                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: 'rgba(255, 255, 255, 0.7)',
+                  },
+                },
+                '& .MuiInputLabel-root': {
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  '&.Mui-focused': {
+                    color: 'rgba(255, 255, 255, 0.9)'
+                  }
+                },
+              }}
             />
 
-            {formData.senha && (
+            {/* Login Field */}
+            <TextField
+              fullWidth
+              label="Login"
+              name="login"
+              type="text"
+              value={formData.login}
+              onChange={handleChange}
+              error={!!errors.login}
+              helperText={errors.login || 'Login para acesso ao app mobile (obrigatório se definir senha)'}
+              disabled={loading}
+              variant="outlined"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  '& fieldset': {
+                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: 'rgba(255, 255, 255, 0.7)',
+                  },
+                },
+                '& .MuiInputLabel-root': {
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  '&.Mui-focused': {
+                    color: 'rgba(255, 255, 255, 0.9)'
+                  }
+                },
+                '& .MuiFormHelperText-root': {
+                  color: 'rgba(255, 255, 255, 0.6)'
+                }
+              }}
+            />
+
+            {/* Cargo Field */}
+            <Autocomplete
+              freeSolo
+              options={allCargos}
+              value={formData.cargo}
+              onChange={handleCargoChange}
+              onInputChange={(event, newInputValue) => {
+                setFormData(prev => ({
+                  ...prev,
+                  cargo: newInputValue,
+                }));
+              }}
+              disabled={loading}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Cargo"
+                  error={!!errors.cargo}
+                  helperText={errors.cargo || "Selecione ou digite o cargo"}
+                  variant="outlined"
+                  fullWidth
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      '&.Mui-focused': {
+                        color: 'rgba(255, 255, 255, 0.9)'
+                      }
+                    },
+                    '& .MuiAutocomplete-popupIndicator': {
+                      color: 'rgba(255, 255, 255, 0.7)'
+                    }
+                  }}
+                />
+              )}
+              ListboxProps={{
+                sx: {
+                  background: 'rgba(15, 23, 42, 0.95)',
+                  color: 'white',
+                  '& .MuiAutocomplete-option': {
+                    '&.Mui-focused': {
+                      backgroundColor: 'rgba(59, 130, 246, 0.35)'
+                    }
+                  }
+                }
+              }}
+            />
+
+            {/* Password Section */}
+            <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
+              <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
+                Acesso ao App Mobile (Opcional)
+              </Typography>
+              
               <TextField
                 fullWidth
-                label="Confirmar Senha"
-                name="confirmarSenha"
+                label={employee ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha'}
+                name="senha"
                 type="password"
-                value={formData.confirmarSenha}
+                value={formData.senha}
                 onChange={handleChange}
-                error={!!errors.confirmarSenha}
-                helperText={errors.confirmarSenha}
+                error={!!errors.senha}
+                helperText={
+                  errors.senha || 
+                  (employee 
+                    ? 'Preencha apenas se quiser redefinir a senha. Mínimo 6 caracteres.'
+                    : 'Mínimo 6 caracteres. Deixe em branco para não dar acesso ao app.')
+                }
                 disabled={loading}
                 variant="outlined"
                 autoComplete="new-password"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.5)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.7)',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    '&.Mui-focused': {
+                      color: 'rgba(255, 255, 255, 0.9)'
+                    }
+                  },
+                  '& .MuiFormHelperText-root': {
+                    color: 'rgba(255, 255, 255, 0.6)'
+                  }
+                }}
               />
-            )}
-          </Box>
 
-          <Autocomplete
-            freeSolo
-            options={allCargos}
-            value={formData.cargo}
-            onChange={handleCargoChange}
-            onInputChange={(event, newInputValue) => {
-              setFormData(prev => ({
-                ...prev,
-                cargo: newInputValue,
-              }));
-            }}
-            disabled={loading}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Cargo"
-                error={!!errors.cargo}
-                helperText={errors.cargo || (allCargos.length > 0 ? "Selecione um cargo existente ou digite um novo" : "Digite o cargo do funcionário")}
-                variant="outlined"
-                fullWidth
-              />
-            )}
-            renderOption={(props, option) => (
-              <Box component="li" {...props}>
-                <Typography variant="body2">
-                  {option}
-                </Typography>
-              </Box>
-            )}
-          />
+              {formData.senha && (
+                <TextField
+                  fullWidth
+                  label="Confirmar Senha"
+                  name="confirmarSenha"
+                  type="password"
+                  value={formData.confirmarSenha}
+                  onChange={handleChange}
+                  error={!!errors.confirmarSenha}
+                  helperText={errors.confirmarSenha}
+                  disabled={loading}
+                  variant="outlined"
+                  autoComplete="new-password"
+                  sx={{
+                    mt: 2,
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      '&.Mui-focused': {
+                        color: 'rgba(255, 255, 255, 0.9)'
+                      }
+                    },
+                    '& .MuiFormHelperText-root': {
+                      color: 'rgba(255, 255, 255, 0.6)'
+                    }
+                  }}
+                />
+              )}
+            </Box>
 
-          {/* Horários Section */}
-          <Box className="space-y-3">
-            <Typography variant="subtitle2" className="font-semibold text-gray-700">
-              Horários de Trabalho (Opcional)
-            </Typography>
-            
-            <Autocomplete
-              freeSolo
-              options={horariosPreset}
-              getOptionLabel={(option) => 
-                typeof option === 'string' ? option : option.nome
-              }
-              value={nomeHorario}
-              onChange={handleHorarioPresetChange}
-              onInputChange={(event, newInputValue) => {
-                setNomeHorario(newInputValue);
-              }}
-              disabled={loading || loadingHorarios}
-              renderInput={(params) => {
-                // normalize and cast props to any to avoid MUI/TypeScript incompatibility with ref types
-                const normalizedInputProps = { ...(params.inputProps as any) };
-                const normalizedInputPropsTop = {
-                  ...(params.InputProps as any),
-                  endAdornment: (
-                    <>
-                      {loadingHorarios ? <CircularProgress color="inherit" size={20} /> : null}
-                      {(params.InputProps as any)?.endAdornment}
-                    </>
-                  ),
-                } as any;
-
-                return (
+            {/* Horários Section */}
+            <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
+              <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
+                Horários de Trabalho (Opcional)
+              </Typography>
+              
+              <Autocomplete
+                freeSolo
+                options={horariosPreset}
+                getOptionLabel={(option) => option}
+                value={nomeHorario}
+                onChange={handleHorarioPresetChange}
+                onInputChange={(event, newInputValue) => {
+                  setNomeHorario(newInputValue);
+                }}
+                disabled={loading || loadingHorarios}
+                renderInput={(params) => (
                   <TextField
-                    {...(params as any)}
+                    {...params}
                     label="Escolher Horários"
                     helperText="Selecione um horário salvo ou digite um novo nome"
                     variant="outlined"
                     fullWidth
-                    InputProps={normalizedInputPropsTop}
-                    inputProps={normalizedInputProps}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: 'white',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        '& fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.3)',
+                        },
+                        '&:hover fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.5)',
+                        },
+                        '&.Mui-focused fieldset': {
+                          borderColor: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      },
+                      '& .MuiInputLabel-root': {
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        '&.Mui-focused': {
+                          color: 'rgba(255, 255, 255, 0.9)'
+                        }
+                      },
+                      '& .MuiAutocomplete-popupIndicator': {
+                        color: 'rgba(255, 255, 255, 0.7)'
+                      },
+                      '& .MuiCircularProgress-root': {
+                        color: 'white'
+                      },
+                      '& .MuiFormHelperText-root': {
+                        color: 'rgba(255, 255, 255, 0.6)'
+                      }
+                    }}
                   />
-                );
-              }}
-              renderOption={(props, option) => (
-                <Box component="li" {...props}>
-                  <Box>
-                    <Typography variant="body2" className="font-medium">
-                      {option.nome}
+                )}
+                renderOption={(props, option) => (
+                  <li {...props} key={option}>
+                    <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
+                      {option}
                     </Typography>
-                    <Typography variant="caption" className="text-gray-500">
-                      {option.horario_entrada} - {option.horario_saida}
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-            />
+                  </li>
+                )}
+                ListboxProps={{
+                  sx: {
+                    background: 'rgba(15, 23, 42, 0.95)',
+                    color: 'white',
+                    '& .MuiAutocomplete-option': {
+                      '&.Mui-focused': {
+                        backgroundColor: 'rgba(59, 130, 246, 0.35)'
+                      }
+                    }
+                  }
+                }}
+              />
 
-            <Box className="grid grid-cols-2 gap-3">
-              <TextField
-                fullWidth
-                label="Horário de Entrada"
-                name="horario_entrada"
-                type="time"
-                value={formData.horario_entrada}
-                onChange={handleChange}
-                disabled={loading}
-                variant="outlined"
-                InputLabelProps={{
-                  shrink: true,
-                }}
-              />
-              
-              <TextField
-                fullWidth
-                label="Horário de Saída"
-                name="horario_saida"
-                type="time"
-                value={formData.horario_saida}
-                onChange={handleChange}
-                disabled={loading}
-                variant="outlined"
-                InputLabelProps={{
-                  shrink: true,
-                }}
-              />
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 2 }}>
+                <TextField
+                  fullWidth
+                  label="Horário de Entrada"
+                  name="horario_entrada"
+                  type="time"
+                  value={formData.horario_entrada}
+                  onChange={handleChange}
+                  disabled={loading}
+                  variant="outlined"
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      '&.Mui-focused': {
+                        color: 'rgba(255, 255, 255, 0.9)'
+                      }
+                    },
+                    '& .MuiInputBase-input': {
+                      color: 'white',
+                    },
+                    '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                      filter: 'invert(1) brightness(0.7)',
+                    },
+                  }}
+                />
+                
+                <TextField
+                  fullWidth
+                  label="Horário de Saída"
+                  name="horario_saida"
+                  type="time"
+                  value={formData.horario_saida}
+                  onChange={handleChange}
+                  disabled={loading}
+                  variant="outlined"
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: 'white',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      '& fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'rgba(255, 255, 255, 0.7)',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      '&.Mui-focused': {
+                        color: 'rgba(255, 255, 255, 0.9)'
+                      }
+                    },
+                    '& .MuiInputBase-input': {
+                      color: 'white',
+                    },
+                    '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                      filter: 'invert(1) brightness(0.7)',
+                    },
+                  }}
+                />
+              </Box>
             </Box>
           </Box>
         </DialogContent>
 
-        <DialogActions className="p-6">
+        <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
           <Button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={loading}
-            className="text-gray-600"
+            sx={{
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': {
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'white'
+              }
+            }}
           >
             Cancelar
           </Button>
@@ -512,8 +788,19 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             type="submit"
             variant="contained"
             disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700"
-            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : null}
+            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <PersonIcon />}
+            sx={{ 
+              background: '#2563eb',
+              color: 'white',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                background: '#1d4ed8',
+              },
+              '&:disabled': {
+                background: 'rgba(255, 255, 255, 0.1)',
+              }
+            }}
           >
             {loading ? 'Salvando...' : employee ? 'Atualizar' : 'Cadastrar'}
           </Button>

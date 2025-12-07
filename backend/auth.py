@@ -2,6 +2,7 @@ import jwt
 import hashlib
 from flask import current_app
 import os
+import bcrypt
 
 # Obter SECRET_KEY de forma mais robusta
 def get_secret_key():
@@ -75,12 +76,16 @@ def verify_token(token):
         return None
 
 def hash_password(password):
-    """Cria hash da senha usando hashlib (compatível com Lambda)"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Cria hash da senha usando bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(password, password_hash):
-    """Verifica se a senha corresponde ao hash"""
-    return hash_password(password) == password_hash
+    """Verifica se a senha corresponde ao hash bcrypt"""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+    except Exception as e:
+        print(f"[ERROR] Erro ao verificar password: {e}")
+        return False
 
 # Função auxiliar para debug no Lambda
 def debug_environment():

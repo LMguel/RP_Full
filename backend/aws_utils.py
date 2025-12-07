@@ -17,7 +17,8 @@ DYNAMODB_TABLE_EMPLOYEES = os.environ.get('DYNAMODB_TABLE_EMPLOYEES', 'Employees
 DYNAMODB_TABLE_RECORDS = os.environ.get('DYNAMODB_TABLE_RECORDS', 'TimeRecords')
 DYNAMODB_TABLE_USERS = os.environ.get('DYNAMODB_TABLE_USERS', 'UserCompany')
 DYNAMODB_TABLE_CONFIG = os.environ.get('DYNAMODB_TABLE_CONFIG', 'ConfigCompany')
-DYNAMODB_TABLE_HORARIOS = os.environ.get('DYNAMODB_TABLE_HORARIOS', 'HorariosPreset')
+# NOTA: Tabela HorariosPreset não existe. Horários pré-definidos são salvos em ConfigCompany
+# com chave config_key='horarios_preset'
 
 # AWS clients/resources
 s3 = boto3.client('s3', region_name=REGIAO)
@@ -40,8 +41,7 @@ tabela_funcionarios = dynamodb.Table(DYNAMODB_TABLE_EMPLOYEES)
 tabela_registros = dynamodb.Table(DYNAMODB_TABLE_RECORDS)
 tabela_usuarioempresa = dynamodb.Table(DYNAMODB_TABLE_USERS)
 tabela_configuracoes = dynamodb.Table(DYNAMODB_TABLE_CONFIG)
-# Nota: Horários agora são armazenados diretamente nos funcionários (Employees)
-# Tabela HorariosPreset não é mais necessária
+# Nota: Horários pré-definidos serão salvos na tabela ConfigCompany com id='horarios_preset'
 
 def enviar_s3(caminho, nome_arquivo, company_id):
     """Upload an object under company prefix and return public URL.

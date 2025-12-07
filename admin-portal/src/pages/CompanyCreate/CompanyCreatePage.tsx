@@ -9,14 +9,12 @@ import { Button } from "../../components/ui/button";
 import { createCompany, type CreateCompanyPayload } from "../../services/api";
 
 const initialForm: CreateCompanyPayload = {
+  userId: "",
   companyName: "",
   email: "",
   password: "",
   confirmPassword: "",
-  responsible: "",
-  phone: "",
-  status: "active",
-  cnpj: "",
+  expectedEmployees: 0,
 };
 
 export function CompanyCreatePage() {
@@ -56,6 +54,29 @@ export function CompanyCreatePage() {
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="userId">ID do Usuário (user_id)</Label>
+            <Input
+              id="userId"
+              value={form.userId}
+              onChange={handleChange("userId")}
+              placeholder="Ex: admin, gerente"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={form.email}
+              onChange={handleChange("email")}
+              placeholder="contato@empresa.com"
+              required
+            />
+          </div>
+
           <div className="space-y-2 md:col-span-2">
             <Label htmlFor="companyName">Nome da empresa</Label>
             <Input
@@ -68,64 +89,19 @@ export function CompanyCreatePage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="cnpj">CNPJ (opcional)</Label>
+            <Label htmlFor="expectedEmployees">Número de Funcionários</Label>
             <Input
-              id="cnpj"
-              value={form.cnpj}
-              onChange={handleChange("cnpj")}
-              placeholder="00.000.000/0001-00"
+              id="expectedEmployees"
+              type="number"
+              value={form.expectedEmployees || 0}
+              onChange={handleChange("expectedEmployees")}
+              placeholder="Ex: 20"
+              min="0"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="responsible">Responsável</Label>
-            <Input
-              id="responsible"
-              value={form.responsible}
-              onChange={handleChange("responsible")}
-              placeholder="Nome completo"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="email">Email da empresa</Label>
-            <Input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={handleChange("email")}
-              placeholder="contato@empresa.com"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="phone">Telefone</Label>
-            <Input
-              id="phone"
-              value={form.phone}
-              onChange={handleChange("phone")}
-              placeholder="(11) 99999-0000"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
-            <select
-              id="status"
-              value={form.status}
-              onChange={handleChange("status")}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="active">Ativa</option>
-              <option value="inactive">Inativa</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="password">Senha inicial</Label>
+            <Label htmlFor="password">Senha</Label>
             <Input
               id="password"
               type="password"

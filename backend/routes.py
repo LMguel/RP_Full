@@ -622,7 +622,7 @@ def atualizar_funcionario(payload, funcionario_id):
         # Corrigir: ler nome/cargo de request.form (FormData)
         nome = request.form.get('nome')
         cargo = request.form.get('cargo')
-        email = request.form.get('email')
+        login = request.form.get('login')
         senha = request.form.get('senha')
         horario_entrada = request.form.get('horario_entrada')  # Novo: horário de entrada
         horario_saida = request.form.get('horario_saida')  # Novo: horário de saída
@@ -630,20 +630,8 @@ def atualizar_funcionario(payload, funcionario_id):
         
         if not nome or not cargo:
             return jsonify({'error': 'Nome e cargo são obrigatórios'}), 400
-        
-        # Validar email se fornecido
-        if email and email.strip():
-            # Verificar se email já existe em outro funcionário da empresa
-            try:
-                response_check = tabela_funcionarios.scan(
-                    FilterExpression=Attr('company_id').eq(empresa_id) & 
-                                   Attr('email').eq(email) & 
-                                   Attr('id').ne(funcionario_id)
-                )
-                if response_check.get('Items'):
-                    return jsonify({"error": "Email já cadastrado para outro funcionário"}), 400
-            except Exception as e:
-                print(f"Erro ao verificar email: {e}")
+
+        # Login de funcionário
         
         # Hash da senha se fornecida
         if senha and senha.strip():
@@ -687,11 +675,11 @@ def atualizar_funcionario(payload, funcionario_id):
         funcionario['nome'] = nome
         funcionario['cargo'] = cargo
         
-        # Atualizar email se fornecido
-        if email and email.strip():
-            funcionario['email'] = email.strip()
-        elif email == '':  # Se enviou string vazia, remover email
-            funcionario.pop('email', None)
+        # Atualizar login se fornecido
+        if login and login.strip():
+            funcionario['login'] = login.strip()
+        elif login == '':  # Se enviou string vazia, remover login
+            funcionario.pop('login', None)
             funcionario.pop('senha_hash', None)  # Remover senha também
         
         # Atualizar horários se fornecidos
@@ -851,7 +839,7 @@ def excluir_funcionario(funcionario_id):
                 'ativo': False,
                 'deleted_at': deleted_timestamp,
                 'senha_hash': None,  # Remover senha
-                'email': None,  # Opcional: remover email
+                'login': None,  # Remover login
                 'foto_url': None,  # Remover URL da foto
                 'foto_s3_key': None  # Remover chave S3
             }
@@ -913,7 +901,8 @@ def cadastrar_funcionario(payload):
             cpf = data.get('cpf')
             horario_entrada = data.get('horario_entrada')
             horario_saida = data.get('horario_saida')
-            email = data.get('email')
+            nome_horario = data.get('nome_horario')  # Nome do horário pré-definido
+            login = data.get('login')
             senha = data.get('senha')
             home_office = data.get('home_office', False)
             foto = None
@@ -929,25 +918,14 @@ def cadastrar_funcionario(payload):
             cpf = request.form.get('cpf')
             horario_entrada = request.form.get('horario_entrada')
             horario_saida = request.form.get('horario_saida')
-            email = request.form.get('email')
+            nome_horario = request.form.get('nome_horario')  # Nome do horário pré-definido
+            login = request.form.get('login')
             senha = request.form.get('senha')
             home_office = request.form.get('home_office', 'false').lower() == 'true'
             
             if not all([nome, cargo, foto]):
                 return jsonify({"error": "Nome, cargo e foto são obrigatórios"}), 400
 
-        # Validar email se fornecido
-        if email:
-            # Verificar se email já existe na empresa
-            try:
-                response_check = tabela_funcionarios.scan(
-                    FilterExpression=Attr('company_id').eq(payload.get('company_id')) & Attr('email').eq(email)
-                )
-                if response_check.get('Items'):
-                    return jsonify({"error": "Email já cadastrado para outro funcionário"}), 400
-            except Exception as e:
-                print(f"Erro ao verificar email: {e}")
-        
         # Hash da senha se fornecida
         senha_hash = None
         if senha:
@@ -1027,8 +1005,11 @@ def cadastrar_funcionario(payload):
             funcionario_item['horario_entrada'] = horario_entrada
         if horario_saida:
             funcionario_item['horario_saida'] = horario_saida
-        if email:
-            funcionario_item['email'] = email
+        if nome_horario:
+            funcionario_item['pred_hora'] = nome_horario
+            print(f'[CADASTRO] pred_hora salva: {nome_horario}')
+        if login:
+            funcionario_item['login'] = login
         if senha_hash:
             funcionario_item['senha_hash'] = senha_hash
         
@@ -1042,6 +1023,46 @@ def cadastrar_funcionario(payload):
         
         # Salvar no DynamoDB (Employees table uses company_id as partition key)
         tabela_funcionarios.put_item(Item=funcionario_item)
+        
+        # Salvar horário pré-definido se fornecido
+        if nome_horario and horario_entrada and horario_saida:
+            try:
+                # Buscar configuração existente
+                response = tabela_configuracoes.get_item(
+                    Key={
+                        'company_id': empresa_id,
+                        'config_key': 'horarios_preset'
+                    }
+                )
+                
+                config_item = response.get('Item', {})
+                horarios = config_item.get('horarios', [])
+                
+                # Verificar se horário com esse nome já existe
+                horario_existente = next((h for h in horarios if h['nome'] == nome_horario), None)
+                
+                if not horario_existente:
+                    # Criar novo horário pré-definido
+                    horario_id = str(uuid.uuid4())
+                    horarios.append({
+                        'id': horario_id,
+                        'nome': nome_horario,
+                        'horario_entrada': horario_entrada,
+                        'horario_saida': horario_saida,
+                        'data_criacao': datetime.now().isoformat()
+                    })
+                    
+                    # Salvar de volta em ConfigCompany
+                    config_item = {
+                        'company_id': empresa_id,
+                        'config_key': 'horarios_preset',
+                        'horarios': horarios,
+                        'updated_at': datetime.now().isoformat()
+                    }
+                    tabela_configuracoes.put_item(Item=config_item)
+                    print(f"[CADASTRO] Horário pré-definido '{nome_horario}' criado com sucesso")
+            except Exception as e:
+                print(f"[AVISO] Erro ao salvar horário pré-definido: {e}")
         
         # Limpar arquivo temporário se foi criado
         if temp_path and os.path.exists(temp_path):
@@ -1693,21 +1714,102 @@ def login():
             
         usuario_id = data.get('usuario_id')
         senha = data.get('senha')
+        
+        print(f"[LOGIN DEBUG] Tentando login para usuario_id: {usuario_id}")
 
-        # Buscar o usuário na tabela UserCompany (scan por user_id)
+        # Primeiro tenta buscar como usuário empresa
         response = tabela_usuarioempresa.scan(
             FilterExpression=Attr('user_id').eq(usuario_id)
         )
         
         items = response.get('Items', [])
+        print(f"[LOGIN DEBUG] Items empresa encontrados: {len(items)}")
+        
+        # Se não encontrar como empresa, tenta buscar como funcionário (login field)
         if not items:
+            print(f"[LOGIN DEBUG] Não encontrado como empresa, tentando como funcionário com login: {usuario_id}")
+            response_func = tabela_funcionarios.scan(
+                FilterExpression=Attr('login').eq(usuario_id)
+            )
+            items = response_func.get('Items', [])
+            print(f"[LOGIN DEBUG] Items funcionário encontrados: {len(items)}")
+            
+            if items:
+                # É um funcionário
+                funcionario = items[0]
+                print(f"[LOGIN DEBUG] Funcionário encontrado: {funcionario.get('nome')}")
+                
+                # Verificar se funcionário está ativo
+                is_active = funcionario.get('is_active', funcionario.get('ativo', True))
+                if not is_active:
+                    print(f"[LOGIN DEBUG] Funcionário inativo")
+                    return jsonify({'error': 'Acesso negado. Funcionário inativo. Contate o RH.'}), 403
+                
+                # Verificar se tem senha cadastrada
+                if not funcionario.get('senha_hash'):
+                    print(f"[LOGIN DEBUG] Funcionário não tem senha cadastrada")
+                    return jsonify({'error': 'Funcionário não tem acesso configurado. Contate o RH.'}), 403
+                
+                # Verificar senha
+                if not verify_password(senha, funcionario['senha_hash']):
+                    print(f"[LOGIN DEBUG] Senha inválida para funcionário")
+                    return jsonify({'error': 'Login ou senha incorretos'}), 401
+                
+                # Gerar token JWT para funcionário
+                secret_key = get_secret_key()
+                token = jwt.encode({
+                    'funcionario_id': funcionario['id'],
+                    'nome': funcionario['nome'],
+                    'empresa_nome': funcionario.get('empresa_nome', ''),
+                    'company_id': funcionario['company_id'],
+                    'cargo': funcionario.get('cargo', ''),
+                    'tipo': 'funcionario',
+                    'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+                }, secret_key, algorithm="HS256")
+                
+                print(f"[LOGIN DEBUG] Login bem-sucedido para funcionário: {funcionario.get('nome')}")
+                
+                return jsonify({
+                    'token': token,
+                    'tipo': 'funcionario',
+                    'usuario': {
+                        'id': funcionario['id'],
+                        'nome': funcionario['nome'],
+                        'cargo': funcionario.get('cargo', ''),
+                        'login': funcionario.get('login', '')
+                    }
+                }), 200
+        
+        if not items:
+            print(f"[LOGIN DEBUG] Nenhum usuário encontrado com user_id: {usuario_id}")
             return jsonify({'error': 'Login ou senha incorretos'}), 401
         
         usuario = items[0]  # Pegar o primeiro resultado
+        print(f"[LOGIN DEBUG] Usuário empresa encontrado. Tem senha_hash: {'senha_hash' in usuario}, tem senha: {'senha' in usuario}")
 
-        if not verify_password(senha, usuario['senha_hash']):
+        # Verificar senha (can use either senha_hash or senha)
+        # Primeiro tenta verificar com hash (novo sistema)
+        if 'senha_hash' in usuario and usuario['senha_hash']:
+            print(f"[LOGIN DEBUG] Verificando com bcrypt hash")
+            hash_verificado = verify_password(senha, usuario['senha_hash'])
+            print(f"[LOGIN DEBUG] Hash verificado: {hash_verificado}")
+            if not hash_verificado:
+                print(f"[LOGIN DEBUG] Falha na verificação do hash")
+                return jsonify({'error': 'Login ou senha incorretos'}), 401
+        # Se não tem hash, tenta comparar com senha em texto (compatibilidade)
+        elif 'senha' in usuario and usuario['senha']:
+            print(f"[LOGIN DEBUG] Verificando com comparação de texto")
+            print(f"[LOGIN DEBUG] Senha fornecida: {senha}")
+            print(f"[LOGIN DEBUG] Senha armazenada: {usuario['senha']}")
+            if senha != usuario['senha']:
+                print(f"[LOGIN DEBUG] Falha na comparação de texto")
+                return jsonify({'error': 'Login ou senha incorretos'}), 401
+        else:
+            print(f"[LOGIN DEBUG] Usuário não tem nem senha_hash nem senha")
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
+        print(f"[LOGIN DEBUG] Senha verificada com sucesso")
+        
         # ✅ CORREÇÃO: Usar get_secret_key() para garantir string
         secret_key = get_secret_key()
         
@@ -1716,12 +1818,18 @@ def login():
             'usuario_id': usuario['user_id'],
             'empresa_nome': usuario['empresa_nome'],
             'company_id': usuario['company_id'],  # Usar company_id no token
+            'tipo': 'empresa',
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=12)
         }, secret_key, algorithm="HS256")
         
         print(f"[DEBUG] Token gerado com SECRET_KEY tipo: {type(secret_key)}")
         
-        return jsonify({'token': token})
+        return jsonify({
+            'token': token,
+            'tipo': 'empresa',
+            'usuario_id': usuario['user_id'],
+            'empresa_nome': usuario['empresa_nome']
+        })
         
     except Exception as e:
         print(f"Erro no login: {str(e)}")
@@ -1961,48 +2069,103 @@ def meus_registros(payload):
 @routes.route('/horarios', methods=['GET', 'OPTIONS'])
 @token_required
 def listar_horarios_preset(payload):
-    """Lista horários únicos extraídos dos funcionários da empresa"""
+    """Lista horários pré-definidos da empresa"""
     try:
         empresa_id = payload.get('company_id')
         
-        # Buscar todos os funcionários da empresa
-        response = tabela_funcionarios.scan(
-            FilterExpression=Attr('company_id').eq(empresa_id)
+        # Buscar horários pré-definidos salvos em ConfigCompany
+        response = tabela_configuracoes.get_item(
+            Key={
+                'company_id': empresa_id,
+                'config_key': 'horarios_preset'
+            }
         )
-        funcionarios = response.get('Items', [])
         
-        # Extrair horários únicos
-        horarios_unicos = {}
-        for func in funcionarios:
-            entrada = func.get('horario_entrada')
-            saida = func.get('horario_saida')
-            
-            if entrada and saida:
-                # Usar entrada-saida como chave única
-                key = f"{entrada}-{saida}"
-                if key not in horarios_unicos:
-                    horarios_unicos[key] = {
-                        'id': key,
-                        'horario_entrada': entrada,
-                        'horario_saida': saida,
-                        'nome': f"{entrada} às {saida}"
-                    }
+        config_item = response.get('Item', {})
+        horarios = config_item.get('horarios', [])
         
-        # Converter dict para lista
-        horarios = list(horarios_unicos.values())
+        # Ordenar por nome
+        horarios = sorted(horarios, key=lambda x: x.get('nome', ''))
         
         return jsonify(horarios)
     except Exception as e:
         print(f"Erro ao listar horários: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@routes.route('/horarios/funcionarios', methods=['GET'])
+@token_required
+def listar_horarios_por_funcionarios(payload):
+    """
+    Lista horários pré-definidos usados pelos funcionários da empresa
+    Busca a coluna pred_hora de todos os funcionários
+    """
+    try:
+        empresa_id = payload.get('company_id')
+        
+        # Fazer scan na tabela de Employees para encontrar todos os funcionários da empresa
+        response = tabela_funcionarios.query(
+            KeyConditionExpression=Key('company_id').eq(empresa_id)
+        )
+        
+        funcionarios = response.get('Items', [])
+        
+        # Extrair todos os valores únicos de pred_hora
+        presets_usados = set()
+        for func in funcionarios:
+            if 'pred_hora' in func and func['pred_hora']:
+                presets_usados.add(func['pred_hora'])
+        
+        # Converter para lista ordenada
+        presets_list = sorted(list(presets_usados))
+        
+        print(f"[DEBUG] Presets usados por funcionários: {presets_list}")
+        
+        return jsonify(presets_list)
+    except Exception as e:
+        print(f"Erro ao listar horários de funcionários: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/horarios/<nome_horario>', methods=['GET'])
+@token_required
+def obter_horario_por_nome(nome_horario, payload):
+    """
+    Retorna os horários (entrada e saída) para um nome de preset
+    Busca em ConfigCompany na coluna de presets
+    """
+    try:
+        empresa_id = payload.get('company_id')
+        
+        # Buscar configuração de horários da empresa
+        response = tabela_configuracoes.get_item(
+            Key={
+                'company_id': empresa_id,
+                'config_key': 'horarios_preset'
+            }
+        )
+        
+        config_item = response.get('Item', {})
+        horarios = config_item.get('horarios', [])
+        
+        # Procurar pelo nome
+        horario_encontrado = next((h for h in horarios if h['nome'] == nome_horario), None)
+        
+        if horario_encontrado:
+            return jsonify({
+                'nome': horario_encontrado['nome'],
+                'horario_entrada': horario_encontrado['horario_entrada'],
+                'horario_saida': horario_encontrado['horario_saida']
+            })
+        else:
+            return jsonify({'error': f'Horário "{nome_horario}" não encontrado'}), 404
+    except Exception as e:
+        print(f"Erro ao obter horário: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @routes.route('/horarios', methods=['POST'])
 @token_required
 def criar_horario_preset(payload):
     """
-    Endpoint mantido para compatibilidade com frontend.
-    Horários agora são salvos diretamente nos funcionários.
-    Este endpoint apenas valida os dados.
+    Cria e salva um horário pré-definido para a empresa
     """
     try:
         empresa_id = payload.get('company_id')
@@ -2011,11 +2174,12 @@ def criar_horario_preset(payload):
         if not data:
             return jsonify({'error': 'JSON inválido ou ausente'}), 400
         
+        nome = data.get('nome')  # ex: "Padrão"
         horario_entrada = data.get('horario_entrada')  # ex: "08:00"
         horario_saida = data.get('horario_saida')  # ex: "17:00"
         
-        if not all([horario_entrada, horario_saida]):
-            return jsonify({'error': 'horario_entrada e horario_saida são obrigatórios'}), 400
+        if not all([nome, horario_entrada, horario_saida]):
+            return jsonify({'error': 'nome, horario_entrada e horario_saida são obrigatórios'}), 400
         
         # Validar formato HH:MM
         import re
@@ -2023,14 +2187,49 @@ def criar_horario_preset(payload):
         if not re.match(time_pattern, horario_entrada) or not re.match(time_pattern, horario_saida):
             return jsonify({'error': 'Formato de horário inválido. Use HH:MM'}), 400
         
-        # Horários são salvos diretamente nos funcionários agora
-        # Apenas retornar sucesso
-        horario_id = f"{horario_entrada}-{horario_saida}"
-        nome = f"{horario_entrada} às {horario_saida}"
+        # Buscar configuração existente ou criar nova
+        response = tabela_configuracoes.get_item(
+            Key={
+                'company_id': empresa_id,
+                'config_key': 'horarios_preset'
+            }
+        )
+        
+        config_item = response.get('Item', {})
+        horarios = config_item.get('horarios', [])
+        
+        # Verificar se horário com esse nome já existe
+        horario_existente = next((h for h in horarios if h['nome'] == nome), None)
+        
+        if horario_existente:
+            # Atualizar horário existente
+            horario_existente['horario_entrada'] = horario_entrada
+            horario_existente['horario_saida'] = horario_saida
+        else:
+            # Adicionar novo horário
+            horario_id = str(uuid.uuid4())
+            horarios.append({
+                'id': horario_id,
+                'nome': nome,
+                'horario_entrada': horario_entrada,
+                'horario_saida': horario_saida,
+                'data_criacao': datetime.now().isoformat()
+            })
+        
+        # Salvar de volta em ConfigCompany
+        config_item = {
+            'company_id': empresa_id,
+            'config_key': 'horarios_preset',
+            'horarios': horarios,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        tabela_configuracoes.put_item(Item=config_item)
+        
+        print(f"[HORARIOS] Horário '{nome}' salvo com sucesso para empresa {empresa_id}")
         
         return jsonify({
             'success': True,
-            'id': horario_id,
             'nome': nome,
             'horario_entrada': horario_entrada,
             'horario_saida': horario_saida
@@ -2038,6 +2237,8 @@ def criar_horario_preset(payload):
         
     except Exception as e:
         print(f"Erro ao criar horário preset: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # ========== CONFIGURAÇÕES DA EMPRESA ==========

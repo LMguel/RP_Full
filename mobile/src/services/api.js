@@ -53,11 +53,11 @@ class ApiService {
     }
   }
 
-  // Login Funcionário
-  async loginFuncionario(email, senha) {
+  // Login Funcionário (usa o mesmo endpoint unificado /login)
+  async loginFuncionario(login, senha) {
     try {
-      const response = await axios.post(`${API_URL}/funcionario/login`, {
-        email,
+      const response = await axios.post(`${API_URL}/login`, {
+        usuario_id: login,  // Usa 'login' como usuario_id no endpoint unificado
         senha
       });
       

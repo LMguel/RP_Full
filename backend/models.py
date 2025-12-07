@@ -207,8 +207,8 @@ class Employee:
     nome: str
     cargo: str
     
-    # Email e senha para login
-    email: Optional[str] = None
+    # Login e senha para autenticação
+    login: Optional[str] = None
     senha_hash: Optional[str] = None
     
     # Modo de trabalho

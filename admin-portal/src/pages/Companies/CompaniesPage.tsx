@@ -25,9 +25,16 @@ export function CompaniesPage() {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Get current month in YYYY-MM format
+  const getCurrentMonth = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  };
+  
   const [filters, setFilters] = useState<Filters>({
     companyName: "",
-    month: "",
+    month: getCurrentMonth(),
   });
   const [showEmployeesModal, setShowEmployeesModal] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
@@ -48,16 +55,13 @@ export function CompaniesPage() {
     loadCompanies();
   }, []);
 
-  // Filter companies based on name and payment status
+  // Filter companies based on name (regardless of payment status)
   const filteredCompanies = companies.filter((company) => {
     const nameMatch = company.companyName
       .toLowerCase()
       .includes(filters.companyName.toLowerCase());
     
-    if (!filters.month) return nameMatch;
-    
-    const isPaidInMonth = company.payments?.[filters.month] === true;
-    return nameMatch && isPaidInMonth;
+    return nameMatch;
   });
 
   // Get payment status for current month
@@ -78,7 +82,7 @@ export function CompaniesPage() {
     const isPaid = filters.month 
       ? company.payments?.[filters.month] === true
       : company.payments?.[getCurrentMonthKey()] === true;
-    return isPaid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800";
+    return isPaid ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800";
   };
 
   const getStatusBadgeColor = (status: string) => {
@@ -182,16 +186,6 @@ export function CompaniesPage() {
               />
             </div>
           </div>
-          <div className="mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setFilters({ companyName: "", month: "" })}
-              className="text-blue-600"
-            >
-              Limpar Filtros
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -260,7 +254,7 @@ export function CompaniesPage() {
                         className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors font-medium text-sm"
                       >
                         <Users className="h-4 w-4" />
-                        {company.activeEmployees}
+                        {company.activeEmployees}/{company.expectedEmployees || 0}
                       </button>
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">

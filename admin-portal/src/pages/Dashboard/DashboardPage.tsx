@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
-import { fetchDashboardStats, type DashboardStats } from "../../services/api";
+import { fetchDashboardStats, fetchCompanies, type DashboardStats } from "../../services/api";
 
 type SummaryCard = {
   key: keyof DashboardStats;
@@ -33,12 +33,19 @@ const summaryCards: SummaryCard[] = [
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
 
   useEffect(() => {
-    async function loadStats() {
+    async function loadData() {
       try {
-        const response = await fetchDashboardStats();
-        setStats(response);
+        const dashStats = await fetchDashboardStats();
+        const companiesList = await fetchCompanies();
+        setStats(dashStats);
+        setCompanies(companiesList);
       } catch (error) {
         toast.error("Não foi possível carregar os dados do dashboard.");
         console.error(error);
@@ -47,8 +54,17 @@ export function DashboardPage() {
       }
     }
 
-    loadStats();
+    loadData();
   }, []);
+
+  // Calculate paid/unpaid companies for selected month
+  const getPaymentStats = () => {
+    const paid = companies.filter((company) => company.payments?.[selectedMonth] === true).length;
+    const unpaid = companies.length - paid;
+    return { paid, unpaid };
+  };
+
+  const paymentStats = getPaymentStats();
 
   return (
     <div className="space-y-6">
@@ -81,21 +97,34 @@ export function DashboardPage() {
       <div className="grid gap-6">
         <Card className="border-0 bg-white shadow-md">
           <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
-            <CardTitle>Status de Pagamento</CardTitle>
-            <CardDescription className="text-blue-100">Distribuição de empresas pagas vs não pagas</CardDescription>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <CardTitle>Status de Pagamento</CardTitle>
+                <CardDescription className="text-blue-100">Distribuição de empresas pagas vs não pagas</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-blue-100">Mês:</label>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="px-3 py-2 bg-blue-500 border border-blue-400 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-white"
+                />
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="pt-6">
             {loading ? (
               <div className="flex items-center justify-center h-80 bg-gray-50 rounded-lg">
                 <div className="text-gray-400">Carregando dados...</div>
               </div>
-            ) : stats && (stats.paidCompanies + stats.unpaidCompanies) > 0 ? (
+            ) : (paymentStats.paid + paymentStats.unpaid) > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
                     data={[
-                      { name: "Pagas", value: stats.paidCompanies, fill: "#22c55e" },
-                      { name: "Não Pagas", value: stats.unpaidCompanies, fill: "#ef4444" },
+                      { name: "Pagas", value: paymentStats.paid, fill: "#22c55e" },
+                      { name: "Não Pagas", value: paymentStats.unpaid, fill: "#ef4444" },
                     ]}
                     cx="50%"
                     cy="50%"
@@ -114,7 +143,7 @@ export function DashboardPage() {
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-80 bg-gray-50 rounded-lg">
-                <div className="text-gray-400">Sem dados disponíveis</div>
+                <div className="text-gray-400">Sem dados disponíveis para este período</div>
               </div>
             )}
           </CardContent>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Mail, Calendar, User } from "lucide-react";
+import { ArrowLeft, Mail, Calendar, Users, Eye, EyeOff } from "lucide-react";
 
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -17,11 +17,14 @@ import {
 import {
   fetchCompanyDetails,
   fetchCompanyEmployees,
-  fetchCompanyRecords,
+  updateCompanyPaymentStatus,
   type CompanySummary,
   type CompanyEmployee,
-  type CompanyRecord,
 } from "../../services/api";
+
+export interface CompanyDetail extends CompanySummary {
+  senhaHash?: string; // Password hash from backend
+}
 
 interface PaymentMonth {
   monthYear: string;
@@ -34,9 +37,10 @@ export function CompanyDetailsPage() {
   const navigate = useNavigate();
   const [company, setCompany] = useState<CompanySummary | null>(null);
   const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
-  const [records, setRecords] = useState<CompanyRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [paymentMonths, setPaymentMonths] = useState<PaymentMonth[]>([]);
+  const [creationMonth, setCreationMonth] = useState<string>("");
+  const [selectedCenterMonth, setSelectedCenterMonth] = useState<string>("");
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (!companyId) {
@@ -47,35 +51,23 @@ export function CompanyDetailsPage() {
     async function loadDetails() {
       try {
         if (!companyId) return;
-        const [companyData, employeesData, recordsData] = await Promise.all([
+        const [companyData, employeesData] = await Promise.all([
           fetchCompanyDetails(companyId),
           fetchCompanyEmployees(companyId),
-          fetchCompanyRecords(companyId),
         ]);
 
         setCompany(companyData);
         setEmployees(employeesData);
-        setRecords(recordsData);
 
-        // Generate 12-month payment history
-        const months: PaymentMonth[] = [];
+        // Store creation month
+        const createdDate = new Date(companyData.dateCreated);
+        const creationMonthStr = createdDate.toISOString().slice(0, 7);
+        setCreationMonth(creationMonthStr);
+        
+        // Initialize selected center month to current month
         const now = new Date();
-        for (let i = 11; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const monthYear = date.toISOString().slice(0, 7); // YYYY-MM format
-          const label = date.toLocaleDateString("pt-BR", {
-            month: "long",
-            year: "numeric",
-          });
-          const isPaid = companyData.payments && companyData.payments[monthYear] === true;
-
-          months.push({
-            monthYear,
-            label: label.charAt(0).toUpperCase() + label.slice(1),
-            isPaid,
-          });
-        }
-        setPaymentMonths(months);
+        const currentMonthStr = now.toISOString().slice(0, 7);
+        setSelectedCenterMonth(currentMonthStr);
       } catch (error) {
         toast.error("Não foi possível carregar os dados da empresa.");
         console.error(error);
@@ -112,9 +104,98 @@ export function CompanyDetailsPage() {
     }
   };
 
-  const handlePaymentToggle = (monthYear: string) => {
-    toast.info(`Atualizar pagamento para ${monthYear} - função em desenvolvimento`);
+  const handlePaymentToggle = async (monthYear: string, currentState: boolean) => {
+    if (!company) return;
+    
+    try {
+      await updateCompanyPaymentStatus(companyId!, monthYear, !currentState);
+      
+      // Update local state
+      if (company.payments) {
+        const newPayments = { ...company.payments };
+        newPayments[monthYear] = !currentState;
+        setCompany({ ...company, payments: newPayments });
+      }
+      
+      toast.success(`Pagamento de ${monthYear} ${!currentState ? "marcado" : "desmarcado"}`);
+    } catch (error) {
+      toast.error("Erro ao atualizar status de pagamento");
+      console.error(error);
+    }
   };
+
+  const getMonthStatus = (monthYear: string) => {
+    const now = new Date();
+    const currentMonth = now.toISOString().slice(0, 7);
+    
+    if (monthYear < currentMonth) {
+      return "past";
+    } else if (monthYear === currentMonth) {
+      return "current";
+    } else {
+      return "future";
+    }
+  };
+
+  const getMonthRowStyle = (monthYear: string) => {
+    const status = getMonthStatus(monthYear);
+    switch (status) {
+      case "past":
+        return "bg-gray-50";
+      case "current":
+        return "bg-blue-50";
+      case "future":
+        return "bg-green-50";
+      default:
+        return "";
+    }
+  };
+
+  const getMonthStatusLabel = (monthYear: string) => {
+    const status = getMonthStatus(monthYear);
+    switch (status) {
+      case "past":
+        return "(Passado)";
+      case "current":
+        return "(Atual)";
+      case "future":
+        return "(Futuro)";
+      default:
+        return "";
+    }
+  };
+
+  const generatePaymentMonthsForView = () => {
+    if (!company || !selectedCenterMonth) return [];
+
+    const [year, month] = selectedCenterMonth.split("-").map(Number);
+    const centerDate = new Date(year, month - 1, 1);
+    
+    // Start 4 months before the selected month
+    const startDate = new Date(centerDate.getFullYear(), centerDate.getMonth() - 4, 1);
+    const months: PaymentMonth[] = [];
+
+    // Show 9 months: 4 before + center month + 4 after
+    for (let i = 0; i < 9; i++) {
+      const currentDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+      const monthYear = currentDate.toISOString().slice(0, 7);
+      const label = currentDate.toLocaleDateString("pt-BR", {
+        month: "long",
+        year: "numeric",
+      });
+      const isPaid = company.payments && company.payments[monthYear] === true;
+
+      months.push({
+        monthYear,
+        label: label.charAt(0).toUpperCase() + label.slice(1),
+        isPaid,
+      });
+    }
+
+    return months;
+  };
+
+  const displayedPaymentMonths = generatePaymentMonthsForView();
 
   if (loading) {
     return (
@@ -174,8 +255,8 @@ export function CompanyDetailsPage() {
         <CardContent className="grid gap-6 pt-6 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-2 border-l-4 border-blue-600 pl-4">
             <p className="text-xs font-bold uppercase text-blue-600">ID da Empresa</p>
-            <p className="font-mono text-sm font-semibold text-gray-900">
-              {company.companyId.substring(0, 12)}...
+            <p className="font-mono text-sm font-semibold text-gray-900 break-all">
+              {company.companyId}
             </p>
           </div>
           <div className="space-y-2 border-l-4 border-blue-500 pl-4">
@@ -194,10 +275,34 @@ export function CompanyDetailsPage() {
           </div>
           <div className="space-y-2 border-l-4 border-blue-300 pl-4">
             <p className="text-xs font-bold uppercase text-blue-600">ID do Usuário</p>
-            <p className="flex items-center text-sm text-gray-700">
-              <User className="mr-2 h-4 w-4" />
-              {company.userId.substring(0, 12)}...
+            <p className="font-mono text-sm font-semibold text-gray-900 break-all">
+              {company.userId}
             </p>
+          </div>
+          <div className="space-y-2 border-l-4 border-blue-200 pl-4">
+            <p className="text-xs font-bold uppercase text-blue-600">Funcionários</p>
+            <p className="flex items-center text-sm text-gray-700">
+              <Users className="mr-2 h-4 w-4" />
+              {company.activeEmployees}/{company.expectedEmployees || 0}
+            </p>
+          </div>
+          <div className="space-y-2 border-l-4 border-blue-100 pl-4">
+            <p className="text-xs font-bold uppercase text-blue-600">Senha</p>
+            <div className="flex items-center gap-2">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={company.senha || ""}
+                readOnly
+                className="flex-1 px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm text-gray-900 font-mono"
+              />
+              <button
+                onClick={() => setShowPassword(!showPassword)}
+                className="p-1 text-gray-600 hover:text-gray-900 transition-colors"
+                title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -205,10 +310,24 @@ export function CompanyDetailsPage() {
       {/* Payment History */}
       <Card className="border-0 bg-white shadow-md">
         <CardHeader className="rounded-t-lg bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-          <CardTitle>Histórico de Pagamentos</CardTitle>
-          <CardDescription className="text-blue-100">
-            Últimos 12 meses de pagamento
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Histórico de Pagamentos</CardTitle>
+              <CardDescription className="text-blue-100">
+                4 meses anteriores, mês selecionado e 4 meses seguintes
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-blue-100">Centralizar em:</label>
+              <input
+                type="month"
+                value={selectedCenterMonth}
+                onChange={(e) => setSelectedCenterMonth(e.target.value)}
+                min={creationMonth}
+                className="px-3 py-2 bg-blue-500 border border-blue-400 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-white"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto pt-6">
           <Table>
@@ -220,34 +339,35 @@ export function CompanyDetailsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paymentMonths.map((month) => (
+              {displayedPaymentMonths.map((month) => (
                 <TableRow
                   key={month.monthYear}
-                  className="border-b border-gray-200 hover:bg-blue-50 transition-colors"
+                  className={`border-b border-gray-200 hover:bg-blue-50 transition-colors ${getMonthRowStyle(month.monthYear)}`}
                 >
                   <TableCell className="font-medium text-gray-900">
-                    {month.label}
+                    {month.label} <span className="text-xs text-gray-500 ml-2">{getMonthStatusLabel(month.monthYear)}</span>
                   </TableCell>
                   <TableCell>
                     <Badge
                       className={
                         month.isPaid
                           ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
+                          : "bg-gray-100 text-gray-800"
                       }
                     >
                       {month.isPaid ? "Pagou" : "Não Pagou"}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePaymentToggle(month.monthYear)}
-                      className="text-blue-600 hover:bg-blue-50"
-                    >
-                      Marcar como {month.isPaid ? "não pago" : "pago"}
-                    </Button>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={month.isPaid}
+                        onChange={() => handlePaymentToggle(month.monthYear, month.isPaid)}
+                        className="w-4 h-4 rounded border-gray-300"
+                      />
+                      <span className="text-lg">$</span>
+                    </label>
                   </TableCell>
                 </TableRow>
               ))}
@@ -310,62 +430,7 @@ export function CompanyDetailsPage() {
           </Table>
         </CardContent>
       </Card>
-
-      {/* Recent Records */}
-      <Card className="border-0 bg-white shadow-md">
-        <CardHeader className="rounded-t-lg bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-          <CardTitle>Registros Recentes</CardTitle>
-          <CardDescription className="text-blue-100">
-            Últimos registros de ponto sincronizados
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b-2 border-blue-200">
-                <TableHead className="font-bold text-blue-900">Funcionário</TableHead>
-                <TableHead className="font-bold text-blue-900">Tipo</TableHead>
-                <TableHead className="font-bold text-blue-900">Data/Hora</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {records.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="py-8 text-center text-gray-500">
-                    Nenhum registro de ponto encontrado.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                records.slice(0, 10).map((record) => (
-                  <TableRow
-                    key={record.registro_id}
-                    className="border-b border-gray-200 hover:bg-blue-50 transition-colors"
-                  >
-                    <TableCell className="font-semibold text-gray-900">
-                      {record.funcionario_id}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={
-                          record.tipo === "entrada"
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-purple-100 text-purple-800"
-                        }
-                      >
-                        {record.tipo === "entrada" ? "Entrada" : "Saída"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-gray-600 text-sm">
-                      {new Date(record.data_hora).toLocaleString("pt-BR")}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-        </Card>
-      </div>
-    );
-  }
+    </div>
+  );
+}
 
