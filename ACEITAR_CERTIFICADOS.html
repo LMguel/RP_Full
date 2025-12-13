@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔒 Aceitar Certificados SSL - RP Full</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        
+        .warning strong {
+            color: #856404;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .warning p {
+            color: #856404;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .steps {
+            margin: 30px 0;
+        }
+        
+        .step {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .step:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+        
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+            margin-right: 15px;
+        }
+        
+        .step-content h3 {
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+        
+        .step-content p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .links {
+            display: grid;
+            gap: 15px;
+            margin: 30px 0;
+        }
+        
+        .link-button {
+            display: block;
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .link-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .link-button.secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.3);
+        }
+        
+        .link-button.tertiary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+        
+        .link-button small {
+            display: block;
+            opacity: 0.9;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        
+        .success strong {
+            color: #155724;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .success p {
+            color: #155724;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Aceitar Certificados SSL</h1>
+        <p class="subtitle">Necessário para usar o sistema com HTTPS</p>
+        
+        <div class="warning">
+            <strong>⚠️ Por que preciso fazer isso?</strong>
+            <p>O sistema usa certificados SSL autoassinados para desenvolvimento. Você precisa aceitar cada certificado uma única vez para que o sistema funcione corretamente.</p>
+        </div>
+        
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3>Clique no link do Backend</h3>
+                    <p>Aceite o aviso de certificado clicando em "Avançar" ou "Visitar este site"</p>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3>Verifique se aparece "OK"</h3>
+                    <p>Se aparecer "OK" na tela, o certificado foi aceito com sucesso</p>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3>Repita para cada frontend</h3>
+                    <p>Clique nos links dos frontends e aceite os certificados também</p>
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <h3>Sistema pronto!</h3>
+                    <p>Após aceitar todos os certificados, use o sistema normalmente</p>
+                </div>
+            </div>
+        </div>
+        
+        <h2 style="color: #333; margin-bottom: 15px; font-size: 18px;">📍 Links para aceitar:</h2>
+        
+        <div class="links">
+            <a href="https://192.168.1.100:5000/api/health" target="_blank" class="link-button">
+                🔧 Backend API
+                <small>https://192.168.1.100:5000</small>
+            </a>
+            
+            <a href="https://192.168.1.100:3000" target="_blank" class="link-button secondary">
+                👤 Front Funcionário
+                <small>Porta 3000</small>
+            </a>
+            
+            <a href="https://192.168.1.100:3001" target="_blank" class="link-button tertiary">
+                🏢 Admin Portal
+                <small>Porta 3001</small>
+            </a>
+            
+            <a href="https://192.168.1.100:3002" target="_blank" class="link-button">
+                📱 PWA Mobile
+                <small>Porta 3002 - Reconhecimento Facial</small>
+            </a>
+        </div>
+        
+        <div class="success">
+            <strong>✅ Depois de aceitar todos os certificados:</strong>
+            <p>Recarregue a página do sistema que estava usando e faça login normalmente!</p>
+        </div>
+    </div>
+    
+    <script>
+        // Log para debug
+        console.log('🔒 Página de aceitação de certificados SSL');
+        console.log('📍 IP Local: 192.168.1.100');
+        console.log('🚀 Pronto para aceitar certificados!');
+    </script>
+</body>
+</html>

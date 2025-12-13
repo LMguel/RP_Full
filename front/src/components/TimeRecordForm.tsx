@@ -190,8 +190,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         }
         
         // Verificar se já existe um registro do mesmo tipo no mesmo dia
+        // Usar 'type' com fallback para 'tipo' (compatibilidade)
         const sameTypeRecords = recordsToCheck.filter((record: any) => 
-          record.tipo === formData.tipo && 
+          (record.type || record.tipo) === formData.tipo && 
           record.data_hora && 
           record.data_hora.includes(dateStr)
         );

@@ -1,6 +1,6 @@
 // Remove /api do final se existir para evitar duplicação
 const getApiUrl = () => {
-  const url = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+  const url = (import.meta as any).env?.VITE_API_URL || 'https://192.168.1.100:5000';
   return url.endsWith('/api') ? url.replace(/\/api$/, '') : url;
 };
 

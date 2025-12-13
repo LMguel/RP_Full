@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_cors import CORS
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from decimal import Decimal
 import uuid
 import tempfile
 import os
@@ -195,7 +196,7 @@ def deletar_registro(registro_id):
             if 'Item' not in verify_response:
                 print(f"[DELETE REGISTRO] ❌ Registro não encontrado no DynamoDB")
                 return jsonify({'error': 'Registro não encontrado'}), 404
-            print(f"[DELETE REGISTRO] Registro encontrado: {verify_response['Item'].get('tipo', 'N/A')}")
+            print(f"[DELETE REGISTRO] Registro encontrado: {verify_response['Item'].get('type', verify_response['Item'].get('tipo', 'N/A'))}")
         except Exception as e:
             print(f"[DELETE REGISTRO] Erro ao verificar registro: {str(e)}")
             return jsonify({'error': 'Registro não encontrado'}), 404
@@ -389,7 +390,9 @@ def registrar_ponto():
         )
         registros_do_dia = sorted(response_registros['Items'], key=lambda x: x.get('employee_id#date_time', ''))
 
-        tipo = 'entrada' if not registros_do_dia or registros_do_dia[-1]['tipo'] == 'saída' else 'saída'
+        # Verificar último registro para determinar tipo (entrada/saída)
+        ultimo_tipo = registros_do_dia[-1].get('type', registros_do_dia[-1].get('tipo', 'saida')) if registros_do_dia else 'saida'
+        tipo = 'entrada' if not registros_do_dia or ultimo_tipo in ('saida', 'saída') else 'saida'
         
         # Se for modo preview, retornar apenas informações sem salvar
         if preview_mode:
@@ -410,7 +413,8 @@ def registrar_ponto():
         registro = {
             'company_id': company_id,  # HASH key
             'employee_id#date_time': f"{funcionario_id}#{data_hora_str}",  # RANGE key
-            'tipo': tipo,
+            'type': tipo,  # Usar 'type' padronizado
+            'method': 'FACIAL',  # Reconhecimento facial (legado)
             'funcionario_nome': funcionario_nome,
             'empresa_nome': funcionario.get('empresa_nome', ''),
         }
@@ -638,6 +642,8 @@ def atualizar_funcionario(payload, funcionario_id):
             from auth import hash_password
             senha_hash = hash_password(senha)
             funcionario['senha_hash'] = senha_hash
+            # Armazenar senha original para exibição (AVISO: não é seguro, apenas para conveniência)
+            funcionario['senha_original'] = senha
             print(f"[PUT] Nova senha definida para funcionário {funcionario_id}")
             
         # Atualizar foto se fornecida
@@ -1012,6 +1018,8 @@ def cadastrar_funcionario(payload):
             funcionario_item['login'] = login
         if senha_hash:
             funcionario_item['senha_hash'] = senha_hash
+            # Armazenar senha original para exibição (AVISO: não é seguro, apenas para conveniência)
+            funcionario_item['senha_original'] = senha
         
         # Campo home_office (para não exigir geolocalização)
         funcionario_item['home_office'] = home_office
@@ -1100,6 +1108,21 @@ def listar_registros(payload):
         if not empresa_id:
             return jsonify({'error': 'Empresa ID não encontrado no token'}), 400
         
+        # Buscar configurações da empresa para cálculo de status
+        try:
+            config_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+            configuracoes = config_response.get('Item', {})
+            print(f"[DEBUG REGISTROS] Configurações da empresa: {configuracoes}")
+        except Exception as e:
+            print(f"[DEBUG REGISTROS] Erro ao buscar configurações: {e}")
+            configuracoes = {}
+        
+        # Valores padrão para cálculos
+        tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
+        intervalo_automatico = configuracoes.get('intervalo_automatico', False)
+        duracao_intervalo = int(configuracoes.get('duracao_intervalo', 60))
+        
+        funcionarios_map = {}  # Cache de funcionários para evitar múltiplas queries
         funcionarios_filtrados = []
         
         # Buscar apenas funcionários da empresa
@@ -1109,7 +1132,10 @@ def listar_registros(payload):
                 filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
             
             response_func = tabela_funcionarios.scan(FilterExpression=filtro_func)
-            funcionarios_filtrados = [f['id'] for f in response_func.get('Items', [])]
+            funcionarios_items = response_func.get('Items', [])
+            funcionarios_filtrados = [f['id'] for f in funcionarios_items]
+            # Criar mapa de funcionários para acesso rápido
+            funcionarios_map = {f['id']: f for f in funcionarios_items}
             print(f"[DEBUG] funcionarios_filtrados: {funcionarios_filtrados}")
             
         except Exception as e:
@@ -1152,8 +1178,92 @@ def listar_registros(payload):
             if registros:
                 print(f"[DEBUG] Exemplo de registro (novo schema): {registros[0]}")
             
+            # Agrupar registros por funcionário e data para calcular status
+            registros_por_func_data = {}
+            for reg in registros:
+                composite_key = reg.get('employee_id#date_time', '')
+                if '#' in composite_key:
+                    employee_id, data_hora = composite_key.split('#', 1)
+                    data_apenas = data_hora.split(' ')[0]  # YYYY-MM-DD
+                    
+                    chave = f"{employee_id}#{data_apenas}"
+                    if chave not in registros_por_func_data:
+                        registros_por_func_data[chave] = []
+                    registros_por_func_data[chave].append(reg)
+            
             # Converter schema novo para formato esperado pelo frontend
             registros_formatados = []
+            
+            # Primeiro passo: calcular status para cada par entrada/saída do mesmo dia
+            status_por_func_data = {}  # Armazena os status calculados por funcionário/data
+            
+            for chave, regs_do_dia in registros_por_func_data.items():
+                employee_id = chave.split('#')[0]
+                funcionario = funcionarios_map.get(employee_id)
+                
+                if not funcionario:
+                    continue
+                    
+                horario_entrada_esperado = funcionario.get('horario_entrada')
+                horario_saida_esperado = funcionario.get('horario_saida')
+                
+                if not horario_entrada_esperado or not horario_saida_esperado:
+                    continue
+                
+                # Encontrar entrada e saída do dia
+                entrada_reg = None
+                saida_reg = None
+                
+                for r in regs_do_dia:
+                    r_tipo = r.get('type', r.get('tipo', ''))
+                    if r_tipo == 'entrada' and not entrada_reg:
+                        entrada_reg = r
+                    elif r_tipo in ('saída', 'saida'):
+                        saida_reg = r
+                
+                # Calcular status se temos entrada e saída
+                if entrada_reg and saida_reg:
+                    try:
+                        # Extrair horários reais
+                        entrada_key = entrada_reg.get('employee_id#date_time', '')
+                        saida_key = saida_reg.get('employee_id#date_time', '')
+                        
+                        if '#' in entrada_key:
+                            _, entrada_data_hora = entrada_key.split('#', 1)
+                            horario_entrada_real = entrada_data_hora.split(' ')[1][:5]
+                        else:
+                            horario_entrada_real = '00:00'
+                        
+                        if '#' in saida_key:
+                            _, saida_data_hora = saida_key.split('#', 1)
+                            horario_saida_real = saida_data_hora.split(' ')[1][:5]
+                        else:
+                            horario_saida_real = '00:00'
+                        
+                        # Calcular usando calculate_overtime
+                        calculo = calculate_overtime(
+                            horario_entrada_esperado,
+                            horario_saida_esperado,
+                            horario_entrada_real,
+                            horario_saida_real,
+                            configuracoes,
+                            intervalo_automatico,
+                            duracao_intervalo
+                        )
+                        
+                        # Armazenar status calculado
+                        status_por_func_data[chave] = {
+                            'atraso_minutos': calculo.get('atraso_minutos', 0),
+                            'horas_extras_minutos': calculo.get('horas_extras_minutos', 0),
+                            'entrada_antecipada_minutos': calculo.get('entrada_antecipada_minutos', 0),
+                            'saida_antecipada_minutos': calculo.get('saida_antecipada_minutos', 0),
+                        }
+                        
+                        print(f"[DEBUG CALC] {employee_id}: entrada={horario_entrada_real}, saída={horario_saida_real}, atraso={calculo.get('atraso_minutos', 0)}, extras={calculo.get('horas_extras_minutos', 0)}")
+                    except Exception as calc_err:
+                        print(f"[DEBUG] Erro ao calcular status para {employee_id}: {calc_err}")
+            
+            # Segundo passo: criar registros formatados com status correto
             for reg in registros:
                 # Extrair employee_id e data_hora do campo composto
                 composite_key = reg.get('employee_id#date_time', '')
@@ -1172,19 +1282,45 @@ def listar_registros(payload):
                     continue
                 
                 # Criar registro formatado para o frontend
+                tipo_registro = reg.get('type', reg.get('tipo', ''))
+                metodo_registro = reg.get('method', reg.get('metodo', 'MANUAL'))
+                
+                # Buscar status calculado para este funcionário/data
+                data_apenas = data_hora.split(' ')[0]
+                chave = f"{employee_id}#{data_apenas}"
+                status_calculado = status_por_func_data.get(chave, {})
+                
+                # Atribuir status ao registro correto:
+                # - ENTRADA: atraso e entrada_antecipada
+                # - SAÍDA: horas_extras e saida_antecipada
+                atraso_minutos = 0
+                horas_extras_minutos = 0
+                entrada_antecipada_minutos = 0
+                saida_antecipada_minutos = 0
+                
+                if tipo_registro == 'entrada':
+                    # Na entrada mostramos: atraso ou entrada antecipada
+                    atraso_minutos = status_calculado.get('atraso_minutos', 0)
+                    entrada_antecipada_minutos = status_calculado.get('entrada_antecipada_minutos', 0)
+                elif tipo_registro in ('saída', 'saida'):
+                    # Na saída mostramos: horas extras ou saída antecipada
+                    horas_extras_minutos = status_calculado.get('horas_extras_minutos', 0)
+                    saida_antecipada_minutos = status_calculado.get('saida_antecipada_minutos', 0)
+                
                 registro_formatado = {
                     'registro_id': f"{reg.get('company_id', '')}_{composite_key}",  # ID único
                     'funcionario_id': employee_id,
                     'data_hora': data_hora,
-                    'tipo': reg.get('tipo', ''),
+                    'type': tipo_registro,  # Campo padronizado
+                    'tipo': tipo_registro,  # Compatibilidade com frontend legado
+                    'method': metodo_registro,  # CAMERA, LOCATION, MANUAL
                     'funcionario_nome': reg.get('funcionario_nome', ''),
+                    # Campos de status - atribuídos ao registro correto
+                    'atraso_minutos': atraso_minutos,
+                    'horas_extras_minutos': horas_extras_minutos,
+                    'entrada_antecipada_minutos': entrada_antecipada_minutos,
+                    'saida_antecipada_minutos': saida_antecipada_minutos,
                 }
-                
-                # Adicionar campos opcionais se existirem
-                if 'horas_extras_minutos' in reg:
-                    registro_formatado['horas_extras_minutos'] = reg['horas_extras_minutos']
-                if 'atraso_minutos' in reg:
-                    registro_formatado['atraso_minutos'] = reg['atraso_minutos']
                 
                 registros_formatados.append(registro_formatado)
             
@@ -1196,7 +1332,9 @@ def listar_registros(payload):
             for reg in registros:
                 if not reg.get('funcionario_nome'):
                     func_id = reg.get('funcionario_id')
-                    if func_id:
+                    if func_id and func_id in funcionarios_map:
+                        reg['funcionario_nome'] = funcionarios_map[func_id].get('nome', 'N/A')
+                    elif func_id:
                         try:
                             func_resp = tabela_funcionarios.get_item(
                                 Key={'company_id': empresa_id, 'id': func_id}
@@ -1349,7 +1487,7 @@ def listar_registros_resumo(payload):
                     registro_formatado = {
                         'funcionario_id': employee_id,
                         'data_hora': data_hora_formatada,
-                        'tipo': reg.get('tipo'),
+                        'tipo': reg.get('type', reg.get('tipo')),  # Compatibilidade type/tipo
                         'funcionario_nome': reg.get('funcionario_nome')
                     }
                     registros.append(registro_formatado)
@@ -1417,9 +1555,10 @@ def listar_registros_resumo(payload):
                     saida = None
                     
                     for reg in regs_do_dia:
-                        if reg['tipo'] == 'entrada' and not entrada:
+                        reg_tipo = reg.get('tipo', '')
+                        if reg_tipo == 'entrada' and not entrada:
                             entrada = reg['data_hora']
-                        elif reg['tipo'] == 'saída':
+                        elif reg_tipo in ('saída', 'saida'):
                             saida = reg['data_hora']
                     
                     if entrada and saida:
@@ -1566,7 +1705,7 @@ def enviar_email_registros():
             sheet_detalhes.append([
                 data_hora[0] if len(data_hora) > 0 else '',
                 data_hora[1] if len(data_hora) > 1 else '',
-                registro.get('tipo', '')
+                registro.get('type', registro.get('tipo', ''))
             ])
         workbook.save(output)
         output.seek(0)
@@ -1624,7 +1763,8 @@ def registrar_ponto_manual(payload):
         'funcionario_id': funcionario_id,
         'employee_id': funcionario_id,      # Manter ambos para compatibilidade
         'data_hora': data_hora,
-        'tipo': tipo,
+        'type': tipo,  # Padronizado para 'type'
+        'method': 'MANUAL',  # Método de registro manual
         'empresa_nome': empresa_nome
     }
     
@@ -1698,139 +1838,72 @@ def listar_registros_protegido(payload):
 
 @routes.route('/login', methods=['POST', 'OPTIONS'])
 def login():
-    # OPTIONS é tratado automaticamente pelo Flask-CORS
+    """Login exclusivo para empresas usando credenciais da tabela UserCompany."""
     if request.method == 'OPTIONS':
         return '', 200
-    
-    from auth import verify_password, get_secret_key  # Importar a nova função
+
+    from auth import verify_password, get_secret_key
     import datetime
     import jwt
-    
+
     try:
-        # ✅ CORREÇÃO: Usar request.get_json() em vez de request.json
         data = request.get_json()
         if not data:
             return jsonify({'error': 'JSON inválido ou ausente'}), 400
-            
-        usuario_id = data.get('usuario_id')
-        senha = data.get('senha')
-        
-        print(f"[LOGIN DEBUG] Tentando login para usuario_id: {usuario_id}")
 
-        # Primeiro tenta buscar como usuário empresa
+        usuario_id = (data.get('usuario_id') or '').strip()
+        senha = data.get('senha') or ''
+
+        if not usuario_id or not senha:
+            return jsonify({'error': 'usuario_id e senha são obrigatórios'}), 400
+
+        print(f"[LOGIN DEBUG] Tentando login (empresa) para usuario_id: {usuario_id}")
+
+        # Buscar usuário de empresa na tabela UserCompany por user_id
         response = tabela_usuarioempresa.scan(
             FilterExpression=Attr('user_id').eq(usuario_id)
         )
-        
-        items = response.get('Items', [])
-        print(f"[LOGIN DEBUG] Items empresa encontrados: {len(items)}")
-        
-        # Se não encontrar como empresa, tenta buscar como funcionário (login field)
-        if not items:
-            print(f"[LOGIN DEBUG] Não encontrado como empresa, tentando como funcionário com login: {usuario_id}")
-            response_func = tabela_funcionarios.scan(
-                FilterExpression=Attr('login').eq(usuario_id)
-            )
-            items = response_func.get('Items', [])
-            print(f"[LOGIN DEBUG] Items funcionário encontrados: {len(items)}")
-            
-            if items:
-                # É um funcionário
-                funcionario = items[0]
-                print(f"[LOGIN DEBUG] Funcionário encontrado: {funcionario.get('nome')}")
-                
-                # Verificar se funcionário está ativo
-                is_active = funcionario.get('is_active', funcionario.get('ativo', True))
-                if not is_active:
-                    print(f"[LOGIN DEBUG] Funcionário inativo")
-                    return jsonify({'error': 'Acesso negado. Funcionário inativo. Contate o RH.'}), 403
-                
-                # Verificar se tem senha cadastrada
-                if not funcionario.get('senha_hash'):
-                    print(f"[LOGIN DEBUG] Funcionário não tem senha cadastrada")
-                    return jsonify({'error': 'Funcionário não tem acesso configurado. Contate o RH.'}), 403
-                
-                # Verificar senha
-                if not verify_password(senha, funcionario['senha_hash']):
-                    print(f"[LOGIN DEBUG] Senha inválida para funcionário")
-                    return jsonify({'error': 'Login ou senha incorretos'}), 401
-                
-                # Gerar token JWT para funcionário
-                secret_key = get_secret_key()
-                token = jwt.encode({
-                    'funcionario_id': funcionario['id'],
-                    'nome': funcionario['nome'],
-                    'empresa_nome': funcionario.get('empresa_nome', ''),
-                    'company_id': funcionario['company_id'],
-                    'cargo': funcionario.get('cargo', ''),
-                    'tipo': 'funcionario',
-                    'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-                }, secret_key, algorithm="HS256")
-                
-                print(f"[LOGIN DEBUG] Login bem-sucedido para funcionário: {funcionario.get('nome')}")
-                
-                return jsonify({
-                    'token': token,
-                    'tipo': 'funcionario',
-                    'usuario': {
-                        'id': funcionario['id'],
-                        'nome': funcionario['nome'],
-                        'cargo': funcionario.get('cargo', ''),
-                        'login': funcionario.get('login', '')
-                    }
-                }), 200
-        
-        if not items:
-            print(f"[LOGIN DEBUG] Nenhum usuário encontrado com user_id: {usuario_id}")
-            return jsonify({'error': 'Login ou senha incorretos'}), 401
-        
-        usuario = items[0]  # Pegar o primeiro resultado
-        print(f"[LOGIN DEBUG] Usuário empresa encontrado. Tem senha_hash: {'senha_hash' in usuario}, tem senha: {'senha' in usuario}")
 
-        # Verificar senha (can use either senha_hash or senha)
-        # Primeiro tenta verificar com hash (novo sistema)
-        if 'senha_hash' in usuario and usuario['senha_hash']:
-            print(f"[LOGIN DEBUG] Verificando com bcrypt hash")
+        items = response.get('Items', [])
+        print(f"[LOGIN DEBUG] Items UserCompany encontrados: {len(items)}")
+
+        if not items:
+            return jsonify({'error': 'Login ou senha incorretos'}), 401
+
+        usuario = items[0]
+        print(f"[LOGIN DEBUG] Usuário empresa encontrado. company_id={usuario.get('company_id')}")
+
+        # Verificar senha (prioriza hash bcrypt)
+        if usuario.get('senha_hash'):
             hash_verificado = verify_password(senha, usuario['senha_hash'])
             print(f"[LOGIN DEBUG] Hash verificado: {hash_verificado}")
             if not hash_verificado:
-                print(f"[LOGIN DEBUG] Falha na verificação do hash")
                 return jsonify({'error': 'Login ou senha incorretos'}), 401
-        # Se não tem hash, tenta comparar com senha em texto (compatibilidade)
-        elif 'senha' in usuario and usuario['senha']:
-            print(f"[LOGIN DEBUG] Verificando com comparação de texto")
-            print(f"[LOGIN DEBUG] Senha fornecida: {senha}")
-            print(f"[LOGIN DEBUG] Senha armazenada: {usuario['senha']}")
+        elif usuario.get('senha'):
             if senha != usuario['senha']:
-                print(f"[LOGIN DEBUG] Falha na comparação de texto")
                 return jsonify({'error': 'Login ou senha incorretos'}), 401
         else:
-            print(f"[LOGIN DEBUG] Usuário não tem nem senha_hash nem senha")
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
         print(f"[LOGIN DEBUG] Senha verificada com sucesso")
-        
-        # ✅ CORREÇÃO: Usar get_secret_key() para garantir string
+
         secret_key = get_secret_key()
-        
-        # Gerar token com info da empresa
         token = jwt.encode({
             'usuario_id': usuario['user_id'],
-            'empresa_nome': usuario['empresa_nome'],
-            'company_id': usuario['company_id'],  # Usar company_id no token
+            'empresa_nome': usuario.get('empresa_nome', ''),
+            'company_id': usuario.get('company_id', ''),
             'tipo': 'empresa',
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=12)
         }, secret_key, algorithm="HS256")
-        
-        print(f"[DEBUG] Token gerado com SECRET_KEY tipo: {type(secret_key)}")
-        
+
         return jsonify({
             'token': token,
             'tipo': 'empresa',
             'usuario_id': usuario['user_id'],
-            'empresa_nome': usuario['empresa_nome']
+            'empresa_nome': usuario.get('empresa_nome', ''),
+            'company_id': usuario.get('company_id', ''),
         })
-        
+
     except Exception as e:
         print(f"Erro no login: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -1929,7 +2002,7 @@ def cadastrar_usuario_empresa():
 def login_funcionario():
     """
     Login para funcionários (para app mobile)
-    Requer: email e senha
+    Requer: funcionario_id (id do funcionário) e senha
     Retorna: token JWT com funcionario_id, nome, empresa_id
     """
     if request.method == 'OPTIONS':
@@ -1944,24 +2017,30 @@ def login_funcionario():
         if not data:
             return jsonify({'error': 'JSON inválido ou ausente'}), 400
         
-        email = data.get('email')
-        senha = data.get('senha')
+        funcionario_id = (data.get('funcionario_id') or data.get('id') or '').strip()
+        senha = data.get('senha') or ''
         
-        if not email or not senha:
-            return jsonify({'error': 'Email e senha são obrigatórios'}), 400
+        if not funcionario_id or not senha:
+            return jsonify({'error': 'ID do funcionário e senha são obrigatórios'}), 400
         
-        # Buscar funcionário por email
-        print(f"[LOGIN FUNC] Buscando funcionário com email: {email}")
-        response = tabela_funcionarios.scan(
-            FilterExpression=Attr('email').eq(email)
-        )
+        # Buscar funcionário por ID usando scan (já que não temos company_id no login)
+        print(f"[LOGIN FUNC] Buscando funcionário com ID: {funcionario_id}")
         
-        items = response.get('Items', [])
-        if not items:
-            print(f"[LOGIN FUNC] Nenhum funcionário encontrado com email: {email}")
-            return jsonify({'error': 'Email ou senha inválidos'}), 401
+        try:
+            # Usar scan porque no login mobile não temos o company_id
+            response = tabela_funcionarios.scan(
+                FilterExpression=Attr('id').eq(funcionario_id)
+            )
+            items = response.get('Items', [])
+            funcionario = items[0] if items else None
+        except Exception as e:
+            print(f"[LOGIN FUNC] Erro ao buscar funcionário: {e}")
+            funcionario = None
         
-        funcionario = items[0]
+        if not funcionario:
+            print(f"[LOGIN FUNC] Nenhum funcionário encontrado com ID: {funcionario_id}")
+            return jsonify({'error': 'ID ou senha inválidos'}), 401
+        
         print(f"[LOGIN FUNC] Funcionário encontrado: {funcionario.get('nome')}")
         
         # Verificar se funcionário está ativo (exclusão lógica)
@@ -1978,7 +2057,7 @@ def login_funcionario():
         # Verificar senha
         if not verify_password(senha, funcionario['senha_hash']):
             print(f"[LOGIN FUNC] Senha inválida")
-            return jsonify({'error': 'Email ou senha inválidos'}), 401
+            return jsonify({'error': 'ID ou senha inválidos'}), 401
         
         # Gerar token JWT
         secret_key = get_secret_key()
@@ -2034,31 +2113,26 @@ def meus_registros(payload):
         
         print(f"[MEUS REGISTROS] Buscando registros de {funcionario_id}")
         
-        # Buscar registros do funcionário
-        filtro = Attr('company_id').eq(empresa_id) & Attr('funcionario_id').eq(funcionario_id)
+        # Buscar registros do funcionário usando a chave composta employee_id#date_time
+        # Filtrar por company_id e employee_id# que começa com o funcionario_id
+        filtro = Attr('company_id').eq(empresa_id) & Attr('employee_id#date_time').begins_with(funcionario_id)
         
         if data_inicio and data_fim:
-            filtro = filtro & Attr('data_hora').between(
-                f"{data_inicio} 00:00:00",
-                f"{data_fim} 23:59:59"
+            # Adicionar filtro de data se fornecido
+            filtro = filtro & Attr('employee_id#date_time').between(
+                f"{funcionario_id}#{data_inicio} 00:00:00",
+                f"{funcionario_id}#{data_fim} 23:59:59"
             )
         
         response = tabela_registros.scan(FilterExpression=filtro)
         registros = response.get('Items', [])
         
-        # Formatar datas para DD-MM-YYYY
-        for reg in registros:
-            if 'data_hora' in reg:
-                try:
-                    data_part, hora_part = reg['data_hora'].split(' ')
-                    yyyy, mm, dd = data_part.split('-')
-                    reg['data_hora'] = f"{dd}-{mm}-{yyyy} {hora_part}"
-                except (ValueError, IndexError) as e:
-                    print(f"[DEBUG] Erro ao formatar data: {e}")
+        # Ordenar por data (mais recente primeiro)
+        registros = sorted(registros, key=lambda x: x.get('employee_id#date_time', ''), reverse=True)
         
         print(f"[MEUS REGISTROS] Encontrados {len(registros)} registros")
         
-        return jsonify(registros), 200
+        return jsonify({'registros': registros}), 200
         
     except Exception as e:
         print(f"[MEUS REGISTROS] Erro: {str(e)}")
@@ -2383,6 +2457,258 @@ def configuracoes_empresa():
         except Exception as e:
             print(f"Erro ao atualizar configurações: {str(e)}")
             return jsonify({'error': str(e)}), 500
+
+@routes.route('/company/update-location', methods=['POST', 'OPTIONS'])
+@token_required
+def update_company_location(payload):
+    """
+    Atualiza a localização da empresa (latitude, longitude, raio permitido).
+    Usado pelo painel web para definir onde a empresa está localizada.
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON inválido ou ausente'}), 400
+        
+        company_id = payload.get('company_id')
+        
+        # Validar campos obrigatórios
+        company_lat = data.get('company_lat')
+        company_lng = data.get('company_lng')
+        raio_permitido = data.get('raio_permitido', 100)
+        exigir_localizacao = data.get('exigir_localizacao', True)
+        
+        if company_lat is None or company_lng is None:
+            return jsonify({'error': 'Latitude e longitude são obrigatórias'}), 400
+        
+        # Validar tipos e ranges
+        try:
+            company_lat = float(company_lat)
+            company_lng = float(company_lng)
+            raio_permitido = int(raio_permitido)
+            exigir_localizacao = bool(exigir_localizacao)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Valores inválidos para lat/lng/raio'}), 400
+        
+        # Validar ranges geográficos
+        if not (-90 <= company_lat <= 90):
+            return jsonify({'error': 'Latitude deve estar entre -90 e 90'}), 400
+        if not (-180 <= company_lng <= 180):
+            return jsonify({'error': 'Longitude deve estar entre -180 e 180'}), 400
+        if raio_permitido < 10 or raio_permitido > 5000:
+            return jsonify({'error': 'Raio deve estar entre 10m e 5000m'}), 400
+        
+        print(f"[UPDATE LOCATION] Atualizando localização para company_id: {company_id}")
+        print(f"[UPDATE LOCATION] Lat: {company_lat}, Lng: {company_lng}, Raio: {raio_permitido}m")
+        
+        # Buscar configuração existente
+        response = tabela_configuracoes.get_item(
+            Key={'company_id': company_id}
+        )
+        
+        config_item = response.get('Item', {})
+        if not config_item:
+            # Criar nova configuração
+            config_item = {
+                'company_id': company_id,
+                'tolerancia_atraso': 5,
+                'hora_extra_entrada_antecipada': False,
+                'arredondamento_horas_extras': '5',
+                'intervalo_automatico': False,
+                'duracao_intervalo': 60,
+                'compensar_saldo_horas': False
+            }
+        
+        # Atualizar campos de localização (converter para Decimal para DynamoDB)
+        config_item['company_lat'] = Decimal(str(company_lat))
+        config_item['company_lng'] = Decimal(str(company_lng))
+        config_item['raio_permitido'] = raio_permitido
+        config_item['exigir_localizacao'] = exigir_localizacao
+        config_item['setup_completed'] = True
+        
+        # Salvar no DynamoDB
+        tabela_configuracoes.put_item(Item=config_item)
+        
+        print(f"[UPDATE LOCATION] Localização salva com sucesso")
+        
+        return jsonify({
+            'success': True,
+            'company_lat': float(company_lat),
+            'company_lng': float(company_lng),
+            'raio_permitido': raio_permitido,
+            'exigir_localizacao': exigir_localizacao,
+            'message': 'Localização atualizada com sucesso'
+        }), 200
+        
+    except Exception as e:
+        print(f"[UPDATE LOCATION] Erro: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/registrar_ponto_localizacao', methods=['POST', 'OPTIONS'])
+@token_required
+def registrar_ponto_localizacao(payload):
+    """
+    Registra ponto do funcionário usando validação por geolocalização (sem reconhecimento facial).
+    Valida se o funcionário está dentro do raio permitido da empresa.
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    from geolocation_utils import validar_localizacao, formatar_distancia
+    import uuid
+    from datetime import datetime
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON inválido ou ausente'}), 400
+        
+        # Dados do funcionário (do token)
+        funcionario_id = payload.get('funcionario_id')
+        company_id = payload.get('company_id')
+        funcionario_nome = payload.get('nome', '')
+        
+        if not funcionario_id or not company_id:
+            return jsonify({'error': 'Token inválido'}), 401
+        
+        # Dados da localização do usuário
+        user_lat = data.get('user_lat') or data.get('latitude')
+        user_lng = data.get('user_lng') or data.get('longitude')
+        tipo = data.get('tipo', 'entrada')  # entrada ou saida
+        
+        if user_lat is None or user_lng is None:
+            return jsonify({'error': 'Localização do usuário é obrigatória'}), 400
+        
+        try:
+            user_lat = float(user_lat)
+            user_lng = float(user_lng)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Coordenadas inválidas'}), 400
+        
+        print(f"[REGISTRO LOCATION] Funcionário: {funcionario_nome} ({funcionario_id})")
+        print(f"[REGISTRO LOCATION] Localização: {user_lat}, {user_lng}")
+        
+        # Buscar configurações da empresa
+        config_response = tabela_configuracoes.get_item(
+            Key={'company_id': company_id}
+        )
+        
+        config = config_response.get('Item', {})
+        
+        # Verificar se a empresa tem localização configurada
+        company_lat = config.get('company_lat')
+        company_lng = config.get('company_lng')
+        exigir_localizacao = config.get('exigir_localizacao', False)
+        raio_permitido = config.get('raio_permitido', 100)
+        
+        # Converter Decimal para float se necessário
+        if company_lat:
+            company_lat = float(company_lat)
+        if company_lng:
+            company_lng = float(company_lng)
+        if raio_permitido:
+            raio_permitido = int(raio_permitido)
+        
+        print(f"[REGISTRO LOCATION] Config: company_lat={company_lat}, company_lng={company_lng}")
+        print(f"[REGISTRO LOCATION] Config: exigir_localizacao={exigir_localizacao}, raio={raio_permitido}m")
+        
+        distance = None
+        location_valid = True
+        
+        if exigir_localizacao:
+            if not company_lat or not company_lng:
+                return jsonify({
+                    'success': False,
+                    'error': 'Localização da empresa não configurada. Entre em contato com o RH.'
+                }), 400
+            
+            # Validar localização
+            location_valid, distance = validar_localizacao(
+                user_lat, user_lng,
+                company_lat, company_lng,
+                raio_permitido
+            )
+            
+            print(f"[REGISTRO LOCATION] Distância: {distance}m, Raio permitido: {raio_permitido}m")
+            print(f"[REGISTRO LOCATION] Dentro do raio: {location_valid}")
+            
+            if not location_valid:
+                return jsonify({
+                    'success': False,
+                    'error': f'Você está fora da área permitida. Distância: {formatar_distancia(distance)}',
+                    'distance': distance,
+                    'raio_permitido': raio_permitido
+                }), 403
+        
+        # Buscar dados do funcionário usando chave composta
+        try:
+            func_response = tabela_funcionarios.get_item(
+                Key={
+                    'company_id': company_id,
+                    'id': funcionario_id
+                }
+            )
+            funcionario = func_response.get('Item')
+        except Exception as e:
+            print(f"[REGISTRO LOCATION] Erro ao buscar funcionário: {e}")
+            # Fallback: scan
+            func_response = tabela_funcionarios.scan(
+                FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(company_id)
+            )
+            items = func_response.get('Items', [])
+            funcionario = items[0] if items else None
+        
+        if not funcionario:
+            return jsonify({'error': 'Funcionário não encontrado'}), 404
+        
+        # Registrar ponto
+        data_hora_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Criar registro com schema correto da tabela TimeRecords
+        # HASH: company_id, RANGE: employee_id#date_time
+        registro_item = {
+            'company_id': company_id,  # HASH key
+            'employee_id#date_time': f"{funcionario_id}#{data_hora_atual}",  # RANGE key
+            'type': tipo,  # Padronizado para 'type'
+            'funcionario_nome': funcionario.get('nome', ''),
+            'empresa_nome': funcionario.get('empresa_nome', ''),
+            'method': 'LOCATION',  # Método de registro
+            'user_lat': Decimal(str(user_lat)),
+            'user_lng': Decimal(str(user_lng)),
+            'distance_from_company': Decimal(str(distance)) if distance is not None else Decimal('0'),
+            'dentro_do_raio': location_valid
+        }
+        
+        # Salvar registro
+        tabela_registros.put_item(Item=registro_item)
+        
+        print(f"[REGISTRO LOCATION] Ponto registrado com sucesso: {funcionario_id}#{data_hora_atual}")
+        
+        response_data = {
+            'success': True,
+            'message': f'Ponto de {tipo} registrado com sucesso!',
+            'data_hora': data_hora_atual,
+            'tipo': tipo,
+            'method': 'LOCATION',
+            'location_valid': location_valid
+        }
+        
+        if distance is not None:
+            response_data['distance'] = formatar_distancia(distance)
+            response_data['distance_meters'] = distance
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        print(f"[REGISTRO LOCATION] Erro: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @routes.route('/teste', methods=['GET', 'OPTIONS'])
 def teste():

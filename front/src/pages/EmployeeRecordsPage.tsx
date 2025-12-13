@@ -160,10 +160,12 @@ const EmployeeRecordsPage: React.FC = () => {
     registrosOrdenados.forEach(reg => {
       try {
         const dataHora = new Date(reg.data_hora || '');
+        // Usar 'type' com fallback para 'tipo' (compatibilidade)
+        const recordType = (reg.type || reg.tipo || '').toLowerCase();
         
-        if (reg.tipo === 'entrada') {
+        if (recordType === 'entrada') {
           entrada = dataHora;
-        } else if (reg.tipo === 'saída' && entrada) {
+        } else if ((recordType === 'saída' || recordType === 'saida') && entrada) {
           totalSegundos += (dataHora.getTime() - entrada.getTime()) / 1000;
           entrada = null;
         }
@@ -196,10 +198,12 @@ const EmployeeRecordsPage: React.FC = () => {
       
       selectedEmployeeRecords.forEach(record => {
         const { date, time } = formatDateTime(record.data_hora || '');
+        // Usar 'type' com fallback para 'tipo' (compatibilidade)
+        const recordType = record.type || record.tipo || 'entrada';
         wsData.push([
           date,
           time,
-          getStatusText(record.tipo || 'entrada'),
+          getStatusText(recordType),
           record.registro_id || 'N/A'
         ]);
       });
@@ -705,6 +709,8 @@ const EmployeeRecordsPage: React.FC = () => {
                   {selectedEmployeeRecords.length > 0 ? (
                     selectedEmployeeRecords.map((record, index) => {
                       const { date, time } = formatDateTime(record.data_hora || '');
+                      // Usar 'type' com fallback para 'tipo' (compatibilidade)
+                      const recordType = record.type || record.tipo || 'entrada';
                       return (
                         <TableRow key={record.registro_id || `record-${index}`} hover>
                           <TableCell>
@@ -719,8 +725,8 @@ const EmployeeRecordsPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={getStatusText(record.tipo || 'entrada')}
-                              color={getStatusColor(record.tipo || 'entrada') as any}
+                              label={getStatusText(recordType)}
+                              color={getStatusColor(recordType) as any}
                               size="small"
                             />
                           </TableCell>

@@ -6,7 +6,7 @@ from routes_daily import daily_routes
 from routes_dashboard import dashboard_routes
 from routes_admin_auth import auth_admin_routes
 from routes_admin import admin_routes
-import os
+from routes_facial import routes_facial
 import os
 import json
 from dotenv import load_dotenv
@@ -29,13 +29,36 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback-secret-key-for-deve
 CORS(app, resources={
     r"/*": {
         "origins": [
+            # HTTP - localhost
             "http://localhost:3000",
-            "http://localhost:3001",  # Vite porta alternativa
-            "http://localhost:3002",  # Vite porta alternativa 2
+            "http://localhost:3001",
+            "http://localhost:3002",
             "http://localhost:5173", 
             "http://127.0.0.1:5173",
             "http://127.0.0.1:3000",
-            "http://192.168.0.39:3000"  # Network access
+            # HTTP - Network
+            "http://192.168.0.39:3000",
+            "http://192.168.1.5:3000",
+            "http://192.168.1.5:3001",
+            "http://192.168.1.5:3002",
+            "http://192.168.1.5:5173",
+            # HTTPS - localhost
+            "https://localhost:3000",
+            "https://localhost:3001",
+            "https://localhost:3002",
+            "https://localhost:5173",
+            "https://127.0.0.1:3000",
+            # HTTPS - Network
+            "https://192.168.1.5:3000",
+            "https://192.168.1.5:3001",
+            "https://192.168.1.5:3002",
+            "https://192.168.1.5:5173",
+            "https://192.168.1.100:3000",
+            "https://192.168.1.100:3001",
+            "https://192.168.1.100:3002",
+            "https://192.168.1.100:5173",
+            "https://127.0.0.1:3001",
+            "https://127.0.0.1:3002"
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
@@ -56,6 +79,8 @@ app.register_blueprint(dashboard_routes)
 app.register_blueprint(auth_admin_routes)
 # Registra rotas de admin portal
 app.register_blueprint(admin_routes)
+# Registra rotas de reconhecimento facial
+app.register_blueprint(routes_facial)
 
 # Handler global para OPTIONS (preflight)
 @app.before_request
@@ -217,9 +242,30 @@ def lambda_handler(event, context):
 
 # Modo local (dev)
 if __name__ == '__main__':
+    import os.path
+    
     print("Iniciando Flask em modo desenvolvimento...")
     print(f"Secret Key configurada: {'✓' if app.config.get('SECRET_KEY') else '✗'}")
     print("\nRotas registradas:")
     for rule in app.url_map.iter_rules():
         print(f"  {rule.methods} {rule}")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    
+    # Verificar se certificados SSL existem
+    cert_file = 'cert.pem'
+    key_file = 'key.pem'
+    
+    # Allow forcing HTTP in local development to avoid SSL/self-signed issues
+    disable_ssl = os.getenv('DISABLE_SSL_DEV', '0') == '1'
+    if not disable_ssl and os.path.exists(cert_file) and os.path.exists(key_file):
+        print(f"\n🔒 HTTPS habilitado com certificados SSL")
+        print(f"🌐 Servidor: https://192.168.1.5:5000")
+        print(f"⚠️  Certificado auto-assinado - aceite o aviso do navegador\n")
+        app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=(cert_file, key_file))
+    else:
+        if disable_ssl:
+            print("\n⚠️  DISABLE_SSL_DEV=1 definido — iniciando servidor HTTP (desabilitado HTTPS)\n")
+        else:
+            print(f"\n⚠️  Certificados SSL não encontrados")
+            print(f"💡 Execute: python generate_cert.py")
+            print(f"🌐 Servidor: http://192.168.1.5:5000 (HTTP)\n")
+        app.run(host='0.0.0.0', port=5000, debug=True)

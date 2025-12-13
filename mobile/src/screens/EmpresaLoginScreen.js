@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,14 +14,35 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import * as Animatable from 'react-native-animatable';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const SAVED_LOGIN_KEY = '@empresa_login_id';
 
 export default function EmpresaLoginScreen({ navigation }) {
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberLogin, setRememberLogin] = useState(false);
   const { signIn } = useAuth();
+
+  // Carregar login salvo ao montar componente
+  useEffect(() => {
+    loadSavedLogin();
+  }, []);
+
+  async function loadSavedLogin() {
+    try {
+      const savedId = await AsyncStorage.getItem(SAVED_LOGIN_KEY);
+      if (savedId) {
+        setUsuario(savedId);
+        setRememberLogin(true);
+      }
+    } catch (error) {
+      console.log('[LOGIN] Erro ao carregar login salvo:', error);
+    }
+  }
 
   async function handleLogin() {
     if (!usuario || !senha) {
@@ -31,14 +52,35 @@ export default function EmpresaLoginScreen({ navigation }) {
 
     setLoading(true);
     try {
+      console.log('[EMPRESA LOGIN] Iniciando login com:', { usuario, senha: '***' });
       await signIn(usuario, senha, 'empresa');
+      console.log('[EMPRESA LOGIN] Login bem-sucedido');
+      
+      // Salvar ou remover login baseado na opção "Lembrar Login"
+      if (rememberLogin) {
+        await AsyncStorage.setItem(SAVED_LOGIN_KEY, usuario);
+        console.log('[LOGIN] Login salvo no dispositivo');
+      } else {
+        await AsyncStorage.removeItem(SAVED_LOGIN_KEY);
+        console.log('[LOGIN] Login removido do dispositivo');
+      }
+      
       // Navegação será automática via AuthContext
     } catch (error) {
-      console.error('Erro no login:', error);
-      Alert.alert(
-        'Erro no Login',
-        error.error || error.message || 'Usuário ou senha inválidos.'
-      );
+      console.error('[EMPRESA LOGIN] Erro completo:', error);
+      console.error('[EMPRESA LOGIN] Tipo do erro:', typeof error);
+      console.error('[EMPRESA LOGIN] Error.message:', error.message);
+      console.error('[EMPRESA LOGIN] Error.error:', error.error);
+      console.error('[EMPRESA LOGIN] Error response:', error.response?.data);
+      
+      const errorMessage = 
+        error.error || 
+        error.message || 
+        error.response?.data?.error ||
+        JSON.stringify(error) ||
+        'Usuário ou senha inválidos.';
+      
+      Alert.alert('Erro no Login', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -102,7 +144,7 @@ export default function EmpresaLoginScreen({ navigation }) {
                 </View>
                 <TextInput
                   style={styles.input}
-                  placeholder="empresa_id"
+                  placeholder="Seu ID de usuário"
                   placeholderTextColor="rgba(255, 255, 255, 0.5)"
                   value={usuario}
                   onChangeText={setUsuario}
@@ -143,6 +185,21 @@ export default function EmpresaLoginScreen({ navigation }) {
                   />
                 </TouchableOpacity>
               </View>
+
+              {/* Lembrar Login */}
+              <TouchableOpacity
+                style={styles.rememberContainer}
+                onPress={() => setRememberLogin(!rememberLogin)}
+                activeOpacity={0.7}
+                disabled={loading}
+              >
+                <View style={[styles.checkbox, rememberLogin && styles.checkboxChecked]}>
+                  {rememberLogin && (
+                    <MaterialCommunityIcons name="check" size={16} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.rememberText}>Lembrar Login</Text>
+              </TouchableOpacity>
 
               {/* Botão Login */}
               <TouchableOpacity
@@ -356,5 +413,39 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '700',
     textDecorationLine: 'underline',
+  },
+  helperText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: -12,
+    marginBottom: 16,
+    marginLeft: 4,
+    fontStyle: 'italic',
+  },
+  rememberContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 4,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'transparent',
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  rememberText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

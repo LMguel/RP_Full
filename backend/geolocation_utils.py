@@ -53,11 +53,22 @@ def validar_localizacao(lat_usuario, lon_usuario, lat_empresa, lon_empresa, raio
         tuple: (bool, float) - (está dentro do raio?, distância em metros)
     """
     try:
+        print(f"[GEOLOCATION] Validando localização:")
+        print(f"  Usuário: {lat_usuario}, {lon_usuario}")
+        print(f"  Empresa: {lat_empresa}, {lon_empresa}")
+        print(f"  Raio permitido: {raio_permitido}m")
+        
         distancia = calcular_distancia(lat_usuario, lon_usuario, lat_empresa, lon_empresa)
         dentro_do_raio = distancia <= raio_permitido
+        
+        print(f"  Distância calculada: {distancia}m")
+        print(f"  Dentro do raio? {dentro_do_raio}")
+        
         return dentro_do_raio, distancia
     except Exception as e:
         print(f"[GEOLOCATION] Erro ao validar localização: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False, 0
 
 

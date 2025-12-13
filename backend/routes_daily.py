@@ -111,8 +111,8 @@ def calculate_daily_summary(company_id, employee_id, date, records):
     if sorted_records:
         print(f"[DEBUG] Exemplo de registro: {sorted_records[0]}")
     
-    entradas = [r for r in sorted_records if r.get('tipo') == 'entrada']
-    saidas = [r for r in sorted_records if r.get('tipo') == 'saída']
+    entradas = [r for r in sorted_records if r.get('type', r.get('tipo')) == 'entrada']
+    saidas = [r for r in sorted_records if r.get('type', r.get('tipo')) in ('saída', 'saida')]
     
     print(f"[DEBUG] Entradas encontradas: {len(entradas)}, Saídas: {len(saidas)}")
     

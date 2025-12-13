@@ -1,7 +1,7 @@
 export const config = {
   API_URL: process.env.NODE_ENV === 'production' 
     ? 'https://api.seudominio.com' 
-    : 'http://localhost:5000', // Conecta diretamente ao backend
+    : 'http://localhost:5000', // Conecta diretamente ao backend em HTTP para dev
   
   // Outras configurações
   APP_NAME: 'Ponto Inteligente',

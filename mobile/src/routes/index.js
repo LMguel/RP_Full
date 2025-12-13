@@ -11,6 +11,9 @@ import FuncionarioLoginScreen from '../screens/FuncionarioLoginScreen';
 
 // Telas principais
 import CameraRegistroScreen from '../screens/CameraRegistroScreen';
+import DashboardScreen from '../screens/DashboardScreen';
+import RegistroPontoLocationScreen from '../screens/RegistroPontoLocationScreen';
+import FuncionarioDashboardScreen from '../screens/FuncionarioDashboardScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -35,8 +38,13 @@ export default function Routes() {
         }}
       >
         {signed ? (
-          // Usuário logado - mostrar câmera
-          <Stack.Screen name="CameraRegistro" component={CameraRegistroScreen} />
+          // Usuário logado - telas do app
+          <>
+            <Stack.Screen name="FuncionarioDashboard" component={FuncionarioDashboardScreen} />
+            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="CameraRegistro" component={CameraRegistroScreen} />
+            <Stack.Screen name="RegistroPontoLocation" component={RegistroPontoLocationScreen} />
+          </>
         ) : (
           // Usuário não logado - fluxo de login
           <>

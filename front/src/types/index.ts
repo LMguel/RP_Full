@@ -44,6 +44,8 @@ export interface TimeRecord {
   funcionario_id: string;
   data_hora: string;
   tipo: 'entrada' | 'saída';
+  type?: 'entrada' | 'saida' | 'saída';  // Novo campo padronizado
+  method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL';  // Método de registro
   empresa_id: string;   // mantém compatibilidade
   company_id?: string;  // novo schema DynamoDB
   empresa_nome: string;

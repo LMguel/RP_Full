@@ -12,11 +12,14 @@ import {
   Avatar,
   Autocomplete,
   CircularProgress,
+  InputAdornment,
 } from '@mui/material';
 import {
   Close as CloseIcon,
   PhotoCamera as PhotoCameraIcon,
   Person as PersonIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 import { Employee, HorarioPreset } from '../types';
 import { config } from '../config';
@@ -41,7 +44,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [formData, setFormData] = useState({
     nome: employee?.nome || '',
     cargo: employee?.cargo || '',
-    login: employee?.email || '',
     senha: '',
     confirmarSenha: '',
     horario_entrada: employee?.horario_entrada || '',
@@ -55,6 +57,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [horariosPreset, setHorariosPreset] = useState<any[]>([]);
   const [loadingHorarios, setLoadingHorarios] = useState(false);
   const [nomeHorario, setNomeHorario] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const allCargos = [...new Set(existingCargos)].sort();
 
@@ -90,7 +94,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setFormData({
         nome: employee.nome,
         cargo: employee.cargo,
-        login: employee.email || '',
         senha: '',
         confirmarSenha: '',
         horario_entrada: employee.horario_entrada || '',
@@ -101,7 +104,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setFormData({ 
         nome: '', 
         cargo: '', 
-        login: '', 
         senha: '',
         confirmarSenha: '',
         horario_entrada: '', 
@@ -205,12 +207,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       newErrors.cargo = 'Cargo é obrigatório';
     }
 
-    if (formData.senha || formData.confirmarSenha) {
-      if (!formData.login || !formData.login.trim()) {
-        newErrors.login = 'Login é obrigatório quando senha é definida';
-      }
-    }
-
     if (formData.senha && formData.senha.trim()) {
       if (formData.senha.length < 6) {
         newErrors.senha = 'Senha deve ter no mínimo 6 caracteres';
@@ -239,10 +235,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     formDataToSend.append('nome', formData.nome);
     formDataToSend.append('cargo', formData.cargo);
     
-    if (formData.login && formData.login.trim()) {
-      formDataToSend.append('email', formData.login.trim());
-    }
-    
     if (formData.senha && formData.senha.trim()) {
       formDataToSend.append('senha', formData.senha);
     }
@@ -268,7 +260,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     setFormData({ 
       nome: '', 
       cargo: '', 
-      login: '', 
       senha: '',
       confirmarSenha: '',
       horario_entrada: '', 
@@ -419,44 +410,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               }}
             />
 
-            {/* Login Field */}
-            <TextField
-              fullWidth
-              label="Login"
-              name="login"
-              type="text"
-              value={formData.login}
-              onChange={handleChange}
-              error={!!errors.login}
-              helperText={errors.login || 'Login para acesso ao app mobile (obrigatório se definir senha)'}
-              disabled={loading}
-              variant="outlined"
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  color: 'white',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  '& fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.3)',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.7)',
-                  },
-                },
-                '& .MuiInputLabel-root': {
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  '&.Mui-focused': {
-                    color: 'rgba(255, 255, 255, 0.9)'
-                  }
-                },
-                '& .MuiFormHelperText-root': {
-                  color: 'rgba(255, 255, 255, 0.6)'
-                }
-              }}
-            />
-
             {/* Cargo Field */}
             <Autocomplete
               freeSolo
@@ -527,7 +480,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 fullWidth
                 label={employee ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha'}
                 name="senha"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={formData.senha}
                 onChange={handleChange}
                 error={!!errors.senha}
@@ -540,6 +493,19 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 disabled={loading}
                 variant="outlined"
                 autoComplete="new-password"
+                InputProps={{
+                  endAdornment: formData.senha && (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowPassword(!showPassword)}
+                        edge="end"
+                        sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                      >
+                        {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
                     color: 'white',
@@ -571,7 +537,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   fullWidth
                   label="Confirmar Senha"
                   name="confirmarSenha"
-                  type="password"
+                  type={showConfirmPassword ? "text" : "password"}
                   value={formData.confirmarSenha}
                   onChange={handleChange}
                   error={!!errors.confirmarSenha}
@@ -579,6 +545,19 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   disabled={loading}
                   variant="outlined"
                   autoComplete="new-password"
+                  InputProps={{
+                    endAdornment: formData.confirmarSenha && (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          edge="end"
+                          sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                        >
+                          {showConfirmPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
                   sx={{
                     mt: 2,
                     '& .MuiOutlinedInput-root': {
@@ -611,79 +590,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             {/* Horários Section */}
             <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
               <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
-                Horários de Trabalho (Opcional)
+                Horários de Trabalho
               </Typography>
               
-              <Autocomplete
-                freeSolo
-                options={horariosPreset}
-                getOptionLabel={(option) => option}
-                value={nomeHorario}
-                onChange={handleHorarioPresetChange}
-                onInputChange={(event, newInputValue) => {
-                  setNomeHorario(newInputValue);
-                }}
-                disabled={loading || loadingHorarios}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Escolher Horários"
-                    helperText="Selecione um horário salvo ou digite um novo nome"
-                    variant="outlined"
-                    fullWidth
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'white',
-                        background: 'rgba(255, 255, 255, 0.05)',
-                        '& fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.3)',
-                        },
-                        '&:hover fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                        },
-                        '&.Mui-focused fieldset': {
-                          borderColor: 'rgba(255, 255, 255, 0.7)',
-                        },
-                      },
-                      '& .MuiInputLabel-root': {
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        '&.Mui-focused': {
-                          color: 'rgba(255, 255, 255, 0.9)'
-                        }
-                      },
-                      '& .MuiAutocomplete-popupIndicator': {
-                        color: 'rgba(255, 255, 255, 0.7)'
-                      },
-                      '& .MuiCircularProgress-root': {
-                        color: 'white'
-                      },
-                      '& .MuiFormHelperText-root': {
-                        color: 'rgba(255, 255, 255, 0.6)'
-                      }
-                    }}
-                  />
-                )}
-                renderOption={(props, option) => (
-                  <li {...props} key={option}>
-                    <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
-                      {option}
-                    </Typography>
-                  </li>
-                )}
-                ListboxProps={{
-                  sx: {
-                    background: 'rgba(15, 23, 42, 0.95)',
-                    color: 'white',
-                    '& .MuiAutocomplete-option': {
-                      '&.Mui-focused': {
-                        backgroundColor: 'rgba(59, 130, 246, 0.35)'
-                      }
-                    }
-                  }
-                }}
-              />
-
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 2 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <TextField
                   fullWidth
                   label="Horário de Entrada"

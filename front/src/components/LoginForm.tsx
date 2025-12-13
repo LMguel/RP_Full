@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -8,9 +8,10 @@ import {
   Typography,
   InputAdornment,
   IconButton,
-  Link,
   CircularProgress,
   Container,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Visibility,
@@ -21,8 +22,7 @@ import {
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import ForgotPasswordModal from './ForgotPasswordModal';
+import { useNavigate } from 'react-router-dom';
 
 const LoginForm: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -31,10 +31,24 @@ const LoginForm: React.FC = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [rememberLogin, setRememberLogin] = useState(false);
   
   const { login, isLoading } = useAuth();
   const navigate = useNavigate();
+
+  // Carregar dados salvos do localStorage ao iniciar
+  useEffect(() => {
+    const savedLogin = localStorage.getItem('rememberedLogin');
+    if (savedLogin) {
+      try {
+        const { usuario_id, senha } = JSON.parse(savedLogin);
+        setFormData({ usuario_id, senha });
+        setRememberLogin(true);
+      } catch (e) {
+        localStorage.removeItem('rememberedLogin');
+      }
+    }
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -72,6 +86,13 @@ const LoginForm: React.FC = () => {
     
     if (!validateForm()) {
       return;
+    }
+
+    // Salvar ou remover login do localStorage
+    if (rememberLogin) {
+      localStorage.setItem('rememberedLogin', JSON.stringify(formData));
+    } else {
+      localStorage.removeItem('rememberedLogin');
     }
 
     const success = await login(formData);
@@ -288,22 +309,28 @@ const LoginForm: React.FC = () => {
                   </Box>
                 </Box>
 
-                <Box sx={{ textAlign: 'center', mt: 3, mb: 4 }}>
-                  <Link
-                    onClick={() => setForgotPasswordOpen(true)}
-                    underline="hover"
-                    sx={{ 
-                      color: 'rgba(255, 255, 255, 0.8)', 
-                      fontSize: '14px',
-                      fontWeight: 400,
-                      cursor: 'pointer',
-                      '&:hover': {
-                        color: 'white',
-                      }
+                <Box sx={{ mt: 2 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={rememberLogin}
+                        onChange={(e) => setRememberLogin(e.target.checked)}
+                        sx={{
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-checked': {
+                            color: '#60a5fa',
+                          },
+                        }}
+                      />
+                    }
+                    label="Lembrar login"
+                    sx={{
+                      color: 'rgba(255, 255, 255, 0.8)',
+                      '& .MuiTypography-root': {
+                        fontSize: '14px',
+                      },
                     }}
-                  >
-                    Esqueci minha senha
-                  </Link>
+                  />
                 </Box>
 
                 <Button
@@ -314,6 +341,7 @@ const LoginForm: React.FC = () => {
                   disabled={isLoading}
                   startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
                   sx={{ 
+                    mt: 4,
                     py: 2, 
                     borderRadius: '8px', 
                     background: '#2563eb',
@@ -332,35 +360,10 @@ const LoginForm: React.FC = () => {
                   {isLoading ? 'Entrando...' : 'Entrar'}
                 </Button>
               </form>
-
-              <Box sx={{ textAlign: 'center', mt: 4 }}>
-                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '14px' }}>
-                  Não tem uma conta?{' '}
-                  <Link
-                    component={RouterLink}
-                    to="/register"
-                    sx={{ 
-                      color: 'white', 
-                      fontWeight: 600, 
-                      textDecoration: 'none',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                      }
-                    }}
-                  >
-                    Cadastre-se aqui
-                  </Link>
-                </Typography>
-              </Box>
             </CardContent>
           </Card>
         </motion.div>
       </Container>
-
-      <ForgotPasswordModal
-        open={forgotPasswordOpen}
-        onClose={() => setForgotPasswordOpen(false)}
-      />
     </Box>
   );
 };

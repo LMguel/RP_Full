@@ -377,13 +377,12 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       'Entrada': summary.first_entry_time || '—',
       'Saída': summary.last_exit_time || '—',
       'Horas Trabalhadas': formatHours(summary.worked_hours),
-      'Status': getStatusLabel(summary.status),
     }));
 
     const worksheet = XLSX.utils.aoa_to_sheet(headerRows);
     XLSX.utils.sheet_add_json(worksheet, dataRows, {
       origin: 'A3',
-      header: ['Data', 'Funcionário', 'Entrada', 'Saída', 'Horas Trabalhadas', 'Status'],
+      header: ['Data', 'Funcionário', 'Entrada', 'Saída', 'Horas Trabalhadas'],
     });
 
     const workbook = XLSX.utils.book_new();
@@ -606,13 +605,12 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Entrada</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Saída</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Horas Trabalhadas</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Status do Dia</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={32} sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                   <Typography variant="body2" sx={{ mt: 2, color: 'rgba(255, 255, 255, 0.6)' }}>
                     Carregando registros...
@@ -621,7 +619,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               </TableRow>
             ) : summaries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
                   <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
                     Nenhum registro encontrado
                   </Typography>
@@ -697,16 +695,6 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                     <Typography variant="body2" fontWeight={500} sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                       {formatHours(summary.worked_hours)}
                     </Typography>
-                  </TableCell>
-
-                  {/* Status */}
-                  <TableCell align="center">
-                    <Chip
-                      label={getStatusLabel(summary.status)}
-                      color={getStatusColor(summary.status)}
-                      size="small"
-                      sx={{ fontWeight: 500 }}
-                    />
                   </TableCell>
                 </TableRow>
               ))

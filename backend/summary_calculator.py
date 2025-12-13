@@ -133,8 +133,8 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     print(f"[DEBUG] Processando {len(records)} registros para {employee_id} em {date_str}")
     
     for record in records:
-        # Suportar ambos os nomes de campo: 'tipo' (novo) e 'tipo_registro' (legado)
-        record_type_raw = record.get('tipo') or record.get('tipo_registro', 'entrada')
+        # Suportar todos os nomes de campo: 'type' (novo), 'tipo' (português), 'tipo_registro' (legado)
+        record_type_raw = record.get('type') or record.get('tipo') or record.get('tipo_registro', 'entrada')
         normalized_type = str(record_type_raw).lower()
         normalized_type = normalized_type.replace('í', 'i').replace('á', 'a').replace('ã', 'a')
         normalized_type = normalized_type.replace('-', '_')

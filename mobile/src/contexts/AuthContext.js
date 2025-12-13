@@ -42,7 +42,10 @@ export const AuthProvider = ({ children }) => {
   // Agora suporta ambos os tipos via endpoint unificado /login
   async function signIn(usuario_id, senha, type = 'empresa') {
     try {
+      console.log('[AUTH] Iniciando signIn com:', { usuario_id, type });
       const response = await ApiService.login(usuario_id, senha);
+      console.log('[AUTH] Resposta do login:', response);
+      
       setUser(response);
       setCompanyName(response.empresa_nome || '');
       
@@ -54,19 +57,26 @@ export const AuthProvider = ({ children }) => {
       console.log(`[AUTH] Login realizado como: ${userType}`);
       return response;
     } catch (error) {
+      console.error('[AUTH] Erro no signIn:', error);
       throw error;
     }
   }
 
   // Login para Funcionário
-  async function signInFuncionario(email, senha) {
+  async function signInFuncionario(funcionarioId, senha) {
     try {
-      const response = await ApiService.loginFuncionario(email, senha);
+      console.log('[AUTH] Iniciando signInFuncionario com ID:', funcionarioId);
+      const response = await ApiService.loginFuncionario(funcionarioId, senha);
+      console.log('[AUTH] Resposta do login funcionário:', response);
+      
       setUser(response);
       setUserType('funcionario');
       await ApiService.saveUserType('funcionario');
+      
+      console.log('[AUTH] Login funcionário realizado com sucesso');
       return response;
     } catch (error) {
+      console.error('[AUTH] Erro no signInFuncionario:', error);
       throw error;
     }
   }

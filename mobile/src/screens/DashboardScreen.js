@@ -95,6 +95,16 @@ const DashboardScreen = ({ navigation }) => {
           <Text style={styles.subtitle}>Acompanhe suas horas</Text>
         </View>
 
+        {/* Botão de Registro de Ponto */}
+        <TouchableOpacity
+          style={styles.registerButton}
+          onPress={() => navigation.navigate('RegistroPontoLocation')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="map-marker-check" size={24} color="white" />
+          <Text style={styles.registerButtonText}>Registrar Ponto por Localização</Text>
+        </TouchableOpacity>
+
         {/* Resumo do Mês Atual */}
         {dashboard?.current_month && (
           <View style={styles.card}>

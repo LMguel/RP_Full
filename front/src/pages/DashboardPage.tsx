@@ -43,6 +43,11 @@ interface RecentRecord {
   statusKey: string;
   statusLabel: string;
   method: string;
+  // Campos de status detalhado
+  atraso_minutos?: number;
+  horas_extras_minutos?: number;
+  entrada_antecipada_minutos?: number;
+  saida_antecipada_minutos?: number;
 }
 
 // Interface para os dados do dashboard
@@ -130,6 +135,53 @@ const getStatusChipStyles = (statusKey: string) => {
         border: '1px solid #c8e6c9'
       };
   }
+};
+
+// Função para obter status detalhado igual ao RecordsPageDetails
+const getDetailedStatus = (record: RecentRecord): Array<{ text: string; color: string }> => {
+  const statuses: Array<{ text: string; color: string }> = [];
+
+  // Entrada antecipada
+  if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
+    statuses.push({
+      text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
+      color: '#3b82f6' // azul
+    });
+  }
+
+  // Atraso
+  if (record.atraso_minutos && record.atraso_minutos > 0) {
+    statuses.push({
+      text: `Atraso ${record.atraso_minutos} min`,
+      color: '#ef4444' // vermelho
+    });
+  }
+
+  // Hora extra
+  if (record.horas_extras_minutos && record.horas_extras_minutos > 0) {
+    statuses.push({
+      text: `+${record.horas_extras_minutos} min extra`,
+      color: '#10b981' // verde
+    });
+  }
+
+  // Saída antecipada
+  if (record.saida_antecipada_minutos && record.saida_antecipada_minutos > 0) {
+    statuses.push({
+      text: `Saiu ${record.saida_antecipada_minutos} min antes`,
+      color: '#f59e0b' // laranja
+    });
+  }
+
+  // Se não tem nenhum status especial
+  if (statuses.length === 0) {
+    return [{
+      text: 'Normal',
+      color: 'rgba(255, 255, 255, 0.6)' // cinza
+    }];
+  }
+
+  return statuses;
 };
 
 const formatRecordTime = (value: string): string => {
@@ -305,11 +357,16 @@ const DashboardPage = () => {
 
         return {
           employeeName: record.nome || record.employee_name || 'N/A',
-          recordType: record.tipo || 'entrada',
+          recordType: record.type || record.tipo || 'entrada',  // Compatibilidade type/tipo
           time: typeof timeValue === 'string' ? timeValue : String(timeValue ?? ''),
           statusKey,
           statusLabel: record.status_label || getStatusLabelFromKey(statusKey),
-          method: record.metodo || record.method || 'manual'
+          method: record.metodo || record.method || 'manual',
+          // Campos de status detalhado
+          atraso_minutos: record.atraso_minutos || 0,
+          horas_extras_minutos: record.horas_extras_minutos || 0,
+          entrada_antecipada_minutos: record.entrada_antecipada_minutos || 0,
+          saida_antecipada_minutos: record.saida_antecipada_minutos || 0,
         };
       });
       
@@ -886,14 +943,22 @@ const DashboardPage = () => {
                             {formatRecordTime(record.time)}
                           </TableCell>
                           <TableCell sx={{ border: 'none' }}>
-                            <Chip 
-                              label={record.statusLabel || getStatusLabelFromKey(record.statusKey)}
-                              size="small" 
-                              sx={{
-                                fontWeight: 500,
-                                ...getStatusChipStyles(record.statusKey)
-                              }}
-                            />
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {getDetailedStatus(record).map((status, idx) => (
+                                <Chip 
+                                  key={idx}
+                                  label={status.text}
+                                  size="small" 
+                                  sx={{
+                                    fontWeight: 500,
+                                    bgcolor: status.color === 'rgba(255, 255, 255, 0.6)' ? 'rgba(255, 255, 255, 0.1)' : `${status.color}20`,
+                                    color: status.color,
+                                    border: `1px solid ${status.color}40`,
+                                    fontSize: '0.7rem',
+                                  }}
+                                />
+                              ))}
+                            </Box>
                           </TableCell>
                         </TableRow>
                       ))

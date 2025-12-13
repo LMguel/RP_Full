@@ -282,6 +282,11 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                       transition: 'background-color 0.2s',
                     }}
                   >
+                    {/* Usar 'type' com fallback para 'tipo' (compatibilidade) */}
+                    {(() => {
+                      const recordType = (record.type || record.tipo || '').toLowerCase();
+                      const isEntrada = recordType === 'entrada';
+                      return (
                     <Box sx={{ display: 'flex', alignItems: 'start', gap: 2 }}>
                       {/* Número da Batida */}
                       <Box
@@ -289,8 +294,8 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                           width: 32,
                           height: 32,
                           borderRadius: '50%',
-                          bgcolor: record.tipo === 'entrada' ? '#dbeafe' : '#fef3c7',
-                          color: record.tipo === 'entrada' ? '#1e40af' : '#b45309',
+                          bgcolor: isEntrada ? '#dbeafe' : '#fef3c7',
+                          color: isEntrada ? '#1e40af' : '#b45309',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -310,9 +315,9 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                             {formatTime(record.data_hora)}
                           </Typography>
                           <Chip
-                            label={record.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                            label={isEntrada ? 'Entrada' : 'Saída'}
                             size="small"
-                            color={record.tipo === 'entrada' ? 'primary' : 'warning'}
+                            color={isEntrada ? 'primary' : 'warning'}
                             sx={{ height: 20, fontSize: '0.75rem' }}
                           />
                         </Box>
@@ -383,6 +388,8 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                         />
                       )}
                     </Box>
+                      );
+                    })()}
                   </Box>
                 ))}
               </Box>

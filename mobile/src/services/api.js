@@ -1,8 +1,13 @@
 import axios from 'axios';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
-// URL da API - Configure isso de acordo com seu ambiente
-const API_URL = 'http://SEU_IP_AQUI:5000/api'; // SUBSTITUA pelo IP da sua máquina em desenvolvimento
+// URL da API (ajuste EXPO_PUBLIC_API_URL para o IP da sua máquina)
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  (Platform.OS === 'android'
+    ? 'http://10.0.2.2:5000/api' // Android emulator
+    : 'http://localhost:5000/api'); // iOS simulator / web fallback
 
 class ApiService {
   constructor() {
@@ -38,28 +43,44 @@ class ApiService {
   // Login Empresa
   async login(usuario_id, senha) {
     try {
+      console.log('[API] Login - URL:', `${API_URL}/login`);
+      console.log('[API] Login - Payload:', { usuario_id, senha: '***' });
+      
       const response = await axios.post(`${API_URL}/login`, {
         usuario_id,
         senha
       });
       
+      console.log('[API] Login - Response status:', response.status);
+      console.log('[API] Login - Response data:', response.data);
+      
       if (response.data.token) {
         await this.setToken(response.data.token);
       }
       
       return response.data;
     } catch (error) {
+      console.error('[API] Login - Erro capturado:', error);
+      console.error('[API] Login - Error.response:', error.response);
+      console.error('[API] Login - Error.response.data:', error.response?.data);
+      console.error('[API] Login - Error.message:', error.message);
       throw error.response?.data || error.message;
     }
   }
 
-  // Login Funcionário (usa o mesmo endpoint unificado /login)
-  async loginFuncionario(login, senha) {
+  // Login Funcionário (endpoint específico /funcionario/login)
+  async loginFuncionario(funcionarioId, senha) {
     try {
-      const response = await axios.post(`${API_URL}/login`, {
-        usuario_id: login,  // Usa 'login' como usuario_id no endpoint unificado
+      console.log('[API] Login Funcionário - URL:', `${API_URL}/funcionario/login`);
+      console.log('[API] Login Funcionário - Payload:', { funcionario_id: funcionarioId, senha: '***' });
+      
+      const response = await axios.post(`${API_URL}/funcionario/login`, {
+        funcionario_id: funcionarioId,
         senha
       });
+      
+      console.log('[API] Login Funcionário - Response status:', response.status);
+      console.log('[API] Login Funcionário - Response data:', response.data);
       
       if (response.data.token) {
         await this.setToken(response.data.token);
@@ -67,6 +88,10 @@ class ApiService {
       
       return response.data;
     } catch (error) {
+      console.error('[API] Login Funcionário - Erro capturado:', error);
+      console.error('[API] Login Funcionário - Error.response:', error.response);
+      console.error('[API] Login Funcionário - Error.response.data:', error.response?.data);
+      console.error('[API] Login Funcionário - Error.message:', error.message);
       throw error.response?.data || error.message;
     }
   }
@@ -301,6 +326,70 @@ class ApiService {
 
       return response.data;
     } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  }
+
+  async registerPointByLocation(latitude, longitude, tipo) {
+    try {
+      const token = await this.getToken();
+      
+      if (!token) {
+        throw new Error('Token não encontrado. Faça login novamente.');
+      }
+
+      console.log('[API] Registrando ponto por localização');
+      console.log('[API] Lat:', latitude, 'Lng:', longitude, 'Tipo:', tipo);
+
+      const response = await axios.post(
+        `${API_URL}/registrar_ponto_localizacao`,
+        {
+          user_lat: latitude,
+          user_lng: longitude,
+          tipo: tipo
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        }
+      );
+
+      console.log('[API] Resposta do registro:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('[API] Erro ao registrar ponto por localização:', error);
+      console.error('[API] Error response:', error.response?.data);
+      throw error.response?.data || error.message;
+    }
+  }
+
+  async getMeusRegistros() {
+    try {
+      const token = await this.getToken();
+      
+      if (!token) {
+        throw new Error('Token não encontrado. Faça login novamente.');
+      }
+
+      console.log('[API] Buscando registros do funcionário');
+
+      const response = await axios.get(
+        `${API_URL}/funcionario/registros`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          timeout: 10000,
+        }
+      );
+
+      console.log('[API] Registros recebidos:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('[API] Erro ao buscar registros:', error);
       throw error.response?.data || error.message;
     }
   }

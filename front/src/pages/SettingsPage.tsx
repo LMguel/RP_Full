@@ -36,6 +36,7 @@ import { toast } from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 import { CompanySettings } from '../types';
+import LocationSettings from '../components/LocationSettings';
 
 // Componente para configurações de ponto e horas extras
 const TimeTrackingSettings: React.FC = () => {
@@ -537,6 +538,17 @@ const SettingsPage: React.FC = () => {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <TimeTrackingSettings />
+          </motion.div>
+        </Grid>
+
+        {/* Location Settings */}
+        <Grid size={{ xs: 12 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+          >
+            <LocationSettings />
           </motion.div>
         </Grid>
       </Grid>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,31 +14,70 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import * as Animatable from 'react-native-animatable';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const SAVED_LOGIN_KEY = '@funcionario_login_id';
 
 export default function FuncionarioLoginScreen({ navigation }) {
-  const [email, setEmail] = useState('');
+  const [funcionarioId, setFuncionarioId] = useState('');
   const [senha, setSenha] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberLogin, setRememberLogin] = useState(false);
   const { signInFuncionario } = useAuth();
 
+  // Carregar login salvo ao montar componente
+  useEffect(() => {
+    loadSavedLogin();
+  }, []);
+
+  async function loadSavedLogin() {
+    try {
+      const savedId = await AsyncStorage.getItem(SAVED_LOGIN_KEY);
+      if (savedId) {
+        setFuncionarioId(savedId);
+        setRememberLogin(true);
+      }
+    } catch (error) {
+      console.log('[LOGIN] Erro ao carregar login salvo:', error);
+    }
+  }
+
   async function handleLogin() {
-    if (!email || !senha) {
-      Alert.alert('Atenção', 'Por favor, preencha email e senha.');
+    if (!funcionarioId || !senha) {
+      Alert.alert('Atenção', 'Por favor, preencha o ID e a senha.');
       return;
     }
 
     setLoading(true);
     try {
-      await signInFuncionario(email, senha);
+      console.log('[FUNC LOGIN] Iniciando login com ID:', funcionarioId);
+      await signInFuncionario(funcionarioId, senha);
+      console.log('[FUNC LOGIN] Login bem-sucedido');
+      
+      // Salvar ou remover login baseado na opção "Lembrar Login"
+      if (rememberLogin) {
+        await AsyncStorage.setItem(SAVED_LOGIN_KEY, funcionarioId);
+        console.log('[LOGIN] Login salvo no dispositivo');
+      } else {
+        await AsyncStorage.removeItem(SAVED_LOGIN_KEY);
+        console.log('[LOGIN] Login removido do dispositivo');
+      }
+      
       // Navegação será automática via AuthContext
     } catch (error) {
-      console.error('Erro no login:', error);
-      Alert.alert(
-        'Erro no Login',
-        error.error || error.message || 'Email ou senha inválidos.'
-      );
+      console.error('[FUNC LOGIN] Erro completo:', error);
+      console.error('[FUNC LOGIN] Error.message:', error.message);
+      console.error('[FUNC LOGIN] Error.error:', error.error);
+      
+      const errorMessage = 
+        error.error || 
+        error.message || 
+        error.response?.data?.error ||
+        'ID ou senha inválidos.';
+      
+      Alert.alert('Erro no Login', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -92,26 +131,26 @@ export default function FuncionarioLoginScreen({ navigation }) {
 
             {/* Formulário */}
             <View style={styles.form}>
-              {/* Label Email */}
-              <Text style={styles.inputLabel}>Email</Text>
+              {/* Label ID */}
+              <Text style={styles.inputLabel}>ID do Funcionário</Text>
               
-              {/* Campo Email */}
+              {/* Campo ID */}
               <View style={styles.inputContainer}>
                 <View style={styles.inputIconContainer}>
-                  <Ionicons name="mail-outline" size={20} color="rgba(255, 255, 255, 0.9)" />
+                  <Ionicons name="card-outline" size={20} color="rgba(255, 255, 255, 0.9)" />
                 </View>
                 <TextInput
                   style={styles.input}
-                  placeholder="seu@email.com"
+                  placeholder="ID fornecido pela empresa"
                   placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                  value={email}
-                  onChangeText={setEmail}
+                  value={funcionarioId}
+                  onChangeText={setFuncionarioId}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  keyboardType="email-address"
                   editable={!loading}
                 />
               </View>
+              <Text style={styles.helperText}>Use o ID fornecido pelo RH da sua empresa.</Text>
 
               {/* Label Senha */}
               <Text style={styles.inputLabel}>Senha</Text>
@@ -145,6 +184,21 @@ export default function FuncionarioLoginScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
 
+              {/* Checkbox Lembrar Login */}
+              <TouchableOpacity
+                style={styles.rememberContainer}
+                onPress={() => setRememberLogin(!rememberLogin)}
+                activeOpacity={0.7}
+                disabled={loading}
+              >
+                <View style={[styles.checkbox, rememberLogin && styles.checkboxChecked]}>
+                  {rememberLogin && (
+                    <MaterialCommunityIcons name="check" size={16} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.rememberText}>Lembrar meu login</Text>
+              </TouchableOpacity>
+
               {/* Botão Login */}
               <TouchableOpacity
                 style={[styles.loginButton, loading && styles.loginButtonDisabled]}
@@ -163,16 +217,6 @@ export default function FuncionarioLoginScreen({ navigation }) {
                     <Text style={styles.loginButtonText}>Entrar na conta</Text>
                   </View>
                 )}
-              </TouchableOpacity>
-
-              {/* Link para recuperar senha */}
-              <TouchableOpacity 
-                style={styles.forgotPassword}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.forgotPasswordText}>
-                  Esqueceu sua senha?
-                </Text>
               </TouchableOpacity>
             </View>
           </Animatable.View>
@@ -342,15 +386,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  forgotPassword: {
-    alignItems: 'center',
-    marginTop: 20,
-    paddingVertical: 8,
+  helperText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: -12,
+    marginBottom: 16,
+    marginLeft: 4,
+    fontStyle: 'italic',
   },
-  forgotPasswordText: {
+  rememberContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  checkboxChecked: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  rememberText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: 'rgba(255, 255, 255, 0.85)',
     fontWeight: '500',
-    textDecorationLine: 'underline',
   },
 });

@@ -9,7 +9,6 @@ import Layout from './components/Layout';
 
 // Pages
 import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import EmployeesPage from './pages/EmployeesPage';
 import RecordsPage from './pages/RecordsPage';
@@ -149,12 +148,7 @@ const AppRoutes: React.FC = () => {
           isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
         } 
       />
-      <Route 
-        path="/register" 
-        element={
-          isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />
-        } 
-      />
+
       
       {/* Protected Routes */}
       <Route

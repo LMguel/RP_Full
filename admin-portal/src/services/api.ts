@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = import.meta.env.VITE_API_URL || "https://192.168.1.100:5000";
 
 export type CompanyStatus = "active" | "inactive" | "suspended" | "deleted";
 

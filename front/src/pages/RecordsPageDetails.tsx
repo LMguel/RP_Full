@@ -315,10 +315,12 @@ const RecordsDetailedPage: React.FC = () => {
                 console.log(`  📋 Resposta:`, response);
                 
                 if (Array.isArray(response) && response.length > 0) {
-                  // Verificar se são registros individuais (têm data_hora, tipo, etc.)
-                  const hasIndividualData = response.some(record => 
-                    record.data_hora && record.tipo && (record.tipo === 'entrada' || record.tipo === 'saída')
-                  );
+                  // Verificar se são registros individuais (têm data_hora, type/tipo, etc.)
+                  // Usar 'type' com fallback para 'tipo' (compatibilidade)
+                  const hasIndividualData = response.some(record => {
+                    const recordType = (record.type || record.tipo || '').toLowerCase();
+                    return record.data_hora && (recordType === 'entrada' || recordType === 'saída' || recordType === 'saida');
+                  });
                   
                   if (hasIndividualData) {
                     employeeRecords = response;
@@ -332,8 +334,8 @@ const RecordsDetailedPage: React.FC = () => {
                   const possibleProps = ['registros', 'records', 'data', 'items', 'timeRecords', 'detalhes'];
                   for (const prop of possibleProps) {
                     if (Array.isArray(response[prop])) {
-                      const hasIndividualData = response[prop].some(record => 
-                        record.data_hora && record.tipo
+                      const hasIndividualData = response[prop].some(record =>
+                        record.data_hora && (record.type || record.tipo)
                       );
                       if (hasIndividualData) {
                         employeeRecords = response[prop];
@@ -357,9 +359,18 @@ const RecordsDetailedPage: React.FC = () => {
                 funcionario_id: record.funcionario_id || employee.id,
                 // Garantir que temos os campos necessários
                 registro_id: record.registro_id || record.id || `${employee.id}_${record.data_hora || new Date().getTime()}`,
-                tipo: record.tipo || 'entrada',
+                // Manter ambos os campos para compatibilidade
+                type: record.type || record.tipo || 'entrada',
+                tipo: record.type || record.tipo || 'entrada',
+                // Método de registro (CAMERA, LOCATION, MANUAL)
+                method: record.method || record.metodo || 'MANUAL',
                 data_hora: record.data_hora || record.timestamp || record.datetime,
-                empresa_nome: record.empresa_nome || record.company || 'N/A'
+                empresa_nome: record.empresa_nome || record.company || 'N/A',
+                // Campos de status (preservar valores do backend)
+                atraso_minutos: record.atraso_minutos || 0,
+                horas_extras_minutos: record.horas_extras_minutos || 0,
+                entrada_antecipada_minutos: record.entrada_antecipada_minutos || 0,
+                saida_antecipada_minutos: record.saida_antecipada_minutos || 0,
               }));
               
               allRecords = [...allRecords, ...recordsWithEmployeeInfo];
@@ -648,18 +659,29 @@ const RecordsDetailedPage: React.FC = () => {
       []
     ];
 
-    const dataToExport = filteredRecords.map(record => ({
-      'ID Registro': record.registro_id,
-      'Nome Funcionário': record.funcionario_nome,
-      'Data/Hora': formatDateTime(record.data_hora),
-      'Tipo': record.tipo,
-      'Status': getDetailedStatus(record).map(s => s.text).join(', '),
-    }));
+    const dataToExport = filteredRecords.map(record => {
+      const method = (record.method || 'MANUAL').toUpperCase();
+      let methodLabel = 'Manual';
+      if (method === 'CAMERA' || method === 'FACIAL') {
+        methodLabel = 'Câmera';
+      } else if (method === 'LOCATION' || method === 'LOCALIZACAO' || method === 'GPS') {
+        methodLabel = 'Localização';
+      }
+      
+      return {
+        'ID Registro': record.registro_id,
+        'Nome Funcionário': record.funcionario_nome,
+        'Data/Hora': formatDateTime(record.data_hora),
+        'Tipo': record.type || record.tipo || '',
+        'Método': methodLabel,
+        'Status': getDetailedStatus(record).map(s => s.text).join(', '),
+      };
+    });
 
     const ws = XLSX.utils.aoa_to_sheet(headerInfo);
     XLSX.utils.sheet_add_json(ws, dataToExport, {
       origin: 'A3',
-      header: ['ID Registro', 'Nome Funcionário', 'Data/Hora', 'Tipo', 'Status'],
+      header: ['ID Registro', 'Nome Funcionário', 'Data/Hora', 'Tipo', 'Método', 'Status'],
     });
 
     const wb = XLSX.utils.book_new();
@@ -1054,6 +1076,7 @@ const RecordsDetailedPage: React.FC = () => {
                         Data/Hora {sortBy === 'data' && (sortOrder === 'asc' ? '▲' : '▼')}
                       </TableCell>
                       <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Tipo</TableCell>
+                      <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Método</TableCell>
                       <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Status</TableCell>
                       <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Ações</TableCell>
                     </TableRow>
@@ -1062,7 +1085,7 @@ const RecordsDetailedPage: React.FC = () => {
                     {filteredRecords.length === 0 ? (
                       <TableRow>
                         <TableCell 
-                          colSpan={5} 
+                          colSpan={6} 
                           align="center"
                           sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                         >
@@ -1082,7 +1105,7 @@ const RecordsDetailedPage: React.FC = () => {
                           <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                             <Typography 
                               variant="body2" 
-                              onClick={() => navigate(`/records/employee/${record.funcionario_id}/${encodeURIComponent(record.funcionario_nome)}`)}
+                              onClick={() => navigate(`/records/employee/${record.funcionario_id}/${encodeURIComponent(record.funcionario_nome || '')}`)}
                               sx={{ 
                                 fontWeight: 500, 
                                 color: 'rgba(255, 255, 255, 0.9)',
@@ -1102,19 +1125,62 @@ const RecordsDetailedPage: React.FC = () => {
                             </Typography>
                           </TableCell>
                           <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                            {(() => {
+                              const recordType = (record.type || record.tipo || '').toLowerCase();
+                              const isEntrada = recordType === 'entrada';
+                              return (
                             <Chip
-                              label={record.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                              label={isEntrada ? 'Entrada' : 'Saída'}
                               size="small"
                               sx={{ 
-                                background: record.tipo === 'entrada' 
+                                background: isEntrada 
                                   ? 'rgba(34, 197, 94, 0.2)' 
                                   : 'rgba(239, 68, 68, 0.2)',
-                                color: record.tipo === 'entrada' ? '#22c55e' : '#ef4444',
-                                border: `1px solid ${record.tipo === 'entrada' 
+                                color: isEntrada ? '#22c55e' : '#ef4444',
+                                border: `1px solid ${isEntrada 
                                   ? 'rgba(34, 197, 94, 0.3)' 
                                   : 'rgba(239, 68, 68, 0.3)'}`
                               }}
                             />
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                            {(() => {
+                              const method = (record.method || 'MANUAL').toUpperCase();
+                              let label = 'Manual';
+                              let icon = '✏️';
+                              let bgColor = 'rgba(156, 163, 175, 0.2)';
+                              let textColor = '#9ca3af';
+                              let borderColor = 'rgba(156, 163, 175, 0.3)';
+                              
+                              if (method === 'CAMERA' || method === 'FACIAL') {
+                                label = 'Câmera';
+                                icon = '📷';
+                                bgColor = 'rgba(139, 92, 246, 0.2)';
+                                textColor = '#a78bfa';
+                                borderColor = 'rgba(139, 92, 246, 0.3)';
+                              } else if (method === 'LOCATION' || method === 'LOCALIZACAO' || method === 'GPS') {
+                                label = 'Localização';
+                                icon = '📍';
+                                bgColor = 'rgba(59, 130, 246, 0.2)';
+                                textColor = '#60a5fa';
+                                borderColor = 'rgba(59, 130, 246, 0.3)';
+                              }
+                              
+                              return (
+                                <Chip
+                                  label={`${icon} ${label}`}
+                                  size="small"
+                                  sx={{ 
+                                    background: bgColor,
+                                    color: textColor,
+                                    border: `1px solid ${borderColor}`,
+                                    fontSize: '0.75rem'
+                                  }}
+                                />
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>

@@ -13,6 +13,7 @@ import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 from aws_utils import tabela_configuracoes as table_config
+from overtime_calculator import calculate_overtime
 
 dashboard_routes = Blueprint('dashboard_routes', __name__)
 
@@ -217,7 +218,7 @@ def _record_sort_key(record: Dict[str, Any]) -> datetime:
 
 
 def _record_type(record: Dict[str, Any]) -> str:
-    tipo = record.get('tipo') or record.get('record_type') or record.get('tipo_registro')
+    tipo = record.get('type') or record.get('tipo') or record.get('record_type') or record.get('tipo_registro')
     if isinstance(tipo, str):
         return tipo.lower()
     return ''
@@ -784,7 +785,7 @@ def get_alerts_today():
 
 @dashboard_routes.route('/api/records/last-five', methods=['GET'])
 def get_last_five_records():
-    """Últimos 5 registros de hoje"""
+    """Últimos 5 registros de hoje com status detalhado (atraso_minutos, horas_extras_minutos, etc.)"""
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     payload = verify_token(token)
     if not payload:
@@ -792,13 +793,87 @@ def get_last_five_records():
     
     company_id = payload.get('company_id')
     today = date.today()
+    today_str = today.isoformat()
 
     try:
+        # Buscar configurações da empresa para cálculos de status
+        company_settings = _get_company_settings(company_id)
+        tolerancia_atraso = _safe_int(company_settings.get('tolerancia_atraso'), 5)
+        intervalo_automatico = company_settings.get('intervalo_automatico', False)
+        duracao_intervalo = _safe_int(company_settings.get('duracao_intervalo'), 60)
+        
+        # Buscar funcionários da empresa
+        employees = _get_active_employees(company_id)
+        employees_map = {emp.get('id') or emp.get('employee_id') or emp.get('funcionario_id'): emp for emp in employees}
+        
         attendance_summaries, _ = _compute_attendance(company_id, today)
+        
+        # Primeiro passo: calcular status para cada funcionário/data
+        status_por_funcionario: Dict[str, Dict[str, Any]] = {}
+        
+        for summary in attendance_summaries:
+            employee_id = summary.get('employee_id')
+            employee = summary.get('employee', {})
+            records = summary.get('records', [])
+            
+            if not employee_id or not records:
+                continue
+            
+            # Obter horários esperados do funcionário
+            horario_entrada_esperado = employee.get('horario_entrada') or company_settings.get('horario_entrada_padrao')
+            horario_saida_esperado = employee.get('horario_saida') or company_settings.get('horario_saida_padrao')
+            
+            if not horario_entrada_esperado or not horario_saida_esperado:
+                continue
+            
+            # Encontrar entrada e saída do dia
+            entrada_record = None
+            saida_record = None
+            
+            for rec in records:
+                rec_dt = rec.get('datetime')
+                if not rec_dt or rec_dt.date() != today:
+                    continue
+                rec_tipo = rec.get('tipo', 'entrada')
+                if _is_entry_event(rec_tipo) and not entrada_record:
+                    entrada_record = rec
+                elif _is_exit_event(rec_tipo):
+                    saida_record = rec
+            
+            # Calcular status se temos entrada e saída
+            if entrada_record and saida_record:
+                try:
+                    entrada_dt = entrada_record.get('datetime')
+                    saida_dt = saida_record.get('datetime')
+                    
+                    horario_entrada_real = entrada_dt.strftime('%H:%M') if entrada_dt else '00:00'
+                    horario_saida_real = saida_dt.strftime('%H:%M') if saida_dt else '00:00'
+                    
+                    calculo = calculate_overtime(
+                        horario_entrada_esperado,
+                        horario_saida_esperado,
+                        horario_entrada_real,
+                        horario_saida_real,
+                        company_settings,
+                        intervalo_automatico,
+                        duracao_intervalo
+                    )
+                    
+                    status_por_funcionario[employee_id] = {
+                        'atraso_minutos': calculo.get('atraso_minutos', 0),
+                        'horas_extras_minutos': calculo.get('horas_extras_minutos', 0),
+                        'entrada_antecipada_minutos': calculo.get('entrada_antecipada_minutos', 0),
+                        'saida_antecipada_minutos': calculo.get('saida_antecipada_minutos', 0),
+                    }
+                except Exception as calc_err:
+                    print(f"[DEBUG last-five] Erro ao calcular status para {employee_id}: {calc_err}")
 
+        # Segundo passo: criar registros com status detalhado
         daily_records: List[Dict[str, Any]] = []
         for summary in attendance_summaries:
             employee_name = summary.get('name', 'N/A')
+            employee_id = summary.get('employee_id')
+            
             for record in summary.get('records', []):
                 record_dt: Optional[datetime] = record.get('datetime')
                 if not record_dt or record_dt.date() != today:
@@ -810,6 +885,24 @@ def get_last_five_records():
                 elif record_type not in ('entrada', 'saida'):
                     record_type = 'entrada'
 
+                # Obter status calculado para este funcionário
+                status_calculado = status_por_funcionario.get(employee_id, {})
+                
+                # Atribuir status ao registro correto:
+                # - ENTRADA: atraso e entrada_antecipada
+                # - SAÍDA: horas_extras e saida_antecipada
+                atraso_minutos = 0
+                horas_extras_minutos = 0
+                entrada_antecipada_minutos = 0
+                saida_antecipada_minutos = 0
+                
+                if record_type == 'entrada':
+                    atraso_minutos = status_calculado.get('atraso_minutos', 0)
+                    entrada_antecipada_minutos = status_calculado.get('entrada_antecipada_minutos', 0)
+                elif record_type == 'saida':
+                    horas_extras_minutos = status_calculado.get('horas_extras_minutos', 0)
+                    saida_antecipada_minutos = status_calculado.get('saida_antecipada_minutos', 0)
+
                 status_key = _normalize_status(record.get('status'), 'normal')
                 daily_records.append({
                     'nome': employee_name,
@@ -818,7 +911,12 @@ def get_last_five_records():
                     'status': status_key,
                     'status_label': record.get('status_label') or _get_status_label(status_key),
                     'metodo': record.get('method', 'manual'),
-                    'datetime': record_dt
+                    'datetime': record_dt,
+                    # Campos de status detalhado
+                    'atraso_minutos': atraso_minutos,
+                    'horas_extras_minutos': horas_extras_minutos,
+                    'entrada_antecipada_minutos': entrada_antecipada_minutos,
+                    'saida_antecipada_minutos': saida_antecipada_minutos,
                 })
 
         daily_records.sort(key=lambda item: item['datetime'], reverse=True)
