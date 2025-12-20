@@ -4,14 +4,10 @@
  */
 
 import axios from 'axios';
+import { config } from '../config';
 
-// Remove /api do final se existir para evitar duplicação
-const getApiUrl = () => {
-  const url = (import.meta as any).env?.VITE_API_URL || 'https://192.168.1.100:5000';
-  return url.endsWith('/api') ? url.replace(/\/api$/, '') : url;
-};
-
-const API_URL = getApiUrl();
+// Use global API_URL from config
+const API_URL = config.API_URL;
 
 /**
  * Get daily summaries for an employee with date range

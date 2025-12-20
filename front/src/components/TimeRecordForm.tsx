@@ -27,7 +27,7 @@ interface TimeRecordFormProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (data: {
-    funcionario_id: string;
+    employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
   }) => Promise<void>;
@@ -43,10 +43,10 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   employees: propEmployees = [],
 }) => {
   const [formData, setFormData] = useState({
-    funcionario_id: '',
+    employee_id: '',
     data_hora: '',
-      date: '', // YYYY-MM-DD
-      time: '', // HH:MM
+    date: '', // YYYY-MM-DD
+    time: '', // HH:MM
     tipo: 'entrada' as 'entrada' | 'saída',
   });
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -113,8 +113,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.funcionario_id) {
-      newErrors.funcionario_id = 'Funcionário é obrigatório';
+    if (!formData.employee_id) {
+      newErrors.employee_id = 'Funcionário é obrigatório';
     }
 
     if (!formData.date || !formData.time) {
@@ -158,45 +158,38 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!validateForm()) {
       return;
     }
-
+    // Garante que employee_id é de um funcionário válido
+    const selectedEmployee = employees.find(emp => emp.id === formData.employee_id);
+    if (!selectedEmployee) {
+      setErrors(prev => ({ ...prev, employee_id: 'Selecione um funcionário válido da lista.' }));
+      return;
+    }
     try {
       // Validação adicional: verificar registros duplicados
-  const selectedDate = new Date(`${formData.date}T${formData.time}:00`);
-  const dateStr = formData.date;
-      
-      console.log('🔍 Verificando registros duplicados para:', {
-        funcionario_id: formData.funcionario_id,
-        data: dateStr,
-        tipo: formData.tipo
-      });
-      
+      const selectedDate = new Date(`${formData.date}T${formData.time}:00`);
+      const dateStr = formData.date;
       // Buscar registros existentes do funcionário na mesma data
       try {
         const existingRecords = await apiService.getTimeRecords({
-          funcionario_id: formData.funcionario_id,
+          employee_id: formData.employee_id,
           inicio: dateStr,
           fim: dateStr
         });
-        
         let recordsToCheck = [];
         if (Array.isArray(existingRecords)) {
           recordsToCheck = existingRecords;
         } else if (existingRecords && existingRecords.registros) {
           recordsToCheck = existingRecords.registros;
         }
-        
         // Verificar se já existe um registro do mesmo tipo no mesmo dia
-        // Usar 'type' com fallback para 'tipo' (compatibilidade)
         const sameTypeRecords = recordsToCheck.filter((record: any) => 
           (record.type || record.tipo) === formData.tipo && 
           record.data_hora && 
           record.data_hora.includes(dateStr)
         );
-        
         if (sameTypeRecords.length > 0) {
           setErrors(prev => ({
             ...prev,
@@ -204,16 +197,14 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
           }));
           return;
         }
-        
         // Verificar se não há conflito de horários próximos (menos de 30 minutos)
-  const newDateTime = selectedDate.getTime();
+        const newDateTime = selectedDate.getTime();
         const conflictingRecords = recordsToCheck.filter((record: any) => {
           if (!record.data_hora) return false;
           const existingDateTime = new Date(record.data_hora).getTime();
           const timeDiff = Math.abs(newDateTime - existingDateTime);
           return timeDiff < (30 * 60 * 1000); // Menos de 30 minutos
         });
-        
         if (conflictingRecords.length > 0) {
           setErrors(prev => ({
             ...prev,
@@ -221,17 +212,14 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
           }));
           return;
         }
-        
       } catch (checkError) {
         console.warn('⚠️ Não foi possível verificar registros existentes:', checkError);
         // Continua mesmo se não conseguir verificar (para não bloquear o sistema)
       }
-
-  // Combine date and time into the format expected by backend: 'YYYY-MM-DD HH:MM:SS'
-  const formattedDateTime = `${formData.date} ${formData.time}:00`;
-      
+      // Combine date and time into the format expected by backend: 'YYYY-MM-DD HH:MM:SS'
+      const formattedDateTime = `${formData.date} ${formData.time}:00`;
       await onSubmit({
-        funcionario_id: formData.funcionario_id,
+        employee_id: selectedEmployee.id,
         data_hora: formattedDateTime,
         tipo: formData.tipo,
       });
@@ -246,7 +234,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
 
   const handleClose = () => {
     setFormData({
-      funcionario_id: '',
+      employee_id: '',
       data_hora: '',
       date: '',
       time: '',
@@ -328,18 +316,18 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                 <Autocomplete
                   options={employees}
                   getOptionLabel={(option) => option.nome || ''}
-                  value={employees.find(emp => emp.id === formData.funcionario_id) || null}
+                  value={employees.find(emp => emp.id === formData.employee_id) || null}
                   isOptionEqualToValue={(option, value) => option.id === value.id}
                   onChange={(_, newValue) => {
                     setFormData(prev => ({
                       ...prev,
-                      funcionario_id: newValue ? newValue.id : '',
+                      employee_id: newValue ? newValue.id : '',
                     }));
                     if (!newValue && !employeeInput) {
-                      setErrors(prev => ({ ...prev, funcionario_id: 'Funcionário é obrigatório' }));
+                      setErrors(prev => ({ ...prev, employee_id: 'Funcionário é obrigatório' }));
                     } else {
                       setErrors(prev => {
-                        const { funcionario_id, ...rest } = prev;
+                        const { employee_id, ...rest } = prev;
                         return rest;
                       });
                     }
@@ -349,12 +337,12 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                     setEmployeeInput(newInputValue);
                     if (newInputValue) {
                       setErrors(prev => {
-                        const { funcionario_id, ...rest } = prev;
+                        const { employee_id, ...rest } = prev;
                         return rest;
                       });
                     }
                     if (!newInputValue) {
-                      setFormData(prev => ({ ...prev, funcionario_id: '' }));
+                      setFormData(prev => ({ ...prev, employee_id: '' }));
                     }
                   }}
                   renderInput={(params) => (
@@ -362,8 +350,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                       {...params}
                       label="Funcionário"
                       placeholder="Digite o nome do funcionário"
-                      error={!!errors.funcionario_id}
-                      helperText={errors.funcionario_id}
+                      error={!!errors.employee_id}
+                      helperText={errors.employee_id}
                     />
                   )}
                   renderOption={(props, option) => (

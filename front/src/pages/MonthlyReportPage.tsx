@@ -67,7 +67,7 @@ const MonthlyReportPage: React.FC = () => {
       
       // Usar endpoint de registros com filtro por data
       const data = await apiService.getTimeRecords({
-        funcionario_id: employeeId,
+        employee_id: employeeId,
         inicio: dateRange.start_date,
         fim: dateRange.end_date
       });

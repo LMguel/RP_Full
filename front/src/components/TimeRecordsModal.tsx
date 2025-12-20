@@ -282,112 +282,116 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                       transition: 'background-color 0.2s',
                     }}
                   >
-                    {/* Usar 'type' com fallback para 'tipo' (compatibilidade) */}
+                    {/* Exibe todos os registros, independente do método, tipo ou localização */}
                     {(() => {
                       const recordType = (record.type || record.tipo || '').toLowerCase();
                       const isEntrada = recordType === 'entrada';
+                      let metodoLabel = 'Manual';
+                      if (record.metodo === 'automatico') metodoLabel = 'Automático';
+                      else if (record.location) metodoLabel = 'Localização';
+                      else if (record.foto) metodoLabel = 'Câmera';
                       return (
-                    <Box sx={{ display: 'flex', alignItems: 'start', gap: 2 }}>
-                      {/* Número da Batida */}
-                      <Box
-                        sx={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: '50%',
-                          bgcolor: isEntrada ? '#dbeafe' : '#fef3c7',
-                          color: isEntrada ? '#1e40af' : '#b45309',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 600,
-                          fontSize: '0.875rem',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {index + 1}
-                      </Box>
-
-                      {/* Informações */}
-                      <Box sx={{ flex: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                          <Clock size={16} color="#6b7280" />
-                          <Typography variant="body2" fontWeight={600}>
-                            {formatTime(record.data_hora)}
-                          </Typography>
-                          <Chip
-                            label={isEntrada ? 'Entrada' : 'Saída'}
-                            size="small"
-                            color={isEntrada ? 'primary' : 'warning'}
-                            sx={{ height: 20, fontSize: '0.75rem' }}
-                          />
-                        </Box>
-
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 1 }}>
-                          {/* Método */}
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            {record.metodo === 'automatico' ? (
-                              <Camera size={14} color="#6b7280" />
-                            ) : (
-                              <User size={14} color="#6b7280" />
-                            )}
-                            <Typography variant="caption" color="text.secondary">
-                              {record.metodo === 'automatico' ? 'Automático' : 'Manual'}
-                            </Typography>
-                          </Box>
-
-                          {/* Localização */}
-                          {record.location && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <MapPin
-                                size={14}
-                                color={record.location.inside_radius ? '#10b981' : '#ef4444'}
-                              />
-                              <Typography
-                                variant="caption"
-                                color={
-                                  record.location.inside_radius
-                                    ? 'success.main'
-                                    : 'error.main'
-                                }
-                              >
-                                {record.location.inside_radius
-                                  ? 'Dentro do raio'
-                                  : 'Fora do raio'}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Box>
-
-                        {/* Observações */}
-                        {record.observacoes && (
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
+                        <Box sx={{ display: 'flex', alignItems: 'start', gap: 2 }}>
+                          {/* Número da Batida */}
+                          <Box
                             sx={{
-                              display: 'block',
-                              mt: 1,
-                              fontStyle: 'italic',
-                              bgcolor: '#fef3c7',
-                              px: 1,
-                              py: 0.5,
-                              borderRadius: 1,
+                              width: 32,
+                              height: 32,
+                              borderRadius: '50%',
+                              bgcolor: isEntrada ? '#dbeafe' : '#fef3c7',
+                              color: isEntrada ? '#1e40af' : '#b45309',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 600,
+                              fontSize: '0.875rem',
+                              flexShrink: 0,
                             }}
                           >
-                            "{record.observacoes}"
-                          </Typography>
-                        )}
-                      </Box>
+                            {index + 1}
+                          </Box>
 
-                      {/* Foto */}
-                      {record.foto && (
-                        <Avatar
-                          src={record.foto}
-                          alt="Foto do registro"
-                          variant="rounded"
-                          sx={{ width: 48, height: 48 }}
-                        />
-                      )}
-                    </Box>
+                          {/* Informações */}
+                          <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                              <Clock size={16} color="#6b7280" />
+                              <Typography variant="body2" fontWeight={600}>
+                                {formatTime(record.data_hora)}
+                              </Typography>
+                              <Chip
+                                label={isEntrada ? 'Entrada' : 'Saída'}
+                                size="small"
+                                color={isEntrada ? 'primary' : 'warning'}
+                                sx={{ height: 20, fontSize: '0.75rem' }}
+                              />
+                            </Box>
+
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 1 }}>
+                              {/* Método */}
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                {record.metodo === 'automatico' ? (
+                                  <Camera size={14} color="#6b7280" />
+                                ) : (
+                                  <User size={14} color="#6b7280" />
+                                )}
+                                <Typography variant="caption" color="text.secondary">
+                                  {metodoLabel}
+                                </Typography>
+                              </Box>
+
+                              {/* Localização */}
+                              {record.location && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <MapPin
+                                    size={14}
+                                    color={record.location.inside_radius ? '#10b981' : '#ef4444'}
+                                  />
+                                  <Typography
+                                    variant="caption"
+                                    color={
+                                      record.location.inside_radius
+                                        ? 'success.main'
+                                        : 'error.main'
+                                    }
+                                  >
+                                    {record.location.inside_radius
+                                      ? 'Dentro do raio'
+                                      : 'Fora do raio'}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+
+                            {/* Observações */}
+                            {record.observacoes && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{
+                                  display: 'block',
+                                  mt: 1,
+                                  fontStyle: 'italic',
+                                  bgcolor: '#fef3c7',
+                                  px: 1,
+                                  py: 0.5,
+                                  borderRadius: 1,
+                                }}
+                              >
+                                "{record.observacoes}"
+                              </Typography>
+                            )}
+                          </Box>
+
+                          {/* Foto */}
+                          {record.foto && (
+                            <Avatar
+                              src={record.foto}
+                              alt="Foto do registro"
+                              variant="rounded"
+                              sx={{ width: 48, height: 48 }}
+                            />
+                          )}
+                        </Box>
                       );
                     })()}
                   </Box>

@@ -1,136 +1,135 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import apiService from '../services/api';
 
 /**
- * Página de Registro por Reconhecimento Facial (Modo Quiosque)
+ * QUIOSQUE DE PONTO FACIAL - VERSÃO CLEAN
  * 
- * Fluxo SIMPLES:
- * 1. Câmera sempre ligada mostrando preview
- * 2. Usuário toca na tela para capturar foto
- * 3. Foto é enviada para AWS Rekognition para comparação
- * 4. Se reconhecido, mostra prévia com dados do funcionário
- * 5. Usuário confirma ou recaptura
- * 6. Ao confirmar, registra ENTRADA ou SAÍDA
+ * Fluxo:
+ * 1. Câmera em tela cheia
+ * 2. Usuário posiciona o rosto
+ * 3. Toque na tela → Captura automática
+ * 4. Sistema reconhece o funcionário
+ * 5. Mostra 2 botões: ENTRADA (verde) e SAÍDA (vermelho)
+ * 6. Após registro: feedback visual + volta para câmera
  */
-export default function KioskRegistroPage() {
-  const navigate = useNavigate();
+export default function KioskCleanUI() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const navigate = useNavigate();
 
-  // Estados
+  // Estados principais
   const [cameraStream, setCameraStream] = useState(null);
-  const [cameraError, setCameraError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
-
-  // Estados de preview/confirmação
-  const [previewMode, setPreviewMode] = useState(false);
-  const [capturedPhoto, setCapturedPhoto] = useState(null);
   const [recognizedPerson, setRecognizedPerson] = useState(null);
-
-  // Modal de sucesso
   const [showSuccess, setShowSuccess] = useState(false);
-  const [successData, setSuccessData] = useState(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [error, setError] = useState('');
 
-  // Relógio atualizado
+  // Relógio
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Abrir câmera ao montar
+  // Iniciar câmera automaticamente
   useEffect(() => {
-    openCamera();
-    return () => {
-      closeCamera();
-    };
+    startCamera();
+    return () => stopCamera();
   }, []);
 
-  // Atualizar video element quando stream mudar
+  // Conectar stream ao vídeo
   useEffect(() => {
     if (cameraStream && videoRef.current) {
       videoRef.current.srcObject = cameraStream;
     }
   }, [cameraStream]);
 
-  // Saudação baseada no horário
+  // Solicitar fullscreen
+  useEffect(() => {
+    const enterFullscreen = async () => {
+      try {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (err) {
+        console.log('Fullscreen não suportado ou negado');
+      }
+    };
+    enterFullscreen();
+  }, []);
+
+  // ==================== FUNÇÕES DE DATA/HORA ====================
+  const getSaoPauloTime = () => {
+    return new Date().toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
+
+  const getSaoPauloDate = () => {
+    return new Date().toLocaleDateString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long'
+    });
+  };
+
   const getGreeting = () => {
-    const hour = currentTime.getHours();
+    const hour = new Date().getHours();
     if (hour < 12) return 'Bom dia';
     if (hour < 18) return 'Boa tarde';
     return 'Boa noite';
   };
 
-  const getFormattedTime = () => {
-    return currentTime.toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const getSaoPauloDateTime = () => {
+    // Criar uma nova data ajustada para o fuso horário de São Paulo
+    const now = new Date();
+    const saoPauloOffset = -3; // UTC-3 (São Paulo)
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    return new Date(utc + (saoPauloOffset * 3600000));
   };
 
-  // Abrir câmera frontal com alta qualidade
-  const openCamera = async () => {
-    setCameraError('');
-    
+  // ==================== CÂMERA ====================
+  const startCamera = async () => {
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Câmera não suportada neste navegador');
-      }
-
-      console.log('[KIOSK] Abrindo câmera frontal...');
-      
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-          frameRate: { ideal: 30 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
         },
         audio: false
       });
-
-      const videoTrack = stream.getVideoTracks()[0];
-      const settings = videoTrack.getSettings();
-      console.log('[KIOSK] Câmera aberta:', settings.width, 'x', settings.height);
-      
       setCameraStream(stream);
-      
+      setError('');
     } catch (err) {
-      console.error('[KIOSK] Erro ao abrir câmera:', err);
-      
-      let errorMessage = 'Erro ao acessar câmera';
-      
-      if (err.name === 'NotAllowedError') {
-        errorMessage = 'Permissão de câmera negada. Habilite nas configurações.';
-      } else if (err.name === 'NotFoundError') {
-        errorMessage = 'Nenhuma câmera encontrada.';
-      } else if (err.name === 'NotReadableError') {
-        errorMessage = 'Câmera em uso por outro aplicativo.';
-      }
-      
-      setCameraError(errorMessage);
+      console.error('Erro ao abrir câmera:', err);
+      setError('Não foi possível acessar a câmera. Verifique as permissões.');
     }
   };
 
-  // Fechar câmera
-  const closeCamera = () => {
+  const stopCamera = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
     }
   };
 
-  // Capturar foto e enviar para reconhecimento
+  // ==================== CAPTURA E RECONHECIMENTO ====================
   const handleCapture = async () => {
     if (!videoRef.current || isProcessing) return;
 
     setIsProcessing(true);
+    setError('');
 
     try {
+      // Capturar frame da câmera
       const canvas = canvasRef.current;
       const video = videoRef.current;
       
@@ -138,242 +137,272 @@ export default function KioskRegistroPage() {
       canvas.height = video.videoHeight;
       
       const ctx = canvas.getContext('2d');
-      
-      // Espelhar a imagem (selfie mode)
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-      const photoDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      setCapturedPhoto(photoDataUrl);
-
-      const blob = await new Promise((resolve) => {
+      const blob = await new Promise(resolve => {
         canvas.toBlob(resolve, 'image/jpeg', 0.92);
       });
 
-      console.log('[KIOSK] Foto capturada, enviando para reconhecimento...');
+      if (!blob) {
+        setError('Erro ao capturar imagem da câmera. Tente novamente.');
+        setIsProcessing(false);
+        setTimeout(() => {
+          setError('');
+        }, 2000);
+        return;
+      }
 
-      const result = await apiService.recognizeFace(blob);
-      console.log('[KIOSK] Resultado:', result);
+      // Chamar API de reconhecimento facial
+      const recognitionResult = await apiService.recognizeFace(blob);
 
-      if (result.reconhecido && result.funcionario) {
-        const funcId = result.funcionario.funcionario_id || result.funcionario.id;
+      console.log('[KIOSK] Recognition result:', recognitionResult);
+
+      if (recognitionResult.reconhecido) {
+        console.log('[KIOSK] Funcionario data:', recognitionResult.funcionario);
+        console.log('[KIOSK] Funcionario ID:', recognitionResult.funcionario?.funcionario_id);
+
+        if (!recognitionResult.funcionario?.funcionario_id) {
+          console.error('[KIOSK] ERROR: Funcionario ID is missing from API response');
+          setError('❌ Erro: ID do funcionário não encontrado na resposta da API');
+          setTimeout(() => setError(''), 3000);
+          return;
+        }
+
         setRecognizedPerson({
-          id: funcId,
-          nome: result.funcionario.nome || result.funcionario.name || funcId,
-          cargo: result.funcionario.cargo || result.funcionario.position || '',
-          proximoTipo: result.proximo_tipo || 'entrada', // entrada ou saida baseado no último registro do dia
+          id: recognitionResult.funcionario.funcionario_id,
+          nome: recognitionResult.funcionario.nome,
+          cargo: recognitionResult.funcionario.cargo,
+          sugestedType: recognitionResult.proximo_tipo
         });
-        setPreviewMode(true);
+
+        console.log('[KIOSK] Recognized person set:', {
+          id: recognitionResult.funcionario.funcionario_id,
+          nome: recognitionResult.funcionario.nome,
+          cargo: recognitionResult.funcionario.cargo,
+          sugestedType: recognitionResult.proximo_tipo
+        });
+      } else if (recognitionResult.nenhumRostoDetectado) {
+        // Novo caso: nenhum rosto detectado
+        setError('Nenhum rosto foi detectado');
+        setIsProcessing(false); // Libera a UI imediatamente
+        setTimeout(() => {
+          setError('');
+        }, 1500);
+        return;
       } else {
-        setCapturedPhoto(null);
-        alert('❌ Rosto não reconhecido. Tente novamente.');
+        // Rosto não reconhecido - aguardando nova tentativa
+        setError('Rosto não reconhecido - aguardando nova tentativa');
+        setTimeout(() => setError(''), 3000);
+        return;
       }
 
     } catch (err) {
-      console.error('[KIOSK] Erro:', err);
-      setCapturedPhoto(null);
-      alert(err.response?.data?.error || 'Erro ao processar. Tente novamente.');
+      console.error('Erro no reconhecimento:', err);
+      // Trata erro do Rekognition: "There are no faces in the image. Should be at least 1."
+      if (err && (err.message?.includes('There are no faces in the image') || (typeof err === 'string' && err.includes('There are no faces in the image')))) {
+        setError('Nenhum rosto foi detectado');
+        setIsProcessing(false);
+        setTimeout(() => {
+          setError('');
+        }, 1500);
+      } else {
+        setError('❌ Não foi possível reconhecer o rosto. Tente novamente.');
+        setTimeout(() => setError(''), 3000);
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Confirmar registro de ponto
-  const handleConfirm = async () => {
+  // ==================== REGISTRO DE PONTO ====================
+  const handleRegister = async (tipo) => {
     if (!recognizedPerson || isProcessing) return;
 
     setIsProcessing(true);
 
     try {
-      console.log('[KIOSK] Registrando ponto para:', recognizedPerson.id);
+      // Obter horário atual de São Paulo
+      const dataHoraSP = getSaoPauloDateTime();
 
-      const pontoResult = await apiService.registerPointByFace(recognizedPerson.id);
-      console.log('[KIOSK] Ponto registrado:', pontoResult);
+      // Criar string no formato que o backend espera
+      const ano = dataHoraSP.getFullYear();
+      const mes = String(dataHoraSP.getMonth() + 1).padStart(2, '0');
+      const dia = String(dataHoraSP.getDate()).padStart(2, '0');
+      const hora = String(dataHoraSP.getHours()).padStart(2, '0');
+      const minuto = String(dataHoraSP.getMinutes()).padStart(2, '0');
+      const segundo = String(dataHoraSP.getSeconds()).padStart(2, '0');
+
+      const dataHoraString = `${ano}-${mes}-${dia} ${hora}:${minuto}:${segundo}`;
+      const horarioFormatado = `${hora}:${minuto}`;
+
+      const pontoResult = await apiService.registerPointByFace(
+        recognizedPerson.id,
+        tipo,
+        dataHoraString
+      );
 
       if (pontoResult.success) {
-        setSuccessData({
+        setShowSuccess({
           nome: recognizedPerson.nome,
-          tipo: pontoResult.tipo,
-          horario: pontoResult.registro?.horario || getFormattedTime(),
+          tipo: tipo,
+          horario: horarioFormatado
         });
-        setShowSuccess(true);
 
+        // Resetar após 1.5 segundos para fluxo mais rápido
         setTimeout(() => {
           setShowSuccess(false);
-          setSuccessData(null);
-          resetToCamera();
-        }, 4000);
+          setRecognizedPerson(null);
+        }, 1500);
       } else {
         throw new Error(pontoResult.error || 'Erro ao registrar ponto');
       }
 
     } catch (err) {
-      console.error('[KIOSK] Erro ao registrar:', err);
-      alert(err.response?.data?.error || err.message || 'Erro ao registrar ponto.');
-      resetToCamera();
+      console.error('Erro ao registrar ponto:', err);
+      setError('❌ Erro ao registrar ponto. Tente novamente.');
+      setTimeout(() => setError(''), 3000);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Recapturar foto
-  const handleRetake = () => {
-    resetToCamera();
-  };
+  // ==================== RENDERIZAÇÃO ====================
 
-  // Resetar para modo câmera
-  const resetToCamera = () => {
-    setPreviewMode(false);
-    setCapturedPhoto(null);
-    setRecognizedPerson(null);
-    setIsProcessing(false);
-  };
-
-  // Voltar ao menu
-  const handleBack = () => {
-    closeCamera();
-    navigate('/', { replace: true });
-  };
-
-  // ==================== TELA DE PREVIEW/CONFIRMAÇÃO ====================
-  if (previewMode && capturedPhoto && recognizedPerson) {
+  // Tela de sucesso
+  if (showSuccess) {
     return (
-      <div className="min-h-screen bg-black flex flex-col relative">
-        {/* Foto capturada como fundo */}
-        <img 
-          src={capturedPhoto} 
-          alt="Preview" 
-          className="absolute inset-0 w-full h-full object-cover"
+      <div className="fixed inset-0 bg-gradient-to-br from-green-600 to-green-800 flex items-center justify-center z-50">
+        {/* Vídeo continua rodando em background (invisível) */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="hidden"
         />
-
-        {/* Overlay escuro */}
-        <div className="absolute inset-0 bg-black/60" />
-
-        {/* Card de confirmação */}
-        <motion.div 
-          initial={{ scale: 0.8, opacity: 0 }}
+        
+        <motion.div
+          initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="absolute top-1/4 left-1/2 transform -translate-x-1/2 w-[90%] max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+          className="text-center text-white px-8"
         >
-          {/* Ícone de check */}
-          <div className="flex justify-center mb-4">
-            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
-              <svg className="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2 }}
+            className="text-9xl mb-8"
+          >
+            ✅
+          </motion.div>
+          
+          <h1 className="text-5xl font-bold mb-4">
+            {getGreeting()}, {showSuccess.nome}!
+          </h1>
+          
+          <div className="text-7xl font-black mb-6">
+            {showSuccess.tipo === 'entrada' ? '🟢 ENTRADA' : '🔴 SAÍDA'}
           </div>
-
-          <h2 className="text-2xl font-bold text-gray-800 text-center mb-6">
-            Pessoa Reconhecida
-          </h2>
-
-          {/* Dados do funcionário */}
-          <div className="space-y-4 mb-6">
-            <div className="flex justify-between items-center py-2 border-b border-gray-100">
-              <span className="text-gray-500 font-medium">Nome:</span>
-              <span className="text-gray-800 font-bold text-lg">{recognizedPerson.nome}</span>
-            </div>
-            {recognizedPerson.cargo && (
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-gray-500 font-medium">Cargo:</span>
-                <span className="text-gray-800">{recognizedPerson.cargo}</span>
-              </div>
-            )}
-            <div className="flex justify-between items-center py-2 border-b border-gray-100">
-              <span className="text-gray-500 font-medium">Horário:</span>
-              <span className="text-gray-800 font-semibold">{getFormattedTime()}</span>
-            </div>
-            {/* Tipo de registro que será feito */}
-            <div className="flex justify-between items-center py-3 bg-gray-50 rounded-xl px-4">
-              <span className="text-gray-500 font-medium">Registro:</span>
-              <span className={`font-bold text-xl ${
-                recognizedPerson.proximoTipo === 'entrada' 
-                  ? 'text-green-600' 
-                  : 'text-red-500'
-              }`}>
-                {recognizedPerson.proximoTipo === 'entrada' ? '🟢 ENTRADA' : '🔴 SAÍDA'}
-              </span>
-            </div>
-          </div>
-
-          {/* Botões de ação */}
-          <div className="flex gap-4">
-            <button
-              onClick={handleRetake}
-              disabled={isProcessing}
-              className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              </svg>
-              Recapturar
-            </button>
-
-            <button
-              onClick={handleConfirm}
-              disabled={isProcessing}
-              className="flex-1 py-4 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-            >
-              {isProcessing ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Processando...
-                </>
-              ) : (
-                <>
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Confirmar
-                </>
-              )}
-            </button>
+          
+          <div className="text-6xl font-bold opacity-90">
+            {showSuccess.horario}
           </div>
         </motion.div>
-
-        {/* Modal de Sucesso */}
-        <AnimatePresence>
-          {showSuccess && successData && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 flex items-center justify-center z-50"
-            >
-              <motion.div
-                initial={{ scale: 0.5, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.5, opacity: 0 }}
-                className="bg-white rounded-3xl p-10 max-w-md mx-4 text-center shadow-2xl"
-              >
-                <div className="text-7xl mb-6">✅</div>
-                <h2 className="text-2xl font-bold text-gray-800 mb-2">
-                  {getGreeting()}, {successData.nome}!
-                </h2>
-                <div className={`text-2xl font-bold mb-4 ${
-                  successData.tipo === 'entrada' ? 'text-green-600' : 'text-red-500'
-                }`}>
-                  {successData.tipo === 'entrada' ? '🟢 Entrada' : '🔴 Saída'}
-                </div>
-                <div className="text-xl text-gray-600">
-                  {successData.horario}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     );
   }
 
-  // ==================== TELA PRINCIPAL DA CÂMERA ====================
+  // Tela de seleção de tipo (após reconhecimento)
+  if (recognizedPerson) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 to-gray-800 flex flex-col">
+        {/* Vídeo continua rodando em background (invisível) */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="hidden"
+        />
+        
+        {/* Header */}
+        <div className="bg-black/30 backdrop-blur-sm py-8 px-6 text-center">
+          <div className="text-white/60 text-xl mb-2">{getSaoPauloDate()}</div>
+          <div className="text-white text-5xl font-bold">{getSaoPauloTime().slice(0, 5)}</div>
+        </div>
+
+        {/* Conteúdo principal */}
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="text-center mb-12"
+          >
+            <div className="text-8xl mb-6">👤</div>
+            <h2 className="text-white text-4xl font-bold mb-2">
+              {getGreeting()}!
+            </h2>
+            <p className="text-white text-5xl font-black mb-2">
+              {recognizedPerson.nome}
+            </p>
+            {recognizedPerson.cargo && (
+              <p className="text-white/70 text-2xl">{recognizedPerson.cargo}</p>
+            )}
+          </motion.div>
+
+          {/* Botões de registro */}
+          <div className="w-full max-w-2xl space-y-6">
+            <motion.button
+              initial={{ x: -100, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              onClick={() => handleRegister('entrada')}
+              disabled={isProcessing}
+              className="w-full bg-green-500 hover:bg-green-600 active:bg-green-700 text-white py-12 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
+            >
+              <div className="flex items-center justify-center gap-6">
+                <span className="text-7xl">🟢</span>
+                <span className="text-6xl font-black">ENTRADA</span>
+              </div>
+            </motion.button>
+
+            <motion.button
+              initial={{ x: 100, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              onClick={() => handleRegister('saida')}
+              disabled={isProcessing}
+              className="w-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white py-12 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
+            >
+              <div className="flex items-center justify-center gap-6">
+                <span className="text-7xl">🔴</span>
+                <span className="text-6xl font-black">SAÍDA</span>
+              </div>
+            </motion.button>
+          </div>
+
+          {/* Botão cancelar */}
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            onClick={() => setRecognizedPerson(null)}
+            className="mt-12 text-white/60 hover:text-white text-xl font-medium"
+          >
+            ← Voltar
+          </motion.button>
+        </div>
+      </div>
+    );
+  }
+
+  // Tela principal - Câmera
   return (
-    <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
-      {/* Câmera em tela cheia */}
-      {cameraStream ? (
+    <div className="fixed inset-0 bg-black overflow-hidden">
+      {/* Vídeo da câmera sempre visível */}
+      {cameraStream && (
         <video
           ref={videoRef}
           autoPlay
@@ -382,94 +411,92 @@ export default function KioskRegistroPage() {
           className="absolute inset-0 w-full h-full object-cover"
           style={{ transform: 'scaleX(-1)' }}
         />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          {cameraError ? (
-            <div className="text-center p-8">
-              <div className="text-6xl mb-4">📸</div>
-              <p className="text-red-400 text-lg mb-4">{cameraError}</p>
-              <button
-                onClick={openCamera}
-                className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium"
-              >
-                Tentar novamente
-              </button>
-            </div>
-          ) : (
-            <div className="text-center">
-              <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-white text-lg">Iniciando câmera...</p>
-            </div>
-          )}
-        </div>
       )}
 
-      {/* Relógio no topo */}
-      <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-10">
-        <div className="text-5xl font-bold text-white drop-shadow-lg">
-          {getFormattedTime()}
-        </div>
-        <div className="text-center text-white/60 text-lg mt-1">
-          {currentTime.toLocaleDateString('pt-BR', { 
-            weekday: 'long', 
-            day: 'numeric', 
-            month: 'long' 
-          })}
+      {/* Overlay escuro */}
+      <div className="absolute inset-0 bg-black/20" />
+
+      {/* Header com relógio */}
+      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent py-8 px-6 text-center z-10">
+        <div className="text-white/60 text-xl mb-2">{getSaoPauloDate()}</div>
+        <div className="text-white text-6xl font-bold drop-shadow-lg">
+          {getSaoPauloTime().slice(0, 5)}
         </div>
       </div>
-
-      {/* Botão voltar */}
-      <button
-        onClick={handleBack}
-        className="absolute top-8 left-4 z-10 px-4 py-2 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
-      >
-        ← Voltar
-      </button>
 
       {/* Guia facial */}
       {cameraStream && !isProcessing && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <motion.div
-            animate={{ 
-              borderColor: ['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.6)', 'rgba(255,255,255,0.3)'],
+            animate={{
+              borderColor: ['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.8)', 'rgba(255,255,255,0.3)'],
+              scale: [1, 1.05, 1]
             }}
             transition={{ duration: 2, repeat: Infinity }}
-            className="w-64 h-80 border-4 rounded-full"
+            className="w-80 h-96 border-4 rounded-full"
           />
         </div>
       )}
 
-      {/* Instrução no rodapé */}
-      <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-10">
-        {isProcessing ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="bg-black/80 backdrop-blur-sm px-8 py-4 rounded-2xl flex items-center gap-4"
-          >
-            <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-white text-xl font-medium">Reconhecendo...</span>
-          </motion.div>
-        ) : cameraStream && (
-          <motion.div
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="bg-black/60 backdrop-blur-sm px-8 py-4 rounded-2xl flex items-center gap-3"
-          >
-            <span className="text-4xl">👆</span>
-            <span className="text-white text-xl font-semibold">Toque na tela para registrar</span>
-          </motion.div>
-        )}
+      {/* Instruções e erros */}
+      <div className="absolute bottom-32 left-0 right-0 flex justify-center z-10 px-6">
+        <AnimatePresence mode="wait">
+          {error && (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-red-600 backdrop-blur-sm px-12 py-6 rounded-3xl shadow-2xl"
+            >
+              <p className="text-white text-2xl font-bold text-center">
+                {error}
+              </p>
+            </motion.div>
+          )}
+          {!error && isProcessing && (
+            <motion.div
+              key="processing"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-blue-600 backdrop-blur-sm px-12 py-6 rounded-3xl flex items-center gap-4 shadow-2xl"
+            >
+              <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+              <span className="text-white text-3xl font-bold">Reconhecendo...</span>
+            </motion.div>
+          )}
+          {!error && !isProcessing && cameraStream && (
+            <motion.div
+              key="instruction"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-black/70 backdrop-blur-sm px-12 py-6 rounded-3xl shadow-2xl"
+            >
+              <div className="flex items-center gap-4 mb-2">
+                <span className="text-5xl">👆</span>
+                <span className="text-white text-3xl font-bold">Toque na tela</span>
+              </div>
+              <p className="text-white/80 text-xl text-center">
+                Posicione seu rosto no círculo
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Área clicável para capturar (tela inteira) */}
+      {/* Área clicável (tela inteira) - sempre disponível se não estiver processando */}
       {cameraStream && !isProcessing && (
         <button
           onClick={handleCapture}
-          className="absolute inset-0 z-5"
-          aria-label="Capturar foto"
+          className="absolute inset-0 z-5 cursor-pointer"
+          aria-label="Capturar e reconhecer rosto"
         />
       )}
+
+      {/* Canvas oculto */}
+      <canvas ref={canvasRef} className="hidden" />
 
       {/* Overlay de processamento */}
       <AnimatePresence>
@@ -482,9 +509,6 @@ export default function KioskRegistroPage() {
           />
         )}
       </AnimatePresence>
-
-      {/* Canvas oculto para captura */}
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

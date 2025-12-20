@@ -277,269 +277,68 @@ const RecordsDetailedPage: React.FC = () => {
       setFilteredRecords([]);
       return;
     }
-    
     setLoading(true);
     setError(null);
-
     try {
-      console.log('🔍 Buscando TODOS os registros individuais de entrada/saída...');
-      
+      // Busca todos os registros de uma vez só
+      const response = await apiService.getTimeRecords();
       let allRecords: TimeRecord[] = [];
-      
-      try {
-        // Estratégia 1: Buscar todos os funcionários e depois seus registros individuais
-        console.log('📊 Buscando lista de funcionários...');
-        const employeesResponse = await apiService.getEmployees();
-        const employeesList = employeesResponse.funcionarios || [];
-        console.log('👥 Funcionários encontrados:', employeesList.length);
-        
-        // Para cada funcionário, buscar TODOS os seus registros individuais
-        for (const employee of employeesList) {
-          try {
-            console.log(`📊 Buscando registros individuais de: ${employee.nome}`);
-            
-            // Tentar diferentes parâmetros para buscar registros individuais
-            const strategies = [
-              { funcionario_id: employee.id, individual: true },
-              { funcionario_id: employee.id, detailed: true },
-              { funcionario_id: employee.id, type: 'individual' },
-              { funcionario_id: employee.id }
-            ];
-            
-            let employeeRecords = [];
-            
-            for (const params of strategies) {
-              try {
-                console.log(`  🔧 Tentando parâmetros:`, params);
-                const response = await apiService.getTimeRecords(params);
-                console.log(`  📋 Resposta:`, response);
-                
-                if (Array.isArray(response) && response.length > 0) {
-                  // Verificar se são registros individuais (têm data_hora, type/tipo, etc.)
-                  // Usar 'type' com fallback para 'tipo' (compatibilidade)
-                  const hasIndividualData = response.some(record => {
-                    const recordType = (record.type || record.tipo || '').toLowerCase();
-                    return record.data_hora && (recordType === 'entrada' || recordType === 'saída' || recordType === 'saida');
-                  });
-                  
-                  if (hasIndividualData) {
-                    employeeRecords = response;
-                    console.log(`  ✅ Encontrados ${employeeRecords.length} registros individuais`);
-                    break;
-                  } else {
-                    console.log(`  ⚠️ Resposta não contém registros individuais`);
-                  }
-                } else if (response && typeof response === 'object') {
-                  // Verificar propriedades do objeto que podem conter registros
-                  const possibleProps = ['registros', 'records', 'data', 'items', 'timeRecords', 'detalhes'];
-                  for (const prop of possibleProps) {
-                    if (Array.isArray(response[prop])) {
-                      const hasIndividualData = response[prop].some(record =>
-                        record.data_hora && (record.type || record.tipo)
-                      );
-                      if (hasIndividualData) {
-                        employeeRecords = response[prop];
-                        console.log(`  ✅ Encontrados registros em ${prop}:`, employeeRecords.length);
-                        break;
-                      }
-                    }
-                  }
-                  if (employeeRecords.length > 0) break;
-                }
-              } catch (strategyError) {
-                console.log(`  ❌ Erro com parâmetros ${JSON.stringify(params)}:`, strategyError);
-              }
-            }
-            
-            // Se encontrou registros, adicionar informações do funcionário e incluir na lista
-            if (employeeRecords.length > 0) {
-              const recordsWithEmployeeInfo = employeeRecords.map(record => ({
-                ...record,
-                funcionario_nome: record.funcionario_nome || employee.nome,
-                funcionario_id: record.funcionario_id || employee.id,
-                // Garantir que temos os campos necessários
-                registro_id: record.registro_id || record.id || `${employee.id}_${record.data_hora || new Date().getTime()}`,
-                // Manter ambos os campos para compatibilidade
-                type: record.type || record.tipo || 'entrada',
-                tipo: record.type || record.tipo || 'entrada',
-                // Método de registro (CAMERA, LOCATION, MANUAL)
-                method: record.method || record.metodo || 'MANUAL',
-                data_hora: record.data_hora || record.timestamp || record.datetime,
-                empresa_nome: record.empresa_nome || record.company || 'N/A',
-                // Campos de status (preservar valores do backend)
-                atraso_minutos: record.atraso_minutos || 0,
-                horas_extras_minutos: record.horas_extras_minutos || 0,
-                entrada_antecipada_minutos: record.entrada_antecipada_minutos || 0,
-                saida_antecipada_minutos: record.saida_antecipada_minutos || 0,
-              }));
-              
-              allRecords = [...allRecords, ...recordsWithEmployeeInfo];
-              console.log(`✅ Adicionados ${recordsWithEmployeeInfo.length} registros de ${employee.nome}`);
-            } else {
-              console.log(`⚠️ Nenhum registro individual encontrado para ${employee.nome}`);
-            }
-            
-          } catch (empErr) {
-            console.log(`❌ Erro geral ao buscar registros de ${employee.nome}:`, empErr);
+      if (Array.isArray(response)) {
+        allRecords = response;
+      } else if (response && typeof response === 'object') {
+        // Procurar arrays em todas as propriedades
+        Object.keys(response).forEach(key => {
+          if (Array.isArray(response[key])) {
+            allRecords = [...allRecords, ...response[key]];
           }
-        }
-        
-        console.log('📊 Total de registros individuais coletados:', allRecords.length);
-        console.log('📋 Exemplos dos primeiros 3 registros:', allRecords.slice(0, 3));
-        
-        // Se não conseguimos encontrar registros individuais, tentar endpoint direto
-        if (allRecords.length === 0) {
-          console.log('🔄 Tentando endpoints diretos para registros individuais...');
-          
-          const directEndpoints = [
-            '/api/registros/individuais',
-            '/api/time-records/individual', 
-            '/api/records/detailed',
-            '/api/pontos/todos'
-          ];
-          
-          for (const endpoint of directEndpoints) {
-            try {
-              console.log(`📊 Tentando endpoint: ${endpoint}`);
-              const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}${endpoint}`, {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-                  'Content-Type': 'application/json',
-                },
-              });
-              
-              if (response.ok) {
-                const data = await response.json();
-                console.log(`✅ Resposta de ${endpoint}:`, data);
-                
-                let records = [];
-                if (Array.isArray(data)) {
-                  records = data;
-                } else if (data.registros && Array.isArray(data.registros)) {
-                  records = data.registros;
-                }
-                
-                if (records.length > 0 && records[0].data_hora && records[0].tipo) {
-                  allRecords = records;
-                  console.log(`✅ Encontrados ${allRecords.length} registros no endpoint ${endpoint}`);
-                  break;
-                }
-              }
-            } catch (endpointError) {
-              console.log(`❌ Erro no endpoint ${endpoint}:`, endpointError);
-            }
-          }
-        }
-        
-        // Se ainda não temos registros, tentar buscar do endpoint padrão e verificar estrutura
-        if (allRecords.length === 0) {
-          console.log('🔄 Fallback: buscando do endpoint padrão...');
-          const fallbackResponse = await apiService.getTimeRecords();
-          console.log('📊 Resposta fallback:', fallbackResponse);
-          
-          if (Array.isArray(fallbackResponse)) {
-            // Se já é um array, usar direto
-            allRecords = fallbackResponse;
-          } else if (fallbackResponse && typeof fallbackResponse === 'object') {
-            // Procurar arrays em todas as propriedades
-            Object.keys(fallbackResponse).forEach(key => {
-              if (Array.isArray(fallbackResponse[key])) {
-                console.log(`📊 Encontrado array em ${key}:`, fallbackResponse[key].length);
-                allRecords = [...allRecords, ...fallbackResponse[key]];
-              }
-            });
-          }
-        }
-        
-      } catch (fetchError) {
-        console.error('❌ Erro ao buscar registros individuais:', fetchError);
+        });
       }
-      
-      // Ordenar por data/hora mais recente primeiro (SEMPRE)
+      // Ordenar por data/hora mais recente primeiro
       if (allRecords.length > 0) {
         allRecords.sort((a, b) => {
           const dateA = new Date(a.data_hora || '1970-01-01');
           const dateB = new Date(b.data_hora || '1970-01-01');
-          return dateB.getTime() - dateA.getTime(); // Mais recente primeiro
+          return dateB.getTime() - dateA.getTime();
         });
-        console.log('✅ Registros ordenados por data (mais recentes primeiro)');
-        console.log('📅 Primeiro registro (mais recente):', allRecords[0]?.data_hora);
-        console.log('📅 Último registro (mais antigo):', allRecords[allRecords.length - 1]?.data_hora);
       }
-      
       // Aplicar filtros se especificados
-      if ((dateFrom || dateTo || selectedEmployeeId) && allRecords.length > 0) {
-        console.log('🔧 Aplicando filtros...');
-        console.log('📅 Filtros de data:', { dateFrom, dateTo });
-        console.log('👤 Funcionário selecionado:', selectedEmployeeId);
-        console.log('📊 Total de registros antes do filtro:', allRecords.length);
-        
-        let filteredRecords = [...allRecords];
-        
-        if (selectedEmployeeId) {
-          filteredRecords = filteredRecords.filter(record => 
-            record.funcionario_id === selectedEmployeeId
-          );
-          console.log(`📊 Após filtro por funcionário: ${filteredRecords.length}`);
-        }
-        
-        if (dateFrom || dateTo) {
-          filteredRecords = filteredRecords.filter(record => {
-            if (!record.data_hora) return false;
-            
-            // Extrair apenas a parte da data (sem horário)
-            let recordDateStr = record.data_hora.split(' ')[0] || record.data_hora.split('T')[0];
-            
-            // Converter data do registro para formato YYYY-MM-DD para comparação
-            let recordDateForComparison: string;
-            
-            if (recordDateStr.includes('/')) {
-              // Formato DD/MM/YYYY
-              const [day, month, year] = recordDateStr.split('/');
-              recordDateForComparison = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-            } else if (recordDateStr.includes('-')) {
-              const dateParts = recordDateStr.split('-');
-              if (dateParts[0].length === 4) {
-                // Já está em formato YYYY-MM-DD
-                recordDateForComparison = recordDateStr;
-              } else {
-                // Formato DD-MM-YYYY
-                const [day, month, year] = dateParts;
-                recordDateForComparison = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-              }
-            } else {
-              // Formato desconhecido, tentar usar como está
-              recordDateForComparison = recordDateStr;
-            }
-            
-            console.log(`🔍 Comparando: Record=${recordDateStr} -> ${recordDateForComparison}, DateFrom=${dateFrom}, DateTo=${dateTo}`);
-            
-            if (dateFrom && recordDateForComparison < dateFrom) return false;
-            if (dateTo && recordDateForComparison > dateTo) return false;
-            
-            return true;
-          });
-          console.log(`📊 Após filtro por data: ${filteredRecords.length}`);
-        }
-        
-        // Reordenar após filtros para manter ordem cronológica
-        filteredRecords.sort((a, b) => {
-          const dateA = new Date(a.data_hora || '1970-01-01');
-          const dateB = new Date(b.data_hora || '1970-01-01');
-          return dateB.getTime() - dateA.getTime(); // Mais recente primeiro
-        });
-        
-        allRecords = filteredRecords;
+      let filtered = [...allRecords];
+      if (selectedEmployeeId) {
+        filtered = filtered.filter(record => record.funcionario_id === selectedEmployeeId);
       }
-      
-      console.log('🎯 Registros finais para exibição:', allRecords.length);
-      
-      setRecords(allRecords);
-      setFilteredRecords(allRecords);
-      
+      if (dateFrom || dateTo) {
+        filtered = filtered.filter(record => {
+          if (!record.data_hora) return false;
+          let recordDateStr = record.data_hora.split(' ')[0] || record.data_hora.split('T')[0];
+          let recordDateForComparison: string;
+          if (recordDateStr.includes('/')) {
+            const [day, month, year] = recordDateStr.split('/');
+            recordDateForComparison = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          } else if (recordDateStr.includes('-')) {
+            const dateParts = recordDateStr.split('-');
+            if (dateParts[0].length === 4) {
+              recordDateForComparison = recordDateStr;
+            } else {
+              const [day, month, year] = dateParts;
+              recordDateForComparison = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            }
+          } else {
+            recordDateForComparison = recordDateStr;
+          }
+          if (dateFrom && recordDateForComparison < dateFrom) return false;
+          if (dateTo && recordDateForComparison > dateTo) return false;
+          return true;
+        });
+      }
+      filtered.sort((a, b) => {
+        const dateA = new Date(a.data_hora || '1970-01-01');
+        const dateB = new Date(b.data_hora || '1970-01-01');
+        return dateB.getTime() - dateA.getTime();
+      });
+      setRecords(filtered);
+      setFilteredRecords(filtered);
     } catch (err: any) {
-      console.error('❌ Erro geral ao buscar registros:', err);
+      console.error('❌ Erro ao buscar registros:', err);
       setError('Erro ao carregar registros. Tente novamente.');
       showSnackbar('Erro ao carregar registros', 'error');
     } finally {
@@ -704,7 +503,7 @@ const RecordsDetailedPage: React.FC = () => {
   };
 
   const handleSaveRecord = async (recordData: {
-    funcionario_id: string;
+    employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
   }) => {
@@ -714,9 +513,10 @@ const RecordsDetailedPage: React.FC = () => {
       showSnackbar('Registro adicionado com sucesso!', 'success');
       setFormOpen(false);
       buscarRegistros(); // Recarregar registros
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao adicionar registro:', err);
-      showSnackbar('Erro ao adicionar registro.', 'error');
+      let backendMsg = err?.response?.data?.mensagem || err?.response?.data?.error || err?.message || 'Erro ao adicionar registro.';
+      showSnackbar(backendMsg, 'error');
     } finally {
       setSubmitting(false);
     }

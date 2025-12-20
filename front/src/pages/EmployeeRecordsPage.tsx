@@ -109,7 +109,7 @@ const EmployeeRecordsPage: React.FC = () => {
     
     try {
       setLoading(true);
-      const params: any = { funcionario_id: employeeId };
+      const params: any = { employee_id: employeeId };
       
       if (dateFrom) params.inicio = dateFrom;
       if (dateTo) params.fim = dateTo;

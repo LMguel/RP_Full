@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { config } from '../config';
 import {
   Box,
   Typography,
@@ -32,53 +33,11 @@ interface DailyRecordsTableProps {
 }
 
 const formatDateForInput = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
 const formatDateLabel = (value?: string): string => {
-  if (!value) return '';
-  const trimmed = value.trim();
-  const isoCandidate = trimmed.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
-    const [year, month, day] = isoCandidate.split('-');
-    return `${day}/${month}/${year}`;
-  }
-  const parsed = new Date(trimmed);
-  return Number.isNaN(parsed.getTime()) ? trimmed : parsed.toLocaleDateString('pt-BR');
-};
-
 const formatDateForFilename = (value?: string): string => {
-  if (!value) return '';
-  const trimmed = value.trim();
-  const isoCandidate = trimmed.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
-    const [year, month, day] = isoCandidate.split('-');
-    return `${day}-${month}-${year}`;
-  }
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    return trimmed.replace(/[\\/:*?"<>|\s]+/g, '-');
-  }
-  const day = String(parsed.getDate()).padStart(2, '0');
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  const year = parsed.getFullYear();
-  return `${day}-${month}-${year}`;
-};
-
 import * as XLSX from 'xlsx';
-
 const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }) => {
-  const [summaries, setSummaries] = useState<DailySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedSummary, setSelectedSummary] = useState<DailySummary | null>(null);
-  const [modalRecords, setModalRecords] = useState<any[]>([]);
-  const [modalLoading, setModalLoading] = useState(false);
-
-  // Filtros
+// DailyRecordsTable removida
   const currentDate = new Date();
   const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
@@ -192,11 +151,15 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
   useEffect(() => {
     const fetchEmployees = async () => {
       try {
-        const response = await fetch('/api/funcionarios', {
+        const response = await fetch(`${config.API_URL}/api/funcionarios`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
           },
         });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`HTTP ${response.status}: ${text}`);
+        }
         const data = await response.json();
         setAllEmployees(data.funcionarios || []);
       } catch (error) {

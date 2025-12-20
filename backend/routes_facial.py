@@ -5,6 +5,7 @@ Endpoints para registro de ponto usando AWS Rekognition
 from flask import Blueprint, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
+import pytz
 import os
 import uuid
 import tempfile
@@ -18,8 +19,18 @@ routes_facial = Blueprint('routes_facial', __name__)
 # Enable CORS
 CORS(routes_facial, resources={
     r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173", 
-                    "http://192.168.1.5:3000", "https://192.168.1.5:3000"],
+        "origins": [
+            "http://localhost:3000", 
+            "http://localhost:3001", 
+            "http://localhost:3002",  # PWA mobile
+            "http://localhost:5173", 
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://127.0.0.1:3002",
+            "http://192.168.1.5:3000", 
+            "https://192.168.1.5:3000"
+        ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }
@@ -55,17 +66,23 @@ def reconhecer_rosto(payload):
     Retorna dados do funcionário se reconhecido
     """
     try:
-        print("[FACIAL] Recebida requisição de reconhecimento")
+        print("[FACIAL] ========== INÍCIO RECONHECIMENTO ==========")
+        print(f"[FACIAL] Recebida requisição de reconhecimento")
+        print(f"[FACIAL] Content-Type: {request.content_type}")
+        print(f"[FACIAL] Files recebidos: {list(request.files.keys())}")
+        print(f"[FACIAL] Form data: {list(request.form.keys())}")
         
         # Verificar se tem imagem
         if 'image' not in request.files:
             print("[FACIAL] Erro: Nenhuma imagem enviada")
+            print(f"[FACIAL] Files disponíveis: {list(request.files.keys())}")
             return jsonify({
                 'reconhecido': False,
                 'error': 'Nenhuma imagem enviada'
             }), 400
         
         file = request.files['image']
+        print(f"[FACIAL] Arquivo recebido: {file.filename}, Content-Type: {file.content_type}")
         
         if file.filename == '':
             print("[FACIAL] Erro: Nome de arquivo vazio")
@@ -176,7 +193,8 @@ def reconhecer_rosto(payload):
         # Determinar o PRÓXIMO tipo de registro (entrada ou saída) baseado no último registro DO DIA
         from boto3.dynamodb.conditions import Attr
         proximo_tipo = 'entrada'  # Padrão: primeiro registro do dia é entrada
-        hoje = datetime.now().strftime('%Y-%m-%d')
+        tz = pytz.timezone('America/Sao_Paulo')
+        hoje = datetime.now(tz).strftime('%Y-%m-%d')
         
         try:
             # Buscar registros do funcionário de HOJE
@@ -198,19 +216,13 @@ def reconhecer_rosto(payload):
                     registros_hoje.append(reg)
             
             if registros_hoje:
-                # Ordenar por timestamp para pegar o mais recente
-                registros_hoje.sort(
-                    key=lambda r: r.get('timestamp', r.get('data_hora', '')), 
-                    reverse=True
+                # Verificar se já houve uma entrada hoje
+                teve_entrada = any(
+                    (reg.get('type') or reg.get('tipo') or reg.get('tipo_registro', '')).lower() == 'entrada'
+                    for reg in registros_hoje
                 )
-                ultimo = registros_hoje[0]
-                ultimo_tipo = (
-                    ultimo.get('type') or 
-                    ultimo.get('tipo') or 
-                    ultimo.get('tipo_registro', 'saida')
-                ).lower()
-                proximo_tipo = 'saida' if ultimo_tipo == 'entrada' else 'entrada'
-                print(f"[FACIAL] Último registro hoje: {ultimo_tipo} -> próximo: {proximo_tipo}")
+                proximo_tipo = 'saida' if teve_entrada else 'entrada'
+                print(f"[FACIAL] Já teve entrada hoje: {teve_entrada} -> próximo: {proximo_tipo}")
             else:
                 print(f"[FACIAL] Nenhum registro hoje, próximo será: entrada")
         except Exception as e:
@@ -232,11 +244,17 @@ def reconhecer_rosto(payload):
         
     except Exception as e:
         import traceback
-        print(f"[FACIAL] Erro no reconhecimento: {str(e)}")
-        print(f"[FACIAL] Traceback: {traceback.format_exc()}")
+        error_trace = traceback.format_exc()
+        print(f"[FACIAL] ========== ERRO NO RECONHECIMENTO ==========")
+        print(f"[FACIAL] Erro: {str(e)}")
+        print(f"[FACIAL] Tipo do erro: {type(e).__name__}")
+        print(f"[FACIAL] Traceback completo:")
+        print(error_trace)
+        print(f"[FACIAL] ============================================")
         return jsonify({
             'reconhecido': False,
-            'error': f'Erro no reconhecimento: {str(e)}'
+            'error': f'Erro no reconhecimento: {str(e)}',
+            'error_type': type(e).__name__
         }), 500
 
 
@@ -263,8 +281,9 @@ def registrar_ponto_facial(payload):
         # Buscar último registro do funcionário para determinar entrada/saída
         # A tabela TimeRecords usa employee_id#date_time como partition key
         from boto3.dynamodb.conditions import Key, Attr
-        
-        hoje = datetime.now().strftime('%Y-%m-%d')
+
+        tz = pytz.timezone('America/Sao_Paulo')
+        hoje = datetime.now(tz).strftime('%Y-%m-%d')
         
         # Buscar registros de HOJE usando scan
         # Suportar registros que usam 'date' ou que têm a data no timestamp/data_hora
@@ -315,19 +334,16 @@ def registrar_ponto_facial(payload):
             traceback.print_exc()
             registros_hoje = []
         
-        # Determinar tipo (entrada ou saída) baseado no último registro DO DIA
-        tipo = 'entrada'  # Primeiro registro do dia é sempre entrada
+        # Determinar tipo (entrada ou saída): se já houve entrada hoje, registrar saída; senão, entrada
+        tipo = 'entrada'  # Padrão: entrada se nenhum registro hoje
         if registros_hoje:
-            ultimo_registro = registros_hoje[0]
-            # Verificar type, tipo, ou tipo_registro
-            ultimo_tipo = (
-                ultimo_registro.get('type') or 
-                ultimo_registro.get('tipo') or 
-                ultimo_registro.get('tipo_registro', 'saida')
-            ).lower()
-            # Alternar: se último foi entrada, agora é saída e vice-versa
-            tipo = 'saida' if ultimo_tipo == 'entrada' else 'entrada'
-            print(f"[FACIAL] Último registro do dia foi '{ultimo_tipo}', novo será '{tipo}'")
+            # Verificar se já houve uma entrada hoje
+            teve_entrada = any(
+                (reg.get('type') or reg.get('tipo') or reg.get('tipo_registro', '')).lower() == 'entrada'
+                for reg in registros_hoje
+            )
+            tipo = 'saida' if teve_entrada else 'entrada'
+            print(f"[FACIAL] Já teve entrada hoje: {teve_entrada}, novo será '{tipo}'")
         else:
             print(f"[FACIAL] Nenhum registro hoje, será ENTRADA")
         
@@ -348,7 +364,7 @@ def registrar_ponto_facial(payload):
             print(f"[FACIAL] Aviso: Não foi possível obter localização da empresa: {e}")
         
         # Criar registro
-        agora = datetime.now()
+        agora = datetime.now(tz)
         timestamp_iso = agora.isoformat()
         
         # Formato da chave composta: employee_id#date_time
@@ -360,6 +376,7 @@ def registrar_ponto_facial(payload):
             'employee_id#date_time': composite_key,
             'employee_id': funcionario_id,
             'timestamp': timestamp_iso,
+            'data_hora': date_time_str,  # Adicionado para padronizar com TimeRecords
             'date': agora.strftime('%Y-%m-%d'),
             'time': agora.strftime('%H:%M:%S'),
             'type': tipo,

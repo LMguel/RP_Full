@@ -62,7 +62,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       path: '/records',
       submenu: [
         { text: 'Resumo por Funcionário', path: '/records' },
-        { text: 'Registros Diários', path: '/records/daily' },
+        // { text: 'Registros Diários', path: '/records/daily' },
         { text: 'Registros Detalhados', path: '/records/detailed' },
       ]
     },

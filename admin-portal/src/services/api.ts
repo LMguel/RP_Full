@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "https://192.168.1.100:5000";
+const API_URL = import.meta.env.VITE_API_URL || "https://192.168.1.107:5000";
 
 export type CompanyStatus = "active" | "inactive" | "suspended" | "deleted";
 
@@ -38,11 +38,6 @@ export interface DashboardStats {
   paidCompanies: number;
   unpaidCompanies: number;
 }
-
-export interface CompanyDetail extends CompanySummary {
-  // Fields specific to details page
-}
-
 export interface CompanyEmployee {
   id: string;
   nome: string; // name in Portuguese
@@ -156,7 +151,7 @@ export async function createCompany(payload: CreateCompanyPayload): Promise<Comp
   }
 }
 
-export async function fetchCompanyDetails(companyId: string): Promise<CompanyDetail> {
+export async function fetchCompanyDetails(companyId: string): Promise<CompanySummary> {
   try {
     const response = await fetchFromBackend(`/api/admin/companies/${companyId}`);
     return response.company;

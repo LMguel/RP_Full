@@ -160,7 +160,11 @@ export function RecordsList({ records = [], loading = false }) {
                   {/* Data e hora */}
                   <p className="text-gray-900 font-semibold text-lg">
                     {date && !isNaN(date.getTime()) ? (
-                      date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      date.toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'America/Sao_Paulo' // Forçar fuso horário brasileiro
+                      })
                     ) : (
                       // Se não houver data válida, tentar mostrar qualquer campo de hora disponível
                       (record.hora || record.time || record.created_time || record.timestamp || record.data_hora || record.date_time || record.datetime || '') || '—'
@@ -168,7 +172,12 @@ export function RecordsList({ records = [], loading = false }) {
                   </p>
                   <p className="text-gray-700 text-sm">
                     {date && !isNaN(date.getTime()) ? (
-                      date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
+                      date.toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: 'long',
+                        year: 'numeric',
+                        timeZone: 'America/Sao_Paulo' // Forçar fuso horário brasileiro
+                      })
                     ) : (
                       (record.data || record.date || record.created_date || record.timestamp || record.data_hora || record.date_time || record.datetime) ? String(record.timestamp || record.data_hora || record.created_at || record.date_time || record.datetime) : '—'
                     )}

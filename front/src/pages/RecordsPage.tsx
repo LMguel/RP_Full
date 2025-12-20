@@ -43,7 +43,7 @@ import { apiService } from '../services/api';
 import { Employee } from '../types';
 
 interface EmployeeSummary {
-  funcionario_id: string;
+  employee_id: string;
   funcionario: string;
   funcionario_nome: string;
   horas_trabalhadas: number; // minutos
@@ -206,12 +206,12 @@ const RecordsSummaryPage: React.FC = () => {
       const params: {
         inicio?: string;
         fim?: string;
-        funcionario_id?: string;
+        employee_id?: string;
       } = {};
       
       if (dateRange.start_date) params.inicio = dateRange.start_date;
       if (dateRange.end_date) params.fim = dateRange.end_date;
-      if (selectedEmployeeId) params.funcionario_id = selectedEmployeeId;
+      if (selectedEmployeeId) params.employee_id = selectedEmployeeId;
 
       // Usar o novo endpoint de resumo que calcula tudo no backend
       console.log('📊 [API] Buscando resumo com params:', params);
@@ -266,9 +266,9 @@ const RecordsSummaryPage: React.FC = () => {
           }
 
           acc.push({
-            funcionario_id: item.funcionario_id || item.id,
-            funcionario: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
-            funcionario_nome: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.funcionario_id}`,
+            employee_id: item.employee_id || item.id,
+            funcionario: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.employee_id}`,
+            funcionario_nome: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.employee_id}`,
             horas_trabalhadas: horasTrabalhadas,
             horas_extras: horasExtras,
             atrasos,
@@ -326,9 +326,9 @@ const RecordsSummaryPage: React.FC = () => {
 
   // Navegação via clique na tabela de resumo
   const handleClickFuncionario = (summary: EmployeeSummary) => {
-    if (summary && summary.funcionario_id) {
+    if (summary && summary.employee_id) {
       const funcionarioNome = summary.funcionario || summary.funcionario_nome || 'Funcionário';
-      navigate(`/records/employee/${summary.funcionario_id}/${encodeURIComponent(funcionarioNome)}`);
+      navigate(`/records/employee/${summary.employee_id}/${encodeURIComponent(funcionarioNome)}`);
     } else {
       showSnackbar('ID do funcionário não encontrado', 'error');
     }
@@ -437,7 +437,7 @@ const RecordsSummaryPage: React.FC = () => {
   };
 
   const handleSaveRecord = async (recordData: {
-    funcionario_id: string;
+    employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
   }) => {
@@ -735,7 +735,7 @@ const RecordsSummaryPage: React.FC = () => {
                       </TableRow>
                     ) : (
                       employeeSummaries.map((summary, idx) => (
-                        <TableRow key={summary.funcionario_id} hover>
+                        <TableRow key={summary.employee_id} hover>
                           <TableCell component="th" scope="row" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                             <Typography 
                               variant="body2" 

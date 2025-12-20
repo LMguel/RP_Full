@@ -6,3 +6,5 @@ requests==2.31.0
 PyJWT==2.8.0
 bcrypt==4.3.0
 passlib==1.7.4
+tzdata==2025.3
+pytz==2024.1

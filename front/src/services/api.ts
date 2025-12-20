@@ -179,7 +179,7 @@ class ApiService {
   }
 
   async registerTimeManual(data: {
-    funcionario_id: string;
+    employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
   }) {
