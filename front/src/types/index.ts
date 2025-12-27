@@ -18,6 +18,10 @@ export interface Employee {
   data_cadastro: string;
   horario_entrada?: string;
   horario_saida?: string;
+  is_active?: boolean;
+  ativo?: boolean;
+  login?: string;
+  tolerancia_atraso?: number;
 }
 
 export interface HorarioPreset {
@@ -57,6 +61,10 @@ export interface TimeRecord {
   horas_trabalhadas_minutos?: number;
   horas_extras_formatado?: string;
   atraso_formatado?: string;
+  // Propriedades para cálculo detalhado de atraso
+  horario_padrao?: string;
+  horario_real?: string;
+  tolerancia?: number;
 }
 
 export interface LoginRequest {

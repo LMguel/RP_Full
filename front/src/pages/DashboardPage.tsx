@@ -913,7 +913,7 @@ const DashboardPage = () => {
                       <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Funcionário</TableCell>
                       <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Tipo</TableCell>
                       <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Horário</TableCell>
-                      <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Status</TableCell>
+                      {/* Status removido conforme solicitado */}
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -942,24 +942,7 @@ const DashboardPage = () => {
                           <TableCell sx={{ border: 'none', color: 'rgba(255,255,255,0.7)' }}>
                             {formatRecordTime(record.time)}
                           </TableCell>
-                          <TableCell sx={{ border: 'none' }}>
-                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                              {getDetailedStatus(record).map((status, idx) => (
-                                <Chip 
-                                  key={idx}
-                                  label={status.text}
-                                  size="small" 
-                                  sx={{
-                                    fontWeight: 500,
-                                    bgcolor: status.color === 'rgba(255, 255, 255, 0.6)' ? 'rgba(255, 255, 255, 0.1)' : `${status.color}20`,
-                                    color: status.color,
-                                    border: `1px solid ${status.color}40`,
-                                    fontSize: '0.7rem',
-                                  }}
-                                />
-                              ))}
-                            </Box>
-                          </TableCell>
+                          {/* Status coluna removida */}
                         </TableRow>
                       ))
                     ) : (

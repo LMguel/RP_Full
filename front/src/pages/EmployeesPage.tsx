@@ -79,7 +79,6 @@ const EmployeesPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const response = await apiService.getEmployees();
-      
       // Tentar diferentes formas de extrair a lista de funcionários
       let employeesList = [];
       if (response.funcionarios) {
@@ -91,13 +90,12 @@ const EmployeesPage: React.FC = () => {
       } else if (Array.isArray(response.data)) {
         employeesList = response.data;
       }
-      
+      // Não filtrar, exibir todos para mostrar status
       console.log('[EmployeesPage] Funcionários carregados:', employeesList);
       setEmployees(employeesList);
     } catch (err: any) {
       console.error('Error loading employees:', err);
       setError('Erro ao carregar funcionários');
-      // Não mostrar toast de erro no carregamento inicial para evitar spam
       if (employees.length === 0) {
         toast.error('Erro ao carregar funcionários');
       }
@@ -122,23 +120,40 @@ const EmployeesPage: React.FC = () => {
   const handleCreateEmployee = async (formData: FormData) => {
     try {
       setSubmitting(true);
+      // Gerar ID customizado: primeiro nome + _ + 4 dígitos aleatórios
+      const nome = formData.get('nome')?.toString() || '';
+      const firstName = nome.split(' ')[0]?.toLowerCase() || 'user';
+      const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 dígitos
+      const customId = `${firstName}_${randomNum}`;
+      formData.set('id', customId);
+
       const response = await apiService.createEmployee(formData);
-      
-      // Verificar se a resposta indica sucesso
-      if (response && (response.success || response.status === 'success' || response.message)) {
+      if (response && response.success) {
         toast.success('Funcionário cadastrado com sucesso!');
         setFormOpen(false);
-        loadEmployees();
+        // Adiciona o novo funcionário à lista local imediatamente
+        const newEmployee: Employee = {
+          id: response.id,
+          nome: response.nome,
+          cargo: response.cargo,
+          foto_url: response.foto_url || '',
+          data_cadastro: response.data_cadastro || '',
+          horario_entrada: response.horario_entrada || '',
+          horario_saida: response.horario_saida || '',
+          ativo: response.status !== false,
+          face_id: response.face_id || '',
+          empresa_nome: response.empresa_nome || '',
+          empresa_id: response.empresa_id || response.company_id || '',
+        };
+        setEmployees((prev) => [...prev, newEmployee]);
+        setFilteredEmployees((prev) => [...prev, newEmployee]);
       } else {
-        // Se não há indicação clara de sucesso, ainda assim considerar como sucesso se não houver erro
         toast.success('Funcionário cadastrado com sucesso!');
         setFormOpen(false);
         loadEmployees();
       }
     } catch (err: any) {
       console.error('Error creating employee:', err);
-      
-      // Verificar se é realmente um erro ou se foi criado com sucesso
       if (err.response?.status === 200 || err.response?.status === 201) {
         toast.success('Funcionário cadastrado com sucesso!');
         setFormOpen(false);
@@ -365,6 +380,9 @@ const EmployeesPage: React.FC = () => {
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Data de Cadastro
                     </TableCell>
+                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                      Status
+                    </TableCell>
                     <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Ações
                     </TableCell>
@@ -372,23 +390,30 @@ const EmployeesPage: React.FC = () => {
                 </TableHead>
                 <TableBody>
                   {filteredEmployees.length > 0 ? (
-                    filteredEmployees.map((employee) => (
-                      <TableRow key={employee.id} hover>
+                    filteredEmployees.map((employee) => {
+                      // Log para depuração: mostra se todos os dados esperados estão presentes
+                      console.log('[EmployeesPage] Renderizando funcionário:', {
+                        id: employee.id,
+                        nome: employee.nome,
+                        foto_url: employee.foto_url,
+                        cargo: employee.cargo,
+                        horario_entrada: employee.horario_entrada,
+                        horario_saida: employee.horario_saida,
+                        data_cadastro: employee.data_cadastro,
+                        ativo: employee.ativo,
+                        login: employee.login,
+                        empresa_nome: employee.empresa_nome,
+                        face_id: employee.face_id
+                      });
+                      return (
+                        <TableRow key={employee.id} hover>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar
                               src={employee.foto_url || undefined}
                               alt={employee.nome}
                               imgProps={{
-                                onError: (e: any) => {
-                                  console.error('[Avatar Error] Falha ao carregar foto para:', employee.nome);
-                                  console.error('  URL tentada:', employee.foto_url);
-                                  console.error('  Status:', e.target.complete ? 'loaded but error' : 'not loaded');
-                                  e.target.style.display = 'none';
-                                },
-                                onLoad: (e: any) => {
-                                  console.log('[Avatar Success] Foto carregada:', employee.nome, employee.foto_url);
-                                }
+                                onError: (e: any) => { e.target.style.display = 'none'; }
                               }}
                               sx={{ 
                                 width: 50, 
@@ -396,15 +421,10 @@ const EmployeesPage: React.FC = () => {
                                 border: '2px solid rgba(59, 130, 246, 0.3)',
                                 boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)',
                                 background: employee.foto_url ? 'transparent' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                transition: 'transform 0.2s',
-                                '&:hover': {
-                                  transform: 'scale(1.1)',
-                                  border: '2px solid rgba(59, 130, 246, 0.6)',
-                                },
                                 fontSize: '20px'
                               }}
                             >
-                              {!employee.foto_url && employee.nome.charAt(0).toUpperCase()}
+                              {!employee.foto_url && employee.nome?.charAt(0)?.toUpperCase()}
                             </Avatar>
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.9)' }}>
@@ -418,7 +438,7 @@ const EmployeesPage: React.FC = () => {
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Chip
-                            label={employee.cargo}
+                            label={employee.cargo || '-'}
                             size="small"
                             sx={{ 
                               background: 'rgba(59, 130, 246, 0.2)',
@@ -439,8 +459,11 @@ const EmployeesPage: React.FC = () => {
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">
-                            {formatDate(employee.data_cadastro)}
+                            {employee.data_cadastro ? formatDate(employee.data_cadastro) : '-'}
                           </Typography>
+                        </TableCell>
+                        <TableCell sx={{ color: employee.ativo === false ? 'red' : 'green', fontWeight: 600 }}>
+                          {employee.ativo === false ? 'Desativado' : 'Ativado'}
                         </TableCell>
                         <TableCell align="center">
                           <IconButton
@@ -452,8 +475,10 @@ const EmployeesPage: React.FC = () => {
                           </IconButton>
                         </TableCell>
                       </TableRow>
-                    ))
-                  ) : (
+                      );
+                    })
+                    )
+                   : (
                     <TableRow>
                       <TableCell 
                         colSpan={6} 

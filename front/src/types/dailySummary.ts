@@ -9,6 +9,7 @@ export interface DailySummary {
   first_entry_time?: string; // HH:MM:SS
   last_exit_time?: string; // HH:MM:SS
   worked_hours: number; // em horas decimais (ex: 8.5)
+  expected_hours?: number; // horas previstas para o dia
   difference_minutes: number; // positivo = extra, negativo = deficit
   status: 'normal' | 'late' | 'extra' | 'absent' | 'missing_exit' | 'incomplete' | 'compensated';
   overtime_minutes: number;
@@ -26,6 +27,7 @@ export interface TimeRecord {
   employee_name?: string;
   data_hora: string; // ISO string
   tipo: 'entrada' | 'saída';
+  type?: 'entrada' | 'saida' | 'saída';  // Novo campo padronizado
   metodo: 'automatico' | 'manual';
   foto?: string;
   location?: {

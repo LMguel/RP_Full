@@ -1,3 +1,14 @@
+// Função utilitária para calcular atraso considerando tolerância
+function calcularAtrasoComTolerancia(horarioPadrao: string, horarioReal: string, tolerancia: number): number {
+  // Exemplo: horarioPadrao = '07:30', horarioReal = '07:41', tolerancia = 10
+  const [padraoH, padraoM] = horarioPadrao.split(':').map(Number);
+  const [realH, realM] = horarioReal.split(':').map(Number);
+  const padraoMin = padraoH * 60 + padraoM;
+  const realMin = realH * 60 + realM;
+  const desvio = realMin - padraoMin;
+  if (desvio <= tolerancia) return 0; // dentro da tolerância, sem atraso
+  return desvio; // atraso integral a partir do horário de entrada
+}
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
@@ -136,7 +147,7 @@ const getStatusText = (tipo: string) => {
 };
 
 // Função para determinar o status detalhado do registro
-const getDetailedStatus = (record: TimeRecord) => {
+const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySettings: any) => {
   const statuses: Array<{ text: string; color: string }> = [];
 
   // Entrada antecipada
@@ -147,12 +158,61 @@ const getDetailedStatus = (record: TimeRecord) => {
     });
   }
 
-  // Atraso
-  if (record.atraso_minutos && record.atraso_minutos > 0) {
-    statuses.push({
-      text: `Atraso ${record.atraso_minutos} min`,
-      color: '#ef4444' // vermelho
-    });
+  // Atraso: usar horario_entrada e tolerancia_atraso do funcionário se disponíveis
+  // Buscar employee pelo estado React (employees)
+  const employee = employees.find((e: Employee) => e.id === record.funcionario_id);
+  // Usar horario_entrada do funcionário e tolerancia_atraso da company
+  const horarioEntrada = (employee && employee.horario_entrada) || record.horario_padrao;
+  const toleranciaAtraso = companySettings && typeof companySettings.tolerancia_atraso === 'number'
+    ? companySettings.tolerancia_atraso
+    : (companySettings && typeof companySettings.tolerancia_atraso === 'string' ? parseInt(companySettings.tolerancia_atraso) : 0);
+  const isEntrada = (record.type || record.tipo || '').toLowerCase() === 'entrada';
+  
+  // Extrair horário real do data_hora
+  let horarioReal: string | null = null;
+  if (record.data_hora) {
+    const dataHoraStr = String(record.data_hora);
+    const partes = dataHoraStr.split(' ');
+    if (partes.length >= 2) {
+      const horaParte = partes[1].split('T')[0] || partes[1]; // remover T se for ISO
+      const horaMatch = horaParte.match(/^(\d{1,2}):(\d{2})/);
+      if (horaMatch) {
+        horarioReal = `${horaMatch[1].padStart(2, '0')}:${horaMatch[2]}`;
+      }
+    }
+  }
+  
+  if (
+    isEntrada &&
+    horarioEntrada &&
+    horarioReal &&
+    typeof toleranciaAtraso === 'number'
+  ) {
+    const [padraoH, padraoM] = horarioEntrada.split(':').map(Number);
+    const [realH, realM] = horarioReal.split(':').map(Number);
+    const padraoMin = padraoH * 60 + padraoM;
+    const realMin = realH * 60 + realM;
+    const desvio = realMin - padraoMin;
+    // Log do atraso calculado
+    console.log(`Registro ${record.registro_id || ''} | Funcionário: ${record.funcionario_nome || ''} | Horário padrão: ${horarioEntrada} | Horário real: ${horarioReal} | Tolerância: ${toleranciaAtraso} | Atraso calculado: ${desvio} min`);
+    // Preferir o valor de atraso já calculado no backend quando disponível
+    // Caso contrário, calcular apenas o atraso além da tolerância (desvio - tolerância)
+    const atrasoMinutos = (record.atraso_minutos != null)
+      ? Number(record.atraso_minutos)
+      : (desvio > toleranciaAtraso ? (desvio - toleranciaAtraso) : 0);
+
+    if (atrasoMinutos > 0) {
+      statuses.push({
+        text: `Atraso ${atrasoMinutos} min (fora da tolerância)`,
+        color: '#ef4444'
+      });
+    } else if (desvio > 0) {
+      // Dentro da tolerância, não é considerado atraso
+      statuses.push({
+        text: `Pontual (dentro da tolerância)`,
+        color: '#fbbf24'
+      });
+    }
   }
 
   // Hora extra
@@ -190,6 +250,7 @@ const RecordsDetailedPage: React.FC = () => {
 
   // Estados principais
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [companySettings, setCompanySettings] = useState<any>(null);
   const [records, setRecords] = useState<TimeRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<TimeRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -401,7 +462,19 @@ const RecordsDetailedPage: React.FC = () => {
         showSnackbar('Erro ao carregar lista de funcionários', 'error');
       }
     };
+    
+    const fetchCompanySettings = async () => {
+      try {
+        const response = await apiService.getCompanySettings();
+        setCompanySettings(response);
+      } catch (err) {
+        console.error('Erro ao buscar configurações da empresa:', err);
+        // Não mostrar snackbar para configurações, usar valores padrão
+      }
+    };
+    
     fetchEmployees();
+    fetchCompanySettings();
   }, []);
 
   // Snackbar
@@ -466,14 +539,36 @@ const RecordsDetailedPage: React.FC = () => {
       } else if (method === 'LOCATION' || method === 'LOCALIZACAO' || method === 'GPS') {
         methodLabel = 'Localização';
       }
-      
+
+      // Cálculo do atraso integral para exportação
+      let atrasoExport = '';
+      if (
+        record.horario_padrao &&
+        record.horario_real &&
+        typeof record.tolerancia === 'number'
+      ) {
+        const atrasoIntegral = calcularAtrasoComTolerancia(record.horario_padrao, record.horario_real, record.tolerancia);
+        if (atrasoIntegral > 0) {
+          atrasoExport = `Atraso ${atrasoIntegral} min`;
+        }
+      } else if (record.atraso_minutos && record.atraso_minutos > 0) {
+        atrasoExport = `Atraso ${record.atraso_minutos} min`;
+      }
+
+      // Status detalhado, substituindo atraso se necessário
+      let statusList = getDetailedStatus(record, employees, companySettings).map(s => s.text);
+      if (atrasoExport) {
+        statusList = statusList.filter(s => !s.startsWith('Atraso'));
+        statusList.unshift(atrasoExport);
+      }
+
       return {
         'ID Registro': record.registro_id,
         'Nome Funcionário': record.funcionario_nome,
         'Data/Hora': formatDateTime(record.data_hora),
         'Tipo': record.type || record.tipo || '',
         'Método': methodLabel,
-        'Status': getDetailedStatus(record).map(s => s.text).join(', '),
+        'Status': statusList.join(', '),
       };
     });
 
@@ -984,7 +1079,7 @@ const RecordsDetailedPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                              {getDetailedStatus(record).map((status, idx) => (
+                              {getDetailedStatus(record, employees, companySettings).map((status, idx) => (
                                 <Chip
                                   key={idx}
                                   label={status.text}

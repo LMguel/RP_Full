@@ -21,9 +21,17 @@ def round_minutes(minutes, arredondamento):
     """Arredonda minutos conforme configuração"""
     if arredondamento == 'exato':
         return minutes
-    
-    interval = int(arredondamento)  # 5, 10 ou 15
-    return math.ceil(minutes / interval) * interval
+
+    try:
+        interval = int(arredondamento)  # 5, 10 ou 15
+    except Exception:
+        return minutes
+
+    # Usar o resto da divisão pelo intervalo para contar apenas os minutos além
+    # do bloco de arredondamento. Ex: 11min com intervalo 10 -> 1min.
+    if interval > 0:
+        return minutes % interval
+    return minutes
 
 def calculate_overtime(
     horario_entrada_esperado,
@@ -93,8 +101,18 @@ def calculate_overtime(
         diff_entrada = time_diff_minutes(entrada_esperado, entrada_real)
 
         if diff_entrada > tolerancia_atraso:  # Chegou ATRASADO (além da tolerância)
-            # Atraso = diferença - tolerância
-            resultado['atraso_minutos'] = diff_entrada - tolerancia_atraso
+            # Atraso = diferença total ou remainder do arredondamento quando configurado
+            try:
+                interval = 0 if arredondamento == 'exato' else int(arredondamento)
+            except Exception:
+                interval = 0
+
+            if interval and interval > 0:
+                # Usa o resto da divisão pelo intervalo (ex.: 11min com intervalo 10 -> 1)
+                resultado['atraso_minutos'] = diff_entrada % interval
+            else:
+                # Sem arredondamento, considera o atraso integral
+                resultado['atraso_minutos'] = diff_entrada
 
         elif diff_entrada < -tolerancia_atraso:  # Chegou MUITO ADIANTADO (antes da tolerância)
             entrada_antecipada = abs(diff_entrada)

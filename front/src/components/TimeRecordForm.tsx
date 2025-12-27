@@ -174,7 +174,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       // Buscar registros existentes do funcionário na mesma data
       try {
         const existingRecords = await apiService.getTimeRecords({
-          employee_id: formData.employee_id,
+          funcionario_id: formData.employee_id,
           inicio: dateStr,
           fim: dateStr
         });

@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Call backend API for authentication
-    const apiUrl = import.meta.env.VITE_API_URL || "https://192.168.1.107:5000";
+    const apiUrl = import.meta.env.VITE_API_URL || "http://192.168.1.2:5000";
     
     const response = await fetch(`${apiUrl}/api/auth/admin-login`, {
       method: "POST",

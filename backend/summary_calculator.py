@@ -243,7 +243,7 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         
         diff = time_diff_minutes(scheduled_start_time, entrada_time)
         if diff > tolerance:
-            delay_minutes = Decimal(diff - tolerance)
+            delay_minutes = Decimal(diff)  # atraso integral
     
     # Horas extras (considerando intervalos)
     if worked_hours > expected_hours:

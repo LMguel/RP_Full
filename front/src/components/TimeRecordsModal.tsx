@@ -66,6 +66,7 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
       absent: 'Ausente',
       missing_exit: 'Saída Não Registrada',
       incomplete: 'Incompleto',
+      compensated: 'Compensado',
     };
     return labels[status] || status;
   };
@@ -184,7 +185,7 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                     Horas Previstas
                   </Typography>
                   <Typography variant="body2" fontWeight={500}>
-                    {summary.expected_hours.toFixed(2)}h
+                    {(summary.expected_hours ?? 0).toFixed(2)}h
                   </Typography>
                 </Box>
 

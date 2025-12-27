@@ -790,10 +790,11 @@ def cadastrar_funcionario(payload):
             from auth import hash_password
             senha_hash = hash_password(senha)
         
-        # Criar ID único para o funcionário (normalizar nome para remover acentos)
-        nome_normalizado = normalizar_string(nome.lower().replace(' ', '_'))
-        funcionario_id = f"{nome_normalizado}_{uuid.uuid4().hex[:6]}"
-        print(f"[CADASTRO] Nome original: {nome}, Nome normalizado: {nome_normalizado}, ID: {funcionario_id}")
+        # Criar ID único para o funcionário: primeiro nome (sem acentos, minúsculo) + número aleatório
+        primeiro_nome = nome.strip().split(' ')[0]
+        primeiro_nome_normalizado = normalizar_string(primeiro_nome.lower())
+        funcionario_id = f"{primeiro_nome_normalizado}_{uuid.uuid4().hex[:4]}"
+        print(f"[CADASTRO] Nome original: {nome}, Primeiro nome normalizado: {primeiro_nome_normalizado}, ID: {funcionario_id}")
         
         # Dados da empresa a partir do token
         empresa_nome = payload.get('empresa_nome')
@@ -933,7 +934,11 @@ def cadastrar_funcionario(payload):
             "id": funcionario_id,
             "nome": nome,
             "cargo": cargo,
-            "foto_url": foto_url
+            "foto_url": foto_url,
+            "horario_entrada": horario_entrada,
+            "horario_saida": horario_saida,
+            "data_cadastro": data_hoje,
+            "status": True  # Ativado por padrão
         }), 201
 
     except Exception as e:
@@ -1287,28 +1292,40 @@ def listar_registros_resumo(payload):
         try:
             print(f"[DEBUG RESUMO] Iniciando busca de registros - Período: {data_inicio} até {data_fim}")
             registros_raw = []
-            func_ids = [f['id'] for f in funcionarios_filtrados][:10]  # Limitar a 10 funcionários para evitar timeout
+            func_ids = [f['id'] for f in funcionarios_filtrados]  # Removido limite para incluir todos os funcionários
             print(f"[DEBUG RESUMO] Buscando para {len(func_ids)} funcionários")
             # Buscar registros para cada funcionário (com limite)
             for i, func_id in enumerate(func_ids):
                 print(f"[DEBUG RESUMO] Processando funcionário {i+1}/{len(func_ids)}: {func_id}")
                 if data_inicio and data_fim:
-                    key_condition = Key('company_id').eq(empresa_id) & Key('employee_id#date_time').between(
-                        f"{func_id}#{data_inicio} 00:00:00",
-                        f"{func_id}#{data_fim} 23:59:59"
-                    )
-                    response = tabela_registros.query(
-                        KeyConditionExpression=key_condition,
+                    # Usar scan por company_id e intervalo de data (aceitar tanto 'date_time' quanto 'data_hora')
+                    start_ts = f"{data_inicio} 00:00:00"
+                    end_ts = f"{data_fim} 23:59:59"
+                    date_filter = Attr('date_time').between(start_ts, end_ts) | Attr('data_hora').between(start_ts, end_ts)
+                    response = tabela_registros.scan(
+                        FilterExpression=Attr('company_id').eq(empresa_id) & date_filter,
                         Limit=500
                     )
                 else:
-                    # Corrigir para employee_id
-                    filtro = Attr('company_id').eq(empresa_id) & Attr('employee_id').eq(func_id)
+                    # Buscar por company_id e filtrar o employee_id localmente (alguns registros usam employee_id#date_time como chave)
                     response = tabela_registros.scan(
-                        FilterExpression=filtro,
+                        FilterExpression=Attr('company_id').eq(empresa_id),
                         Limit=200
                     )
                 items = response.get('Items', [])
+                # Filtrar itens para incluir tanto registros com atributo `employee_id`
+                # quanto registros que usam a chave composta `employee_id#date_time`
+                filtered_items = []
+                for it in items:
+                    emp_field = it.get('employee_id')
+                    composite = it.get('employee_id#date_time') or it.get('employee_id_date_time') or ''
+                    if emp_field and str(emp_field) == str(func_id):
+                        filtered_items.append(it)
+                        continue
+                    if composite and str(composite).startswith(f"{func_id}#"):
+                        filtered_items.append(it)
+                        continue
+                items = filtered_items
                 print(f"[DEBUG RESUMO] Funcionário {func_id}: {len(items)} registros")
                 registros_raw.extend(items)
             print(f"[DEBUG RESUMO] Registros raw encontrados: {len(registros_raw)}")
@@ -1373,7 +1390,7 @@ def listar_registros_resumo(payload):
         print(f"[DEBUG RESUMO] Calculando resumo para {len(funcionarios_filtrados)} funcionários")
         
         # Limitar processamento para evitar timeout
-        max_funcionarios = 20  
+        max_funcionarios = 50  # Aumentado para 50 funcionários  
         funcionarios_processados = 0
         
         for funcionario in funcionarios_filtrados:
@@ -1402,19 +1419,42 @@ def listar_registros_resumo(payload):
                     # Encontrar primeira entrada e última saída
                     entrada = None
                     saida = None
-                    
+
+                    def _normalize_type(t):
+                        if not t:
+                            return ''
+                        s = str(t).strip().lower()
+                        s = s.replace('á', 'a').replace('ã', 'a').replace('â', 'a')
+                        return s
+
                     for reg in regs_do_dia:
-                        reg_tipo = reg.get('tipo', '')
-                        if reg_tipo == 'entrada' and not entrada:
+                        reg_tipo = _normalize_type(reg.get('tipo') or reg.get('type') or '')
+                        # Considerar vários formatos comuns
+                        is_entry = reg_tipo in ('entrada', 'in', 'retorno', 'return') or reg_tipo.startswith('entrada') or reg_tipo.startswith('retorno') or 'entry' in reg_tipo
+                        is_exit = reg_tipo in ('saida', 'saída', 'out', 'intervalo', 'break_start') or reg_tipo.startswith('saida') or reg_tipo.startswith('intervalo') or 'out' in reg_tipo
+
+                        if is_entry and not entrada:
                             entrada = reg['data_hora']
-                        elif reg_tipo in ('saída', 'saida'):
+                        if is_exit:
+                            # sempre atualizar para última saída encontrada
                             saida = reg['data_hora']
                     
                     if entrada and saida:
                         try:
-                            # Converter para datetime
-                            entrada_dt = datetime.strptime(entrada, '%d-%m-%Y %H:%M:%S')
-                            saida_dt = datetime.strptime(saida, '%d-%m-%Y %H:%M:%S')
+                            # Converter para datetime (aceitar com e sem segundos)
+                            def _try_parse_dt(value):
+                                for fmt in ('%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M'):
+                                    try:
+                                        return datetime.strptime(value, fmt)
+                                    except Exception:
+                                        continue
+                                try:
+                                    return datetime.fromisoformat(value)
+                                except Exception:
+                                    raise ValueError(f"Formato de data inesperado: {value}")
+
+                            entrada_dt = _try_parse_dt(entrada)
+                            saida_dt = _try_parse_dt(saida)
                             
                             # Calcular horas trabalhadas brutas
                             horas_brutas = saida_dt - entrada_dt
@@ -1430,9 +1470,12 @@ def listar_registros_resumo(payload):
                                     entrada_esperada = datetime.strptime(f"{data} {horario_entrada_esperado}", '%d-%m-%Y %H:%M')
                                     saida_esperada = datetime.strptime(f"{data} {horario_saida_esperado}", '%d-%m-%Y %H:%M')
                                     
-                                    # Atraso (descontando tolerância)
-                                    atraso_real = max(0, int((entrada_dt - entrada_esperada).total_seconds() / 60))
-                                    atraso_min = max(0, atraso_real - tolerancia_atraso)
+                                    # Atraso: minutos além da tolerância (desvio - tolerância)
+                                    atraso_real = int((entrada_dt - entrada_esperada).total_seconds() / 60)
+                                    atraso_min = atraso_real - tolerancia_atraso
+                                    if atraso_min < 0:
+                                        atraso_min = 0
+                                    print(f"[DEBUG RESUMO] Entrada esperada: {entrada_esperada.strftime('%d-%m-%Y %H:%M')}, Entrada real: {entrada_dt.strftime('%d-%m-%Y %H:%M')}, Desvio: {atraso_real}min, Tolerancia: {tolerancia_atraso}min, Atraso calculado: {atraso_min}min")
                                     
                                     # Horas extras após saída esperada
                                     if saida_dt > saida_esperada:
@@ -1441,7 +1484,8 @@ def listar_registros_resumo(payload):
                                         
                                         # Arredondar horas extras
                                         if arredondamento_horas_extras > 0:
-                                            horas_extras_min_calc = (horas_extras_min_calc // arredondamento_horas_extras) * arredondamento_horas_extras
+                                            # Contar apenas minutos além do bloco de arredondamento (ex: 11 -> 1 quando intervalo=10)
+                                            horas_extras_min_calc = horas_extras_min_calc % arredondamento_horas_extras
                                         
                                         horas_extras_min = horas_extras_min_calc
                                     else:
@@ -1452,7 +1496,7 @@ def listar_registros_resumo(payload):
                                         antecipacao = entrada_esperada - entrada_dt
                                         antecipacao_min = int(antecipacao.total_seconds() / 60)
                                         if arredondamento_horas_extras > 0:
-                                            antecipacao_min = (antecipacao_min // arredondamento_horas_extras) * arredondamento_horas_extras
+                                            antecipacao_min = antecipacao_min % arredondamento_horas_extras
                                         horas_extras_min += antecipacao_min
                                     
                                     # Horas trabalhadas = horário esperado (se trabalhou pelo menos isso)
@@ -1477,6 +1521,9 @@ def listar_registros_resumo(payload):
                         except Exception as e:
                             print(f"[DEBUG RESUMO] Erro ao calcular horas para {func_id} em {data}: {str(e)}")
             
+            # Calcular total de registros
+            total_registros = sum(len(regs_do_dia) for regs_do_dia in registros_por_funcionario_data.get(func_id, {}).values())
+            
             # Formatar para HH:MM
             def min_para_hhmm(minutos):
                 horas = minutos // 60
@@ -1491,7 +1538,8 @@ def listar_registros_resumo(payload):
                 'atrasos': min_para_hhmm(total_atrasos_min),
                 'horas_trabalhadas_minutos': total_horas_trabalhadas_min,
                 'horas_extras_minutos': total_horas_extras_min,
-                'atraso_minutos': total_atrasos_min
+                'atraso_minutos': total_atrasos_min,
+                'total_registros': total_registros
             })
             
             funcionarios_processados += 1
@@ -1519,10 +1567,24 @@ def listar_funcionarios(payload):
         response_func = tabela_funcionarios.scan(FilterExpression=filtro_func)
         funcionarios = response_func.get('Items', [])
         # Padronizar para id/nome
-        funcionarios_list = [
-            {'id': f.get('id'), 'nome': f.get('nome', '')}
-            for f in funcionarios
-        ]
+        # Retornar todos os campos relevantes de cada funcionário
+        funcionarios_list = []
+        for f in funcionarios:
+            funcionario_dict = {
+                'id': f.get('id'),
+                'nome': f.get('nome', ''),
+                'cargo': f.get('cargo'),
+                'foto_url': f.get('foto_url'),
+                'data_cadastro': f.get('data_cadastro'),
+                'horario_entrada': f.get('horario_entrada'),
+                'horario_saida': f.get('horario_saida'),
+                'ativo': f.get('ativo', f.get('is_active', True)),
+                'face_id': f.get('face_id'),
+                'empresa_nome': f.get('empresa_nome'),
+                'empresa_id': f.get('empresa_id', f.get('company_id')),
+                'login': f.get('login'),
+            }
+            funcionarios_list.append(funcionario_dict)
         return jsonify({'funcionarios': funcionarios_list})
     except Exception as e:
         print(f"[FUNCIONARIOS] Erro ao buscar funcionários: {str(e)}")
@@ -1623,6 +1685,49 @@ def registrar_ponto_manual(payload):
     # Tabela TimeRecords usa: company_id (HASH) + employee_id#date_time (RANGE)
     sort_key = f"{employee_id}#{data_hora}"
     
+    # Buscar configurações da empresa
+    config_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+    configuracoes = config_response.get('Item', {
+        'tolerancia_atraso': 5,
+        'hora_extra_entrada_antecipada': False,
+        'arredondamento_horas_extras': '5',
+        'intervalo_automatico': False,
+        'duracao_intervalo': 60
+    })
+
+    # Ajuste de tolerância de atraso para ENTRADA
+
+    if tipo == 'entrada':
+        horario_entrada_esperado = funcionario.get('horario_entrada')
+        tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
+        if horario_entrada_esperado:
+            from datetime import datetime, timedelta
+            data_str, hora_str = data_hora.split(' ')
+            # Aceita tanto HH:MM quanto HH:MM:SS
+            def parse_hora(h):
+                try:
+                    return datetime.strptime(h, '%H:%M')
+                except Exception:
+                    return datetime.strptime(h, '%H:%M:%S')
+            # Monta data completa para comparar
+            try:
+                entrada_real = datetime.strptime(data_hora, '%Y-%m-%d %H:%M')
+            except ValueError:
+                entrada_real = datetime.strptime(data_hora, '%Y-%m-%d %H:%M:%S')
+            # Monta horário esperado completo
+            try:
+                entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
+            except ValueError:
+                entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
+            diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
+            if diff_min <= tolerancia_atraso:
+                # Dentro da tolerância: arredonda para o horário esperado
+                data_hora = f"{data_str} {horario_entrada_esperado}"
+            elif diff_min <= tolerancia_atraso + 5:
+                # Até 5 minutos após a tolerância: registra o ponto real, mas não conta atraso
+                pass  # data_hora permanece, atraso será 0 no cálculo
+            # Se passar de tolerancia+5, atraso será calculado normalmente
+
     # Preparar o registro base
     registro = {
         'company_id': empresa_id,           # Partition key

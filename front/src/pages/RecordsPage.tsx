@@ -208,7 +208,8 @@ const RecordsSummaryPage: React.FC = () => {
         fim?: string;
         employee_id?: string;
       } = {};
-      
+
+      // Enviar datas no formato ISO YYYY-MM-DD (mesmo formato salvo no banco)
       if (dateRange.start_date) params.inicio = dateRange.start_date;
       if (dateRange.end_date) params.fim = dateRange.end_date;
       if (selectedEmployeeId) params.employee_id = selectedEmployeeId;
@@ -235,40 +236,66 @@ const RecordsSummaryPage: React.FC = () => {
       // Processar resposta do endpoint de resumo
       if (Array.isArray(response)) {
         summaries = response.reduce((acc: EmployeeSummary[], item: any) => {
-          const horasTrabalhadas = toNumber(
-            item.horas_trabalhadas_minutos ?? item.total_minutos_trabalhados ?? item.horas_trabalhadas
-          );
-          const horasExtras = toNumber(
-            item.horas_extras_minutos ?? item.total_minutos_extras ?? item.horas_extras
-          );
-          const atrasos = toNumber(
-            item.atraso_minutos ?? item.total_minutos_atraso ?? item.atrasos
-          );
+          const parseHHMMToMinutes = (val: any) => {
+            if (typeof val === 'string' && /^\d{1,3}:\d{2}$/.test(val)) {
+              const [h, m] = val.split(':').map(Number);
+              return h * 60 + m;
+            }
+            return null;
+          };
+
+          // Horas trabalhadas: prefer minute field, otherwise parse HH:MM
+          let horasTrabalhadas = 0;
+          if (item.horas_trabalhadas_minutos != null) {
+            horasTrabalhadas = toNumber(item.horas_trabalhadas_minutos);
+          } else if (item.total_minutos_trabalhados != null) {
+            horasTrabalhadas = toNumber(item.total_minutos_trabalhados);
+          } else if (typeof item.horas_trabalhadas === 'string') {
+            const parsed = parseHHMMToMinutes(item.horas_trabalhadas);
+            horasTrabalhadas = parsed != null ? parsed : toNumber(item.horas_trabalhadas);
+          } else {
+            horasTrabalhadas = toNumber(item.horas_trabalhadas);
+          }
+
+          const horasExtras = (() => {
+            if (item.horas_extras_minutos != null) return toNumber(item.horas_extras_minutos);
+            if (item.total_minutos_extras != null) return toNumber(item.total_minutos_extras);
+            if (typeof item.horas_extras === 'string') {
+              const parsed = parseHHMMToMinutes(item.horas_extras);
+              return parsed != null ? parsed : toNumber(item.horas_extras);
+            }
+            return toNumber(item.horas_extras);
+          })();
+          // Ajuste: garantir que o campo de atraso some o atraso integral do dia, não só o excesso
+          // Preferir atraso_minutos, que deve ser o atraso integral já calculado pelo backend
+          const atrasos = (() => {
+            if (item.atraso_minutos != null) return toNumber(item.atraso_minutos);
+            if (item.delay_minutes != null) return toNumber(item.delay_minutes);
+            if (item.total_minutos_atraso != null) return toNumber(item.total_minutos_atraso);
+            if (typeof item.atrasos === 'string') {
+              const parsed = parseHHMMToMinutes(item.atrasos);
+              return parsed != null ? parsed : toNumber(item.atrasos);
+            }
+            return toNumber(item.atrasos);
+          })();
           const totalRegistros = toNumber(
             item.total_registros ??
             item.totalRegistros ??
             item.total_registros_periodo ??
             item.registros_count ??
+            item.total_registros ??
             (Array.isArray(item.registros) ? item.registros.length : 0)
           );
 
-          const hasRegistros =
-            totalRegistros > 0 ||
-            horasTrabalhadas > 0 ||
-            horasExtras > 0 ||
-            atrasos > 0 ||
-            (Array.isArray(item.registros) && item.registros.length > 0) ||
-            item.tem_registro === true ||
-            item.possui_registros === true;
+          // Não filtrar por "hasRegistros" aqui — aceitar todos os itens retornados pela API
 
-          if (!hasRegistros) {
-            return acc;
-          }
+          const employeeId = item.employee_id ?? item.funcionario_id ?? item.funcionarioId ?? item.id;
+          const funcName = item.funcionario_nome ?? item.funcionario ?? item.nome ?? item.employee_name ?? employeeId;
 
           acc.push({
-            employee_id: item.employee_id || item.id,
-            funcionario: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.employee_id}`,
-            funcionario_nome: item.funcionario_nome || item.funcionario || item.nome || `Funcionário ${item.employee_id}`,
+            employee_id: employeeId,
+            funcionario: funcName,
+            funcionario_nome: funcName,
             horas_trabalhadas: horasTrabalhadas,
             horas_extras: horasExtras,
             atrasos,
@@ -351,26 +378,31 @@ const RecordsSummaryPage: React.FC = () => {
         end_date: getLastDayOfMonth(month)
       });
     } else {
-      // Se mês for limpo, limpar também as datas
-      setDateRange({
-        start_date: currentMonthStart.toISOString().split('T')[0],
-        end_date: currentMonthEnd.toISOString().split('T')[0]
-      });
+      // Se mês for limpo, remover filtro de datas para mostrar todos os registros
+      setDateRange({ start_date: '', end_date: '' });
     }
   };
 
   const handleDateRangeChange = (newRange: typeof dateRange) => {
-    setDateRange(newRange);
-    
-    // Atualizar mês selecionado se as datas estão no mesmo mês
-    if (newRange.start_date && newRange.end_date) {
-      const monthFromDate = getMonthFromDate(newRange.start_date);
-      const monthToDate = getMonthFromDate(newRange.end_date);
+    // Normalizar valores nulos/undefined para string vazia
+    const normalized = {
+      start_date: newRange.start_date || '',
+      end_date: newRange.end_date || ''
+    };
+
+    setDateRange(normalized);
+
+    // Atualizar mês selecionado se as datas estão no mesmo mês, senão limpar
+    if (normalized.start_date && normalized.end_date) {
+      const monthFromDate = getMonthFromDate(normalized.start_date);
+      const monthToDate = getMonthFromDate(normalized.end_date);
       if (monthFromDate === monthToDate) {
         setSelectedMonth(monthFromDate);
       } else {
         setSelectedMonth('');
       }
+    } else {
+      setSelectedMonth('');
     }
   };
 

@@ -234,15 +234,24 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const formDataToSend = new FormData();
     formDataToSend.append('nome', formData.nome);
     formDataToSend.append('cargo', formData.cargo);
-    
+
+    // Gerar login e id: primeiro nome em minúsculo + _ + número aleatório
+    // Normalizar primeiro nome (remover acentos e caracteres especiais)
+    let firstName = formData.nome.trim().split(' ')[0]?.toLowerCase() || 'user';
+    firstName = firstName.normalize('NFD').replace(/[^a-z0-9_]/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 dígitos
+    const login = `${firstName}_${randomNum}`;
+    formDataToSend.append('login', login);
+    formDataToSend.append('id', login);
+
     if (formData.senha && formData.senha.trim()) {
       formDataToSend.append('senha', formData.senha);
     }
-    
+
     if (photo) {
       formDataToSend.append('foto', photo);
     }
-    
+
     if (formData.horario_entrada) {
       formDataToSend.append('horario_entrada', formData.horario_entrada);
     }

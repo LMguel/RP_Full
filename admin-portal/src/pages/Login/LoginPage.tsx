@@ -13,6 +13,8 @@ export function LoginPage() {
   const location = useLocation();
   const { login, isAuthenticated, loading } = useAuth();
   const [formState, setFormState] = useState({ login: "", password: "" });
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/dashboard";
@@ -29,6 +31,13 @@ export function LoginPage() {
     try {
       await login(formState);
       toast.success("Login realizado com sucesso.");
+      if (rememberMe) {
+        localStorage.setItem("login", formState.login);
+        localStorage.setItem("password", formState.password);
+      } else {
+        localStorage.removeItem("login");
+        localStorage.removeItem("password");
+      }
       navigate(from, { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível realizar o login.";
@@ -37,6 +46,15 @@ export function LoginPage() {
       setSubmitting(false);
     }
   }
+
+  useEffect(() => {
+    const savedLogin = localStorage.getItem("login") || "";
+    const savedPassword = localStorage.getItem("password") || "";
+    if (savedLogin || savedPassword) {
+      setFormState({ login: savedLogin, password: savedPassword });
+      setRememberMe(true);
+    }
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-blue-50 to-blue-100 p-4">
@@ -63,16 +81,38 @@ export function LoginPage() {
 
             <div className="space-y-2">
               <Label htmlFor="password" className="text-sm font-medium text-gray-700">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={formState.password}
-                autoComplete="current-password"
-                onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
-                className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                required
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={formState.password}
+                  autoComplete="current-password"
+                  onChange={(event) => setFormState((prev) => ({ ...prev, password: event.target.value }))}
+                  className="border-gray-300 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 px-3 flex items-center text-sm text-gray-500 focus:outline-none"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                >
+                  {showPassword ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="rememberMe"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={() => setRememberMe((prev) => !prev)}
+                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               />
+              <Label htmlFor="rememberMe" className="ml-2 text-sm text-gray-700">Salvar login e senha</Label>
             </div>
 
             <Button 

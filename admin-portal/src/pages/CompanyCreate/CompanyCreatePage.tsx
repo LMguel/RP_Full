@@ -8,21 +8,24 @@ import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { createCompany, type CreateCompanyPayload } from "../../services/api";
 
-const initialForm: CreateCompanyPayload = {
+type ExtendedCreateCompanyPayload = CreateCompanyPayload & { phone?: string };
+
+const initialForm: ExtendedCreateCompanyPayload = {
   userId: "",
   companyName: "",
   email: "",
   password: "",
   confirmPassword: "",
   expectedEmployees: 0,
+  phone: "",
 };
 
 export function CompanyCreatePage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState<CreateCompanyPayload>(initialForm);
+  const [form, setForm] = useState<ExtendedCreateCompanyPayload>(initialForm);
   const [submitting, setSubmitting] = useState(false);
 
-  function handleChange(field: keyof CreateCompanyPayload) {
+  function handleChange(field: keyof ExtendedCreateCompanyPayload) {
     return (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setForm((prev) => ({ ...prev, [field]: event.target.value }));
     };
@@ -32,7 +35,8 @@ export function CompanyCreatePage() {
     event.preventDefault();
     setSubmitting(true);
     try {
-      await createCompany(form);
+      // Envia o campo phone junto, se existir
+      await createCompany({ ...form });
       toast.success("Empresa cadastrada com sucesso.");
       setForm(initialForm);
       navigate("/companies", { replace: true });
@@ -97,6 +101,18 @@ export function CompanyCreatePage() {
               onChange={handleChange("expectedEmployees")}
               placeholder="Ex: 20"
               min="0"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="phone">Telefone</Label>
+            <Input
+              id="phone"
+              type="tel"
+              value={form.phone || ""}
+              onChange={handleChange("phone")}
+              placeholder="(99) 99999-9999"
+              maxLength={20}
             />
           </div>
 

@@ -186,39 +186,46 @@ const TimeTrackingSettings: React.FC = () => {
                   variant="subtitle2" 
                   sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
                 >
-                  Tolerância de Atraso
+                  Tolerância de Ponto (Legal)
                 </Typography>
               </Box>
               <Typography 
                 variant="caption" 
-                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
+                sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, display: 'block' }}
               >
-                Minutos de atraso não contabilizados
+                Conforme CLT Art. 58, §1º e Súmula 366 do TST, a tolerância máxima permitida é de <b>10 minutos por dia</b> (somatório de atrasos e antecipações).<br />
+                Não é permitido configurar valores acima de 10 minutos ou tolerância separada para entrada/saída.
               </Typography>
-              <TextField
-                type="number"
-                value={settings.tolerancia_atraso}
-                onChange={(e) => setSettings({ ...settings, tolerancia_atraso: parseInt(e.target.value) || 0 })}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">min</InputAdornment>,
-                  inputProps: { min: 0, max: 60 },
-                }}
-                fullWidth
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.2)',
+              <FormControl fullWidth sx={{ mt: 1 }}>
+                <InputLabel id="tolerancia-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Tolerância</InputLabel>
+                <Select
+                  labelId="tolerancia-label"
+                  value={settings.tolerancia_atraso}
+                  label="Tolerância"
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    setSettings({ ...settings, tolerancia_atraso: value });
+                  }}
+                  sx={{
+                    color: 'rgba(255,255,255,0.9)',
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(255,255,255,0.2)',
                     },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(255,255,255,0.3)',
                     },
-                    '&.Mui-focused fieldset': {
-                      borderColor: '#3b82f6',
-                    },
-                  },
-                }}
-              />
+                  }}
+                >
+                  <MenuItem value={0}>0 minutos</MenuItem>
+                  <MenuItem value={5}>5 minutos</MenuItem>
+                  <MenuItem value={10}>10 minutos (máximo legal)</MenuItem>
+                </Select>
+              </FormControl>
+              {settings.tolerancia_atraso > 10 && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  Valor acima do permitido pela legislação. Ajuste para até 10 minutos.
+                </Alert>
+              )}
             </Box>
           </Grid>
 

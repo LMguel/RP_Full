@@ -261,8 +261,7 @@ const RecordsFilters: React.FC<RecordsFiltersProps> = ({
                     </FormControl>
                   </Grid>
                 )}
-                
-
+              </>
             ) : (
               /* Filtros para vista individual */
               isIndividualView && (
