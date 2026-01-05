@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import Hero from './components/Hero'
 import Trust from './components/Trust'
+import Benefits from './components/Benefits'
 import Problems from './components/Problems'
 import Solution from './components/Solution'
 import HowItWorks from './components/HowItWorks'
@@ -30,7 +31,8 @@ export default function App(){
     <div className="site-bg min-h-screen text-gray-100">
       <div className="site-content">
       <Hero onRequestDemo={openDemo} />
-      <main className="max-w-6xl mx-auto px-6 md:px-8">
+      <main className="max-w-6xl mx-auto px-4 md:px-8">
+        <Reveal><Benefits onRequestDemo={openDemo} /></Reveal>
         <Reveal><Trust /></Reveal>
         <Reveal delay={0.06}><Problems /></Reveal>
         <Reveal delay={0.08}><Solution /></Reveal>

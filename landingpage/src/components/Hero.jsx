@@ -25,21 +25,20 @@ export default function Hero({onRequestDemo}){
           </div>
         </div>
       </div>
-      <div className="max-w-6xl mx-auto px-6 py-20">
+      <div className="max-w-6xl mx-auto px-4 pt-20 sm:pt-16 md:pt-20 pb-12">
         <div className="relative flex items-start justify-between">
           {/* theme toggle removed */}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center w-full">
-            <motion.div initial={{opacity:0, x:-30}} animate={{opacity:1,x:0}} transition={{duration:0.6}}>
-              <h1 className="text-3xl md:text-5xl font-extrabold leading-tight">Controle de ponto inteligente com reconhecimento facial e geolocalização</h1>
-              <p className="mt-6 text-lg text-gray-200 dark:text-gray-300">Automatize o controle de jornada, evite fraudes e tenha total controle das horas trabalhadas — tudo em um único sistema.</p>
+            <motion.div initial={{opacity:0, x:-20}} animate={{opacity:1,x:0}} transition={{duration:0.5}}>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold leading-tight">Controle de ponto sem fraude com reconhecimento facial e localização</h1>
+              <p className="mt-3 text-base text-gray-200">Registre ponto pelo celular com validação facial e GPS — reduza fraudes, simplifique folha e tenha relatórios automáticos.</p>
 
-              <div className="mt-8 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <button onClick={onRequestDemo} className="inline-block bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg">Agendar demonstração gratuita</button>
-                <a href="#como-funciona" className="text-gray-300 hover:text-white">Ver como funciona →</a>
+              <div className="mt-5">
+                <button onClick={onRequestDemo} className="w-full sm:inline-block bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-lg shadow-lg btn-touch">Testar grátis por 15 dias</button>
               </div>
 
-              <div className="mt-3 text-sm text-gray-300">Sistema em uso piloto em ambiente real • Desenvolvido no Brasil • Suporte local</div>
+              <div className="mt-3 text-sm text-gray-300">Em uso piloto em ambiente real • Suporte local</div>
             </motion.div>
 
             <motion.div initial={{opacity:0, scale:0.96}} whileHover={{scale:1.02}} animate={{opacity:1, scale:1}} transition={{duration:0.6}} className="p-4">

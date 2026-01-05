@@ -70,6 +70,9 @@ body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 
 .gradient-btn{ background: linear-gradient(90deg,#0f6bff,#6b46ff); background-size: 200% 100%; transition: background-position 0.6s ease, transform 150ms ease; }
 .gradient-btn:hover{ background-position:100% 0; box-shadow: 0 10px 30px rgba(15,107,255,0.18); transform: translateY(-3px); }
 
+/* Accessible touch targets for CTAs */
+.btn-touch{ min-height:44px; display:inline-flex; align-items:center; justify-content:center }
+
 /* utility to ensure content sits above background overlay */
 .site-content{ position:relative; z-index:10 }
 
