@@ -122,12 +122,29 @@ export default function RegistroPontoPage() {
       console.log('Tipo:', tipo);
       console.log('========================');
 
+      // build dataHoraString in São Paulo timezone (same logic used by kiosk)
+      const getSaoPauloDateTime = () => {
+        const now = new Date();
+        const saoPauloOffset = -3; // UTC-3 (São Paulo)
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        return new Date(utc + (saoPauloOffset * 3600000));
+      };
 
+      const dtSP = getSaoPauloDateTime();
+      const ano = dtSP.getFullYear();
+      const mes = String(dtSP.getMonth() + 1).padStart(2, '0');
+      const dia = String(dtSP.getDate()).padStart(2, '0');
+      const hora = String(dtSP.getHours()).padStart(2, '0');
+      const minuto = String(dtSP.getMinutes()).padStart(2, '0');
+      const segundo = String(dtSP.getSeconds()).padStart(2, '0');
+      const dataHoraString = `${ano}-${mes}-${dia} ${hora}:${minuto}:${segundo}`;
 
       const response = await apiService.registerPointByLocation(
         coords.latitude,
         coords.longitude,
-        tipo
+        tipo,
+        dataHoraString,
+        coords.accuracy
       );
 
       if (response.success) {

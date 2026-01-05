@@ -6,8 +6,9 @@ function calcularAtrasoComTolerancia(horarioPadrao: string, horarioReal: string,
   const padraoMin = padraoH * 60 + padraoM;
   const realMin = realH * 60 + realM;
   const desvio = realMin - padraoMin;
-  if (desvio <= tolerancia) return 0; // dentro da tolerância, sem atraso
-  return desvio; // atraso integral a partir do horário de entrada
+  // atraso efetivo é o desvio além da tolerância
+  const atraso = desvio - (Number.isFinite(tolerancia) ? tolerancia : 0);
+  return Math.max(0, Math.trunc(atraso));
 }
 /// <reference types="vite/client" />
 
@@ -161,56 +162,167 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
   // Atraso: usar horario_entrada e tolerancia_atraso do funcionário se disponíveis
   // Buscar employee pelo estado React (employees)
   const employee = employees.find((e: Employee) => e.id === record.funcionario_id);
-  // Usar horario_entrada do funcionário e tolerancia_atraso da company
-  const horarioEntrada = (employee && employee.horario_entrada) || record.horario_padrao;
-  const toleranciaAtraso = companySettings && typeof companySettings.tolerancia_atraso === 'number'
-    ? companySettings.tolerancia_atraso
-    : (companySettings && typeof companySettings.tolerancia_atraso === 'string' ? parseInt(companySettings.tolerancia_atraso) : 0);
+  // Preparar candidatos a horário padrão (entrada/saída) e função utilitária de extração
+  const horarioEntradaCandidates = [
+    employee && (employee as any).horario_entrada,
+    (record as any).horario_padrao,
+    (record as any).horario_previsto,
+    (record as any).horario_agendado,
+    companySettings && companySettings.horario_padrao
+  ].filter(Boolean as any);
+
+  const horarioSaidaCandidates = [
+    employee && (employee as any).horario_saida,
+    (record as any).horario_saida,
+    (record as any).horario_padrao,
+    companySettings && companySettings.horario_saida
+  ].filter(Boolean as any);
+
+  const extractTime = (value?: any): string | null => {
+    if (value == null) return null;
+    const s = String(value).trim();
+    // Padrões: HH:MM, HH:MM:SS, HHhMM, dentro de datetime, com ',' etc.
+    const m1 = s.match(/(\d{1,2})[:h](\d{2})/);
+    if (m1) return `${m1[1].padStart(2, '0')}:${m1[2]}`;
+    const m2 = s.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+    if (m2) return `${m2[1].padStart(2, '0')}:${m2[2]}`;
+    const m3 = s.match(/(\d{2})\/(\d{2})\/(\d{4})[,\s]+(\d{1,2}):(\d{2})/);
+    if (m3) return `${m3[4].padStart(2, '0')}:${m3[5]}`;
+    const mt = s.match(/(\d{1,2}):(\d{2})/);
+    if (mt) return `${mt[1].padStart(2, '0')}:${mt[2]}`;
+    return null;
+  };
+
+  let horarioEntrada: string | null = null;
+  for (const cand of horarioEntradaCandidates) {
+    const t = extractTime(cand);
+    if (t) { horarioEntrada = t; break; }
+  }
+
+  let horarioSaida: string | null = null;
+  for (const cand of horarioSaidaCandidates) {
+    const t = extractTime(cand);
+    if (t) { horarioSaida = t; break; }
+  }
+
+  // Determinar tolerância: priorizar record.tolerancia, depois funcionário, depois configurações da empresa
+  let toleranciaAtraso: number = 0;
+  if (record && record.tolerancia != null && !isNaN(Number(record.tolerancia))) {
+    toleranciaAtraso = Number(record.tolerancia);
+  } else if (employee && employee.tolerancia_atraso != null && !isNaN(Number(employee.tolerancia_atraso))) {
+    toleranciaAtraso = Number(employee.tolerancia_atraso);
+  } else if (companySettings && companySettings.tolerancia_atraso != null && !isNaN(Number(companySettings.tolerancia_atraso))) {
+    toleranciaAtraso = Number(companySettings.tolerancia_atraso);
+  } else {
+    toleranciaAtraso = 0;
+  }
+  // Garantir número finito
+  if (!Number.isFinite(toleranciaAtraso)) toleranciaAtraso = 0;
   const isEntrada = (record.type || record.tipo || '').toLowerCase() === 'entrada';
-  
-  // Extrair horário real do data_hora
+  const isSaida = (record.type || record.tipo || '').toLowerCase() === 'saída' || (record.type || record.tipo || '').toLowerCase() === 'saida' || (record.type || record.tipo || '').toLowerCase() === 'saida_antecipada' || (record.type || record.tipo || '').toLowerCase() === 'saida';
+
+  // Extrair horário real: preferir campo `horario_real`, senão tentar parsear `data_hora` (ISO, espaço ou timestamp)
   let horarioReal: string | null = null;
-  if (record.data_hora) {
-    const dataHoraStr = String(record.data_hora);
-    const partes = dataHoraStr.split(' ');
-    if (partes.length >= 2) {
-      const horaParte = partes[1].split('T')[0] || partes[1]; // remover T se for ISO
-      const horaMatch = horaParte.match(/^(\d{1,2}):(\d{2})/);
-      if (horaMatch) {
-        horarioReal = `${horaMatch[1].padStart(2, '0')}:${horaMatch[2]}`;
+  if (record.horario_real) {
+    const hrStr = String(record.horario_real);
+    const m = hrStr.match(/(\d{1,2}):(\d{2})/);
+    if (m) horarioReal = `${m[1].padStart(2, '0')}:${m[2]}`;
+  }
+
+  if (!horarioReal && record.data_hora) {
+    const dataHoraStr = String(record.data_hora).trim();
+
+    // ISO com 'T' (ex: 2024-03-15T07:50:00)
+    if (dataHoraStr.includes('T')) {
+      const parts = dataHoraStr.split('T');
+      const timePart = parts[1] || '';
+      const match = timePart.match(/(\d{1,2}):(\d{2})/);
+      if (match) horarioReal = `${match[1].padStart(2, '0')}:${match[2]}`;
+    } else if (dataHoraStr.includes(' ')) {
+      // Formato com espaço entre data e hora
+      const parts = dataHoraStr.split(' ');
+      const timePart = parts[1] || parts[0];
+      const match = timePart.match(/(\d{1,2}):(\d{2})/);
+      if (match) horarioReal = `${match[1].padStart(2, '0')}:${match[2]}`;
+    } else if (/^\d+$/.test(dataHoraStr)) {
+      // Timestamp numérico
+      const dt = new Date(parseInt(dataHoraStr));
+      if (!isNaN(dt.getTime())) {
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mm = String(dt.getMinutes()).padStart(2, '0');
+        horarioReal = `${hh}:${mm}`;
       }
+    } else {
+      // Tentativa genérica
+      const match = dataHoraStr.match(/(\d{1,2}):(\d{2})/);
+      if (match) horarioReal = `${match[1].padStart(2, '0')}:${match[2]}`;
     }
   }
-  
+
   if (
     isEntrada &&
     horarioEntrada &&
     horarioReal &&
-    typeof toleranciaAtraso === 'number'
+    Number.isFinite(toleranciaAtraso)
   ) {
     const [padraoH, padraoM] = horarioEntrada.split(':').map(Number);
     const [realH, realM] = horarioReal.split(':').map(Number);
-    const padraoMin = padraoH * 60 + padraoM;
-    const realMin = realH * 60 + realM;
+    const padraoMin = (Number.isFinite(padraoH) ? padraoH : 0) * 60 + (Number.isFinite(padraoM) ? padraoM : 0);
+    const realMin = (Number.isFinite(realH) ? realH : 0) * 60 + (Number.isFinite(realM) ? realM : 0);
     const desvio = realMin - padraoMin;
     // Log do atraso calculado
-    console.log(`Registro ${record.registro_id || ''} | Funcionário: ${record.funcionario_nome || ''} | Horário padrão: ${horarioEntrada} | Horário real: ${horarioReal} | Tolerância: ${toleranciaAtraso} | Atraso calculado: ${desvio} min`);
+    console.log(`Registro ${record.registro_id || ''} | Funcionário: ${record.funcionario_nome || ''} | Horário padrão: ${horarioEntrada} | Horário real: ${horarioReal} | Tolerância usada: ${toleranciaAtraso} | Desvio: ${desvio} min`);
+
     // Preferir o valor de atraso já calculado no backend quando disponível
-    // Caso contrário, calcular apenas o atraso além da tolerância (desvio - tolerância)
-    const atrasoMinutos = (record.atraso_minutos != null)
+    // Caso contrário, calcular o atraso além da tolerância (desvio - tolerância)
+    // Preferir atraso calculado pelo backend somente quando for maior que zero;
+    // caso contrário, calcular localmente (desvio - tolerância)
+    const atrasoBackend = (record.atraso_minutos != null && !isNaN(Number(record.atraso_minutos)))
       ? Number(record.atraso_minutos)
-      : (desvio > toleranciaAtraso ? (desvio - toleranciaAtraso) : 0);
+      : null;
+
+    const atrasoMinutos = (atrasoBackend != null && atrasoBackend > 0)
+      ? atrasoBackend
+      : Math.max(0, desvio - toleranciaAtraso);
 
     if (atrasoMinutos > 0) {
       statuses.push({
-        text: `Atraso ${atrasoMinutos} min (fora da tolerância)`,
+        text: `Atraso ${atrasoMinutos} min`,
         color: '#ef4444'
       });
-    } else if (desvio > 0) {
-      // Dentro da tolerância, não é considerado atraso
+    } else if (desvio > -toleranciaAtraso && desvio <= toleranciaAtraso) {
+      // Dentro da janela de tolerância (-tolerancia .. +tolerancia)
       statuses.push({
-        text: `Pontual (dentro da tolerância)`,
+        text: `Pontual (dentro da tolerância)` ,
         color: '#fbbf24'
+      });
+    } else if (desvio <= -toleranciaAtraso) {
+      // Entrada muito antecipada além da tolerância
+      const antecipado = Math.abs(desvio) - toleranciaAtraso;
+      statuses.push({
+        text: `Entrada ${antecipado} min antes (fora da tolerância)`,
+        color: '#3b82f6'
+      });
+    }
+  }
+
+  // Tratar registros de saída: verificar saída antecipada em relação ao horário de saída
+  if (isSaida && horarioSaida && horarioReal) {
+    const [saidaH, saidaM] = horarioSaida.split(':').map(Number);
+    const [realH2, realM2] = horarioReal.split(':').map(Number);
+    const saidaMin = (Number.isFinite(saidaH) ? saidaH : 0) * 60 + (Number.isFinite(saidaM) ? saidaM : 0);
+    const realMin2 = (Number.isFinite(realH2) ? realH2 : 0) * 60 + (Number.isFinite(realM2) ? realM2 : 0);
+    const desvioSaida = saidaMin - realMin2; // >0 means left earlier
+
+    // Preferir valores do backend quando disponíveis
+    const saidaAntecipada = (record.saida_antecipada_minutos != null && !isNaN(Number(record.saida_antecipada_minutos)))
+      ? Number(record.saida_antecipada_minutos)
+      : Math.max(0, desvioSaida - toleranciaAtraso);
+
+    if (saidaAntecipada > 0) {
+      statuses.push({
+        text: `Saiu ${saidaAntecipada} min antes`,
+        color: '#f59e0b'
       });
     }
   }
@@ -231,15 +343,25 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
     });
   }
 
-  // Se não tem nenhum status especial
-  if (statuses.length === 0) {
+  // Remover statuses duplicados (mesmo texto), mantendo a primeira ocorrência
+  const uniqueStatuses = statuses.filter((s, idx, self) => idx === self.findIndex(x => x.text === s.text));
+
+  if ((globalThis as any).process?.env?.NODE_ENV !== 'production') {
+    try {
+      console.log('getDetailedStatus ->', record.registro_id || record.funcionario_id || '', 'statuses:', uniqueStatuses.map(s => s.text));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  if (uniqueStatuses.length === 0) {
     return [{
       text: 'Normal',
-      color: 'rgba(255, 255, 255, 0.6)' // cinza
+      color: 'rgba(255, 255, 255, 0.6)'
     }];
   }
 
-  return statuses;
+  return uniqueStatuses;
 };
 
 const RecordsDetailedPage: React.FC = () => {

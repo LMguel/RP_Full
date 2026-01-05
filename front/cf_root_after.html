@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    
+    <!-- PWA Meta Tags -->
+    <title>REGISTRA.PONTO - Sistema de Controle de Ponto</title>
+    <meta name="description" content="Sistema de controle de ponto eletrônico com reconhecimento facial e geolocalização" />
+    <meta name="theme-color" content="#1e40af" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ponto" />
+    <meta name="format-detection" content="telephone=no" />
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- iOS Icons -->
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
+    <script>
+      (function(){
+        const cdn = 'https://d1w38wqzsvujrr.cloudfront.net/assets/logo-H_HaqqRM.png';
+        function fixImgElement(img){
+          try{
+            if(!img||!('src' in img)) return;
+            const s = (img.getAttribute('src')||img.src||'').toString();
+            if(!s) return;
+            if(s.includes('logo-H_HaqqRM.png') || s.endsWith('/src/image/logo.png') || s.endsWith('/logo.png')){
+              if(img.src !== cdn) img.src = cdn;
+            }
+          }catch(e){/*ignore*/}
+        }
+        function fixAll(){
+          try{ Array.from(document.querySelectorAll('img')).forEach(fixImgElement); }catch(e){}
+        }
+        // run immediately and a few times to catch late renders
+        fixAll();
+        let runs = 0; const maxRuns = 10;
+        const iv = setInterval(()=>{ fixAll(); if(++runs>=maxRuns) clearInterval(iv); }, 500);
+        // observe DOM and re-run fixAll on changes
+        try{
+          const mo = new MutationObserver(()=>{ try{ fixAll(); }catch(e){} });
+          mo.observe(document.documentElement||document.body||document,{childList:true,subtree:true,attributes:true});
+        }catch(e){}
+        // expose helper for console
+        window.__rp_force_logo = function(){ fixAll(); return cdn; };
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-CpPgfuOM.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-9sqK5bZx.css">
+  <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
+  <body>
+    <style>
+      #rp-overlay-logo{position:fixed;top:18px;left:18px;z-index:2147483647;width:52px;height:52px;pointer-events:none;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.2);background:#fff}
+      @media (max-width:600px){#rp-overlay-logo{top:12px;left:12px;width:40px;height:40px}}
+    </style>
+    <img id="rp-overlay-logo" src="https://d1w38wqzsvujrr.cloudfront.net/assets/logo-H_HaqqRM.png" alt="RP Logo" />
+    <script>
+      // remove overlay if app inserts its own logo element
+      (function(){
+        const overlay = document.getElementById('rp-overlay-logo');
+        if(!overlay) return;
+        let attempts = 0;
+        const mo = new MutationObserver(()=>{
+          try{
+            // if any img in DOM points to the same CDN or has 'RP Logo' alt, remove overlay
+            const imgs = Array.from(document.querySelectorAll('img'));
+            for(const i of imgs){
+              const s = (i.getAttribute('src')||i.src||'').toString();
+              if(s.includes('logo-H_HaqqRM.png') || (i.alt||'').toLowerCase().includes('rp logo') ){
+                overlay.remove(); mo.disconnect(); return;
+              }
+            }
+            // stop observing after a while
+            if(++attempts>20){ overlay.remove(); mo.disconnect(); }
+          }catch(e){}
+        });
+        try{ mo.observe(document.documentElement||document.body||document,{childList:true,subtree:true,attributes:true}); }catch(e){}
+        // also auto-remove after 8s to avoid permanent overlay
+        setTimeout(()=>{ try{overlay.remove(); mo.disconnect()}catch(e){} },8000);
+      })();
+    </script>
+    <div id="root"></div>
+
+  </body>
+</html>

@@ -153,22 +153,128 @@ def reconhecer_rosto(payload):
             search_id = employee_id if employee_id else external_id
             print(f"[FACIAL] Tentando scan por employee_id: {search_id}")
             try:
-                # Usar scan com filtro (não ideal para produção, mas funciona)
-                response = tabela_funcionarios.scan(
-                    FilterExpression='id = :eid OR employee_id = :eid',
-                    ExpressionAttributeValues={
-                        ':eid': search_id
-                    },
-                    Limit=10
-                )
-                items = response.get('Items', [])
-                if items:
-                    funcionario = items[0]
-                    print(f"[FACIAL] Funcionário encontrado via scan: {funcionario.get('name')}")
+                # Tentar get_item com chaves alternativas (em alguns dados legados o campo pode ser 'employee_id')
+                try:
+                    # Tentar get_item usando a chave primária correta da tabela Employees ('id')
+                    response_alt = tabela_funcionarios.get_item(
+                        Key={
+                            'company_id': company_id,
+                            'id': search_id
+                        }
+                    )
+                    # Debug: mostrar chaves/estrutura retornada
+                    print(f"[FACIAL][DBG] get_item (employee_id) response keys: {list(response_alt.keys())}")
+                    funcionario = response_alt.get('Item')
+                    if funcionario:
+                        print(f"[FACIAL] Funcionário encontrado via get_item (employee_id): {funcionario.get('name')}")
+                    else:
+                        print(f"[FACIAL][DBG] get_item (employee_id) não retornou Item para key company_id={company_id}, employee_id={search_id}")
+                except Exception as ex:
+                    print(f"[FACIAL][DBG] Exceção em get_item(employee_id): {ex}")
+                    funcionario = funcionario
+
+                # Se ainda não encontrou, tentar variações por scan (contains / equals)
+                if not funcionario:
+                    from boto3.dynamodb.conditions import Attr
+
+                    # Gerar variações comuns do identificador
+                    variants = [search_id]
+                    variants.append(search_id.replace('_', '-'))
+                    variants.append(search_id.replace('_', ' '))
+                    # última parte depois do último underscore (por exemplo, nomes que incluem company prefix)
+                    if '_' in search_id:
+                        variants.append(search_id.split('_')[-1])
+
+                    # Antes do scan, tentar query eficiente usando company_id + begins_with(id)
+                    try:
+                        from boto3.dynamodb.conditions import Key
+                        for v in variants:
+                            print(f"[FACIAL][DBG] Tentando query por company_id={company_id} e id begins_with {v}")
+                            try:
+                                qresp = tabela_funcionarios.query(
+                                    KeyConditionExpression=Key('company_id').eq(company_id) & Key('id').begins_with(v),
+                                    Limit=5
+                                )
+                                qitems = qresp.get('Items', [])
+                                print(f"[FACIAL][DBG] query retornou {len(qitems)} items para prefix {v}")
+                                if qitems:
+                                    funcionario = qitems[0]
+                                    print(f"[FACIAL] Funcionário encontrado via query: {funcionario.get('name')}")
+                                    break
+                            except Exception as qe:
+                                print(f"[FACIAL][DBG] Exceção em query begins_with para {v}: {qe}")
+                        if funcionario:
+                            # pular o scan se já achou
+                            pass
+                    except Exception as qe_outer:
+                        print(f"[FACIAL][DBG] Erro ao tentar query por prefixos: {qe_outer}")
+
+                    # Construir expressão dinâmica: (id = v OR employee_id = v OR id contains v OR employee_id contains v ...)
+                    filter_expr = None
+                    for v in variants:
+                        eq_expr = (Attr('id').eq(v) | Attr('employee_id').eq(v) | Attr('external_id').eq(v))
+                        contains_expr = (Attr('id').contains(v) | Attr('employee_id').contains(v) | Attr('external_id').contains(v))
+                        combined = eq_expr | contains_expr
+                        filter_expr = combined if filter_expr is None else (filter_expr | combined)
+
+                    # Executar scan com a expressão construída
+                    response = tabela_funcionarios.scan(
+                        FilterExpression=filter_expr,
+                        Limit=10
+                    )
+                    items = response.get('Items', [])
+                    print(f"[FACIAL][DBG] scan retornou {len(items)} items")
+                    if items:
+                        # mostrar até 3 itens para debug
+                        preview = items[:3]
+                        print(f"[FACIAL][DBG] primeiros items do scan: {preview}")
+                        funcionario = items[0]
+                        print(f"[FACIAL] Funcionário encontrado via scan: {funcionario.get('name')}")
             except Exception as e:
                 print(f"[FACIAL] Erro no scan: {e}")
         
         if not funcionario:
+            # Debug: listar alguns itens da tabela Employees para inspecionar estrutura/nomes de campos
+            try:
+                from boto3.dynamodb.conditions import Attr
+                resp_debug = tabela_funcionarios.scan(
+                    FilterExpression=Attr('company_id').eq(company_id),
+                    Limit=10
+                )
+                debug_items = resp_debug.get('Items', [])
+                print(f"[FACIAL][DBG] Lista de até 10 funcionários da company {company_id}: count={len(debug_items)}")
+                for idx, itm in enumerate(debug_items[:5]):
+                    keys = list(itm.keys())
+                    # mostrar apenas alguns campos para não vazar dados sensíveis demais
+                    preview = {k: itm.get(k) for k in keys[:5]}
+                    print(f"[FACIAL][DBG] item[{idx}] keys: {keys} preview: {preview}")
+                    # Mostrar valores importantes para diagnóstico
+                    try:
+                        print(f"[FACIAL][DBG] item[{idx}] values: id={itm.get('id')}, login={itm.get('login')}, nome={itm.get('nome')}, face_id={itm.get('face_id')}, foto_url={itm.get('foto_url')}")
+                    except Exception as _:
+                        pass
+
+                # Tentar casar localmente o search_id contra campos comuns dos itens retornados
+                try:
+                    for itm in debug_items:
+                        if funcionario:
+                            break
+                        for field in ['id', 'employee_id', 'login', 'nome', 'face_id', 'foto_url']:
+                            val = itm.get(field)
+                            if not val:
+                                continue
+                            # Normalizar para comparação simples
+                            sval = str(val).lower()
+                            ssearch = str(search_id).lower()
+                            if sval == ssearch or ssearch in sval or sval.endswith(ssearch) or sval.replace('_','').replace('-','') == ssearch.replace('_','').replace('-',''):
+                                funcionario = itm
+                                print(f"[FACIAL][DBG] Encontrado match local via campo '{field}': {val}")
+                                break
+                except Exception as me:
+                    print(f"[FACIAL][DBG] Erro ao tentar match local nos itens: {me}")
+            except Exception as de:
+                print(f"[FACIAL][DBG] Erro ao listar funcionários para debug: {de}")
+
             print(f"[FACIAL] Erro: Funcionário {external_id} não encontrado no banco")
             return jsonify({
                 'reconhecido': False,

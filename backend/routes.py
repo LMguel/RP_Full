@@ -2504,9 +2504,14 @@ def update_company_location(payload):
             }
         
         # Atualizar campos de localização (converter para Decimal para DynamoDB)
+        # Salvamos tanto nomes legados quanto os novos nomes para compatibilidade
         config_item['company_lat'] = Decimal(str(company_lat))
         config_item['company_lng'] = Decimal(str(company_lng))
+        config_item['latitude'] = Decimal(str(company_lat))
+        config_item['longitude'] = Decimal(str(company_lng))
+        # Raio em metros - manter nome legado e novo nome solicitado
         config_item['raio_permitido'] = raio_permitido
+        config_item['raio_permitido_metros'] = raio_permitido
         config_item['exigir_localizacao'] = exigir_localizacao
         config_item['setup_completed'] = True
         
@@ -2561,6 +2566,7 @@ def registrar_ponto_localizacao(payload):
         user_lat = data.get('user_lat') or data.get('latitude')
         user_lng = data.get('user_lng') or data.get('longitude')
         tipo = data.get('tipo', 'entrada')  # entrada ou saida
+        provider = data.get('provider') or data.get('source') or data.get('is_gps')
         
         if user_lat is None or user_lng is None:
             return jsonify({'error': 'Localização do usuário é obrigatória'}), 400
@@ -2570,6 +2576,23 @@ def registrar_ponto_localizacao(payload):
             user_lng = float(user_lng)
         except (ValueError, TypeError):
             return jsonify({'error': 'Coordenadas inválidas'}), 400
+
+        # Security: only allow GPS-sourced coordinates for validation
+        # Expect mobile clients to send provider='gps' or is_gps=true
+        provider_flag = False
+        if isinstance(provider, bool):
+            provider_flag = provider
+        elif isinstance(provider, (int, float)):
+            provider_flag = bool(provider)
+        elif isinstance(provider, str):
+            provider_flag = provider.lower() in ['gps', 'location', 'gpsprovider', 'true', '1']
+
+        if not provider_flag:
+            # Reject requests that don't explicitly declare GPS source
+            return jsonify({
+                'success': False,
+                'error': 'Localização sem fonte GPS não pode ser usada para validar ponto. Use o app móvel (GPS).'
+            }), 400
         
         print(f"[REGISTRO LOCATION] Funcionário: {funcionario_nome} ({funcionario_id})")
         print(f"[REGISTRO LOCATION] Localização: {user_lat}, {user_lng}")
@@ -2654,6 +2677,8 @@ def registrar_ponto_localizacao(payload):
 
         # Criar registro com schema correto da tabela TimeRecords
         # HASH: company_id, RANGE: employee_id#date_time
+        # Optionally store accuracy and provider for auditing
+        user_accuracy = data.get('accuracy') or data.get('accuracy_meters') or data.get('user_accuracy')
         registro_item = {
             'company_id': company_id,  # HASH key
             'employee_id#date_time': f"{funcionario_id}#{data_hora_atual}",  # RANGE key
@@ -2665,8 +2690,16 @@ def registrar_ponto_localizacao(payload):
             'user_lat': Decimal(str(user_lat)),
             'user_lng': Decimal(str(user_lng)),
             'distance_from_company': Decimal(str(distance)) if distance is not None else Decimal('0'),
-            'dentro_do_raio': location_valid
+            'dentro_do_raio': location_valid,
+            'provider': 'gps',
         }
+
+        # Save accuracy if provided
+        if user_accuracy is not None:
+            try:
+                registro_item['user_accuracy'] = Decimal(str(user_accuracy))
+            except Exception:
+                registro_item['user_accuracy'] = user_accuracy
         
         # Salvar registro
         tabela_registros.put_item(Item=registro_item)

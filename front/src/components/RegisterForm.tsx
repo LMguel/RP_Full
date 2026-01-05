@@ -25,6 +25,8 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 
+const logoUrl = new URL('../image/logo.png', import.meta.url).href;
+
 const RegisterForm: React.FC = () => {
   const [formData, setFormData] = useState({
     usuario_id: '',
@@ -167,7 +169,7 @@ const RegisterForm: React.FC = () => {
                     }}
                   >
                     <img 
-                      src="/src/image/logo.png" 
+                      src={logoUrl} 
                       alt="RP Logo"
                       style={{
                         width: '200%',

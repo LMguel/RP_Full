@@ -24,6 +24,8 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
+const logoUrl = new URL('../image/logo.png', import.meta.url).href;
+
 const LoginForm: React.FC = () => {
   const [formData, setFormData] = useState({
     usuario_id: '',
@@ -164,7 +166,7 @@ const LoginForm: React.FC = () => {
                     }}
                   >
                     <img 
-                      src="/src/image/logo.png" 
+                      src={logoUrl} 
                       alt="RP Logo"
                       style={{
                         width: '200%', // Aumentado de 80% para 90%

@@ -1,19 +1,8 @@
 import axios from 'axios';
 
-// Allow overriding the API URL via Vite env var `VITE_API_URL`.
-// Fallback: usar localhost em desenvolvimento, produção em produção
+// Forçar uso da API pública do projeto para o PWA dist.
+// Sempre retornar a URL fixa de produção.
 const getApiUrl = () => {
-  // Se VITE_API_URL estiver definida, usar ela
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  
-  // Se estiver em modo desenvolvimento (localhost), usar backend local
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-    return 'http://192.168.1.2:5000';
-  }
-  
-  // Senão, usar backend hospedado
   return 'https://registra-ponto.duckdns.org';
 };
 

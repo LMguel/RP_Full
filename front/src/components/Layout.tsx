@@ -33,6 +33,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+const logoUrl = new URL('../image/logo.png', import.meta.url).href;
+
 const drawerWidth = 280;
 
 interface LayoutProps {
@@ -112,28 +114,28 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     >
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              backgroundColor: 'white',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden'
-            }}
-          >
-            <img 
-              src="/src/image/logo.png" 
-              alt="RP Logo"
-              style={{
-                width: '200%',
-                height: '200%',
-                objectFit: 'contain',
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                backgroundColor: 'white',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden'
               }}
-            />
-          </Box>
+            >
+              <img 
+                src={logoUrl} 
+                alt="RP Logo"
+                style={{
+                  width: '200%',
+                  height: '200%',
+                  objectFit: 'contain',
+                }}
+              />
+            </Box>
           <Box>
             <Typography 
               variant="h6" 
