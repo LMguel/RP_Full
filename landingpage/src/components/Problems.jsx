@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 
 const problems = [
   {title:'Funcionários batendo ponto por colegas', desc:'Registros falsos que geram horas indevidas e custos.'},
-  {title:'Horas extras pagas errado todo mês', desc:'Cálculos manuais e planilhas que levam a erros recorrentes.'},
+  {title:'Horas extras pagas incorretamente todo mês', desc:'Cálculos manuais e planilhas que levam a erros recorrentes.'},
   {title:'Gestor só descobre problemas no fim do mês', desc:'Falta de visibilidade em tempo real atrasa correções e aumenta custos.'}
 ]
 
