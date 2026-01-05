@@ -6,15 +6,41 @@ export default function DemoModal({open, onClose}){
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [employees, setEmployees] = useState('')
+  const [status, setStatus] = useState(null)
+
+  const endpoint = import.meta.env.VITE_FORM_ENDPOINT || ''
 
   if(!open) return null
 
-  function handleSubmit(e){
+  async function handleSubmit(e){
     e.preventDefault()
-    const msg = `Olá, gostaria de agendar demonstração:\nNome: ${name}\nEmpresa: ${company}\nEmail: ${email}\nTelefone: ${phone}\nFuncionários: ${employees}`
-    const wa = `https://wa.me/5511999999999?text=${encodeURIComponent(msg)}`
-    window.open(wa, '_blank')
-    onClose()
+    setStatus('sending')
+    try{
+      if(endpoint){
+        const formData = new FormData()
+        formData.append('name', name)
+        formData.append('company', company)
+        formData.append('email', email)
+        formData.append('phone', phone)
+        formData.append('employees', employees)
+        formData.append('_replyto', email)
+
+        const res = await fetch(endpoint, { method: 'POST', body: formData, headers: { 'Accept': 'application/json' } })
+        if(!res.ok) throw new Error('Failed')
+        setStatus('ok')
+        setName(''); setCompany(''); setEmail(''); setPhone(''); setEmployees('')
+        onClose()
+      } else {
+        // fallback to mail client
+        const subject = encodeURIComponent('Agendar demonstração — REGISTRA.PONTO')
+        const body = encodeURIComponent(`Nome: ${name}\nEmpresa: ${company}\nEmail: ${email}\nTelefone: ${phone}\nFuncionários: ${employees}`)
+        window.location.href = `mailto:miguelesquivel2018@outlook.com?subject=${subject}&body=${body}`
+        setStatus('ok')
+        onClose()
+      }
+    }catch(err){
+      setStatus('error')
+    }
   }
 
   return (
@@ -34,6 +60,9 @@ export default function DemoModal({open, onClose}){
             <button type="submit" className="px-4 py-2 rounded gradient-btn text-white">Enviar</button>
           </div>
         </form>
+        {status === 'sending' && <div className="mt-2 text-sm text-white/80">Enviando...</div>}
+        {status === 'ok' && <div className="mt-2 text-sm text-green-400">Enviado com sucesso.</div>}
+        {status === 'error' && <div className="mt-2 text-sm text-red-400">Erro ao enviar. Tente novamente.</div>}
       </div>
     </div>
   )

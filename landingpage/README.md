@@ -16,13 +16,34 @@ Como rodar localmente:
    - `npm run build` e `npm run preview` para testar o build localmente
 
 Observações importantes:
-- O número do WhatsApp é um placeholder `+55 11 99999-9999` — substitua pelo número real em `src/components/WhatsAppButton.jsx`.
 - Plugin de tema: há um alternador de tema (claro/escuro) no canto superior do hero que persiste a preferência no `localStorage`.
 - Código organizado por componentes em `src/components`.
 - Animações implementadas com Framer Motion e efeitos de scroll via `whileInView`.
 
+Formulário de contato (envio por e-mail sem backend)
+-------------------------------------------------
+- O componente `src/components/ContactForm.jsx` está preparado para enviar via um endpoint externo.
+- Para envio automático para seu e-mail recomendamos usar Formspree (rápido e sem backend).
+
+Passos rápidos para ativar Formspree:
+
+1. Crie uma conta em https://formspree.io e crie um formulário para receber envios.
+2. Copie a URL do endpoint (ex.: `https://formspree.io/f/xxxxxx`).
+3. Na pasta `landingpage`, crie um arquivo `.env` (não comitar) com a variável:
+
+```bash
+# landingpage/.env
+VITE_FORM_ENDPOINT=https://formspree.io/f/SEU_ID_AQUI
+```
+
+4. Reinicie o dev server: `npm run dev`.
+
+O `ContactForm` faz POST para esse endpoint com `FormData`; se não houver `VITE_FORM_ENDPOINT` definido, ele abrirá o cliente de e-mail do usuário usando `mailto:miguelesquivel2018@outlook.com` como fallback.
+
+Se preferir, posso configurar integração via EmailJS (envio direto do browser) — me diga se quer essa opção.
+
 Estrutura principal:
-- `Hero`, `Problems`, `Solution`, `HowItWorks`, `Benefits`, `CTA`, `Footer`, `WhatsAppButton`, `ThemeToggle`
+- `Hero`, `Problems`, `Solution`, `HowItWorks`, `Benefits`, `CTA`, `Footer`, `ThemeToggle`
 
 Apoio à acessibilidade:
 - Seções possuem `aria-labelledby` quando aplicável e botões têm `aria-label`/`title`.

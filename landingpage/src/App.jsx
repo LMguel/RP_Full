@@ -14,7 +14,7 @@ import Security from './components/Security'
 import FAQ from './components/FAQ'
 import FinalCTA from './components/FinalCTA'
 import Footer from './components/Footer'
-import WhatsAppButton from './components/WhatsAppButton'
+import ContactForm from './components/ContactForm'
 import DemoModal from './components/DemoModal'
 import StickyCTA from './components/StickyCTA'
 import CookieConsent from './components/CookieConsent'
@@ -45,10 +45,11 @@ export default function App(){
         <Reveal delay={0.22}><Security /></Reveal>
         <Reveal delay={0.24}><FAQ /></Reveal>
         <Reveal delay={0.26}><FinalCTA onRequestDemo={openDemo} /></Reveal>
+        <Reveal delay={0.28}><ContactForm /></Reveal>
       </main>
       <Footer />
       <FloatingLogo />
-      <WhatsAppButton />
+      
       <StickyCTA onRequestDemo={openDemo} />
       <DemoModal open={demoOpen} onClose={closeDemo} />
       <CookieConsent />
