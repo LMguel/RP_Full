@@ -14,7 +14,15 @@ export default function Hero({onRequestDemo}){
       {/* Top centered site title */}
       <div className="absolute inset-x-0 top-4 flex justify-center z-40 pointer-events-none">
         <div className="bg-transparent px-3 py-1">
-          <div className="text-2xl md:text-4xl lg:text-5xl font-extrabold text-white">REGISTRA.PONTO</div>
+          <div className="text-2xl md:text-4xl lg:text-5xl font-extrabold text-white">
+            <span className="inline-flex items-center gap-0 border-2 border-white rounded-full px-3 py-1">
+              <span className="leading-none">REGISTRA.PONT</span>
+                <svg xmlns="http://www.w3.org/2000/svg" className="-ml-1 w-7 h-7 sm:w-8 md:-ml-1 md:w-10 md:h-10 lg:w-12 lg:h-12 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </span>
+          </div>
         </div>
       </div>
       <div className="max-w-6xl mx-auto px-6 py-20">

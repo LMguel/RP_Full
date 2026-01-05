@@ -14,7 +14,7 @@ export default function Solution(){
   return (
     <section className="mt-12 py-12">
       <h2 className="text-xl md:text-2xl font-bold text-center">Nossa solução</h2>
-      <p className="text-center mt-2 text-gray-600">Uma plataforma completa que une segurança, agilidade e relatórios acionáveis.</p>
+      <p className="text-center mt-2 text-white">Uma plataforma completa que une segurança, agilidade e relatórios acionáveis.</p>
           <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
         {items.map((it, idx)=> (
           <motion.div key={it.title} initial={{opacity:0, y:16, filter:'blur(6px)'}} whileInView={{opacity:1, y:0, filter:'blur(0px)'}} viewport={{once:true}} transition={{delay: idx*0.12}} whileHover={{scale:1.02}} className="p-6 rounded-xl glass border hover-glow">

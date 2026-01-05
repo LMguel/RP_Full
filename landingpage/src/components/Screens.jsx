@@ -19,11 +19,11 @@ const images = [
 
 export default function Screens(){
   const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState(null)
   const [index, setIndex] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
 
-  function openImage(img){ setSelected(img); setOpen(true) }
-  function close(){ setOpen(false); setSelected(null) }
+  function openImage(){ setOpen(true) }
+  function close(){ setOpen(false) }
 
   function prev(){ setIndex(i => (i - 1 + images.length) % images.length) }
   function next(){ setIndex(i => (i + 1) % images.length) }
@@ -31,7 +31,7 @@ export default function Screens(){
   return (
     <section className="mt-12 py-12">
       <h2 className="text-center text-2xl font-bold">Telas do sistema</h2>
-      <p className="text-center mt-2 text-gray-600">Demonstração visual das principais telas — clique para ampliar</p>
+      <p className="text-center mt-2 text-white">Demonstração visual das principais telas — clique para ampliar</p>
 
       <div className="mt-8 relative max-w-4xl mx-auto">
         <div className="relative glass rounded-lg shadow-lg overflow-visible px-4 py-6">
@@ -47,12 +47,22 @@ export default function Screens(){
                     key={images[index].src}
                     src={images[index].src}
                     alt={images[index].alt}
-                    onClick={()=>openImage(images[index])}
+                    onClick={()=>{ if(!isDragging) openImage() }}
                     initial={{opacity:0, scale:0.98}}
                     animate={{opacity:1, scale:1}}
                     exit={{opacity:0, scale:0.98}}
                     transition={{duration:0.36}}
                     className="h-full w-full object-contain cursor-zoom-in rounded"
+                    drag="x"
+                    dragConstraints={{ left: 0, right: 0 }}
+                    dragElastic={0.25}
+                    onDragStart={()=>setIsDragging(true)}
+                    onDragEnd={(e, info)=>{
+                      setIsDragging(false)
+                      const x = info.offset.x
+                      if(x > 40) prev()
+                      else if(x < -40) next()
+                    }}
                   />
                 </AnimatePresence>
               </div>
@@ -74,7 +84,7 @@ export default function Screens(){
         </div>
       </div>
 
-      <ImageModal open={open} src={selected?.src} alt={selected?.alt} onClose={close} />
+      <ImageModal open={open} images={images} index={index} onClose={close} onPrev={prev} onNext={next} />
     </section>
   )
 }

@@ -11,9 +11,14 @@ export default function EmployeeSelector({value, onChange}){
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium">Faixa de funcionários</label>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {ranges.map(r => (
-          <button key={r.key} onClick={()=>onChange(r.key)} type="button" className={`px-3 py-2 border rounded ${value===r.key? 'bg-brand-500 text-white':'bg-white/6 text-white/90'}`}>
+          <button
+            key={r.key}
+            onClick={()=>onChange(r.key)}
+            type="button"
+            className={`w-full min-w-0 text-left px-3 py-2 border rounded ${value===r.key? 'bg-brand-500 text-white':'bg-white/6 text-white/90'} text-sm whitespace-normal break-words`}
+          >
             {r.label}
           </button>
         ))}

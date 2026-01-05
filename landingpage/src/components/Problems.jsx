@@ -11,23 +11,23 @@ function Icon({type}){
   if(type === 'fraud'){
     return (
       <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="#0F6BFF" />
-        <path d="M2 17l10 5 10-5" stroke="#0F6BFF" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor" />
+        <path d="M2 17l10 5 10-5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     )
   }
   if(type === 'manual'){
     return (
       <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="4" width="18" height="16" rx="2" stroke="#0F6BFF" strokeWidth="1.2"/>
-        <path d="M7 8h10M7 12h10M7 16h6" stroke="#0F6BFF" strokeWidth="1.2" strokeLinecap="round"/>
+        <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.2"/>
+        <path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
       </svg>
     )
   }
   return (
     <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M3 12h18M3 6h18M3 18h18" stroke="#0F6BFF" strokeWidth="1.4" strokeLinecap="round"/>
-      <rect x="2" y="2" width="20" height="20" rx="4" stroke="#0F6BFF" strokeWidth="1"/>
+      <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <rect x="2" y="2" width="20" height="20" rx="4" stroke="currentColor" strokeWidth="1"/>
     </svg>
   )
 }
