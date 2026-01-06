@@ -31,7 +31,7 @@ export default function Hero({onRequestDemo}){
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center w-full">
             <motion.div initial={{opacity:0, x:-20}} animate={{opacity:1,x:0}} transition={{duration:0.5}}>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold leading-tight">Controle de ponto inteligente</h1>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold leading-tight">Controle de Ponto Inteligente</h1>
               <p className="mt-3 text-base text-gray-200">Registro por celular com GPS ou tablet fixo com reconhecimento facial, sem fraude</p>
 
               <div className="mt-5">
