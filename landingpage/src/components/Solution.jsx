@@ -1,7 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import capturaImg from '../../image/captura.png'
-import dashboardImg from '../../image/dashboard.png'
+import excelImg from '../../image/excel.png'
 import localizacao from '../../image/localizacao.png'
 
 const items = [
@@ -52,8 +52,8 @@ export default function Solution(){
         </motion.figure>
 
         <motion.figure initial={{opacity:0, y:12}} whileInView={{opacity:1, y:0}} viewport={{once:true}} transition={{delay:0.06}} className="rounded-lg overflow-hidden glass shadow-md">
-          <img src={dashboardImg} alt="Dashboard do sistema" className="w-full h-56 object-cover" />
-          <figcaption className="p-4 text-center text-sm text-white/80">Dashboard com relatórios</figcaption>
+          <img src={excelImg} alt="Exportação para planilhas Excel" className="w-full h-56 object-cover" />
+          <figcaption className="p-4 text-center text-sm text-white/80">Exportação para planilhas Excel</figcaption>
         </motion.figure>
 
         <motion.figure initial={{opacity:0, y:12}} whileInView={{opacity:1, y:0}} viewport={{once:true}} transition={{delay:0.12}} className="rounded-lg overflow-hidden glass shadow-md">

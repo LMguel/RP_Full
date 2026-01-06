@@ -4,7 +4,7 @@ const faqs = [
   {q:'Funciona em celular pessoal?', a:'Sim, registro por celular pessoal é suportado com geolocalização.'},
   {q:'É seguro usar reconhecimento facial?', a:'Sim — imagens são criptografadas e usadas apenas para validação de ponto.'},
   {q:'Posso exportar os dados?', a:'Sim — exportação em Excel/CSV disponível no painel.'},
-  {q:'Preciso comprar tablet?', a:'Não necessariamente — oferecemos plano Mobile; o tablet é opcional para entradas físicas.'}
+  {q:'Preciso comprar tablet?', a:'Oferecemos o tablet configurado, com suporte de parede, pronto para uso.'}
 ]
 
 export default function FAQ(){
