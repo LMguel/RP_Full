@@ -30,7 +30,8 @@ export default function PlanCard({planKey, title, subtitle, startingText, onRequ
         <motion.div initial={{opacity:0, y:8, filter:'blur(6px)'}} animate={{opacity:1, y:0, filter:'blur(0px)'}} transition={{duration:0.28}} className="mt-6 space-y-4">
           <EmployeeSelector value={range} onChange={setRange} />
           <PriceDisplay planKey={planKey} range={range} />
-          <div className="flex justify-end">
+          <div className="flex flex-col items-center">
+            <div className="text-sm text-white mb-2">✔️ Sem fidelidade</div>
             <button disabled={!range} onClick={onRequestDemo} className={`px-5 py-3 rounded-lg font-semibold ${range? 'gradient-btn text-white':'bg-gray-200 text-gray-400'}`}>{range=== '100+' ? 'Solicitar proposta' : 'Solicitar demonstração'}</button>
           </div>
         </motion.div>
