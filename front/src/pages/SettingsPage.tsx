@@ -29,7 +29,7 @@ import {
   Save as SaveIcon,
   Timer as TimerIcon,
   AccessTime as AccessTimeIcon,
-  CheckCircle as CheckCircleIcon,
+  
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -271,59 +271,7 @@ const TimeTrackingSettings: React.FC = () => {
             </Box>
           </Grid>
 
-          {/* Arredondamento */}
-          <Grid size={{ xs: 12, md: 3 }}>
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <CheckCircleIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
-                <Typography 
-                  variant="subtitle2" 
-                  sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}
-                >
-                  Arredondamento
-                </Typography>
-              </Box>
-              <Typography 
-                variant="caption" 
-                sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}
-              >
-                Como arredondar horas extras
-              </Typography>
-              <FormControl
-                fullWidth
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.2)',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.3)',
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: '#3b82f6',
-                    },
-                  },
-                  '& .MuiSvgIcon-root': {
-                    color: 'rgba(255, 255, 255, 0.6)',
-                  },
-                }}
-              >
-                <Select
-                  value={settings.arredondamento_horas_extras}
-                  onChange={(e) => setSettings({ 
-                    ...settings, 
-                    arredondamento_horas_extras: e.target.value as '5' | '10' | '15' | 'exato' 
-                  })}
-                >
-                  <MenuItem value="exato">Exato</MenuItem>
-                  <MenuItem value="5">5 min</MenuItem>
-                  <MenuItem value="10">10 min</MenuItem>
-                  <MenuItem value="15">15 min</MenuItem>
-                </Select>
-              </FormControl>
-            </Box>
-          </Grid>
+          {/* Arredondamento: opção removida para evitar alteração pelo usuário */}
 
           {/* Intervalo Automático */}
           <Grid size={{ xs: 12, md: 3 }}>

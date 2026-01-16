@@ -22,6 +22,8 @@ export interface Employee {
   ativo?: boolean;
   login?: string;
   tolerancia_atraso?: number;
+  intervalo_personalizado?: boolean;
+  intervalo_emp?: number;
 }
 
 export interface HorarioPreset {

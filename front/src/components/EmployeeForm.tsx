@@ -59,6 +59,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [nomeHorario, setNomeHorario] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [intervaloPersonalizado, setIntervaloPersonalizado] = useState<boolean>(employee?.intervalo_personalizado || false);
+  const [intervaloEmp, setIntervaloEmp] = useState<string>(employee?.intervalo_emp?.toString() || '');
 
   const allCargos = [...new Set(existingCargos)].sort();
 
@@ -100,6 +102,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         horario_saida: employee.horario_saida || '',
       });
       setPhotoPreview(employee.foto_url);
+      setIntervaloPersonalizado(!!employee.intervalo_personalizado);
+      setIntervaloEmp(employee.intervalo_emp ? employee.intervalo_emp.toString() : '');
     } else {
       setFormData({ 
         nome: '', 
@@ -250,6 +254,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
     if (photo) {
       formDataToSend.append('foto', photo);
+    }
+
+    // Intervalo personalizado
+    formDataToSend.append('intervalo_personalizado', intervaloPersonalizado ? 'true' : 'false');
+    if (intervaloPersonalizado && intervaloEmp) {
+      formDataToSend.append('intervalo_emp', intervaloEmp);
     }
 
     if (formData.horario_entrada) {
@@ -688,6 +698,43 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </Box>
           </Box>
         </DialogContent>
+
+        {/* Intervalo Personalizado Section */}
+        <Box sx={{ px: 3, pb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <input
+              id="intervalo-personalizado"
+              type="checkbox"
+              checked={intervaloPersonalizado}
+              onChange={(e) => setIntervaloPersonalizado(e.target.checked)}
+              disabled={loading}
+            />
+            <label htmlFor="intervalo-personalizado" style={{ color: 'white', fontWeight: 600 }}>
+              Intervalo Personalizado
+            </label>
+          </Box>
+          {intervaloPersonalizado && (
+            <Box sx={{ mt: 2 }}>
+              <TextField
+                fullWidth
+                label="Duração do intervalo (minutos)"
+                value={intervaloEmp}
+                onChange={(e) => setIntervaloEmp(e.target.value)}
+                type="number"
+                disabled={loading}
+                variant="outlined"
+                inputProps={{ min: 0 }}
+                sx={{
+                  mt: 1,
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    background: 'rgba(255, 255, 255, 0.05)'
+                  },
+                }}
+              />
+            </Box>
+          )}
+        </Box>
 
         <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
           <Button

@@ -26,6 +26,8 @@ export default function KioskCleanUI() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [error, setError] = useState('');
+  const [isFlashing, setIsFlashing] = useState(false);
+  const [flashEnabled, setFlashEnabled] = useState(true);
 
   // Relógio
   useEffect(() => {
@@ -45,6 +47,21 @@ export default function KioskCleanUI() {
       videoRef.current.srcObject = cameraStream;
     }
   }, [cameraStream]);
+
+  // Garantir que, ao sair dos modais (recognizedPerson/showSuccess), o vídeo volte a tocar
+  useEffect(() => {
+    if (!recognizedPerson && !showSuccess && cameraStream && videoRef.current) {
+      try {
+        videoRef.current.srcObject = cameraStream;
+        const playPromise = videoRef.current.play?.();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.catch(err => console.warn('[KIOSK] video play failed:', err));
+        }
+      } catch (e) {
+        console.warn('[KIOSK] Reattach/play failed', e);
+      }
+    }
+  }, [recognizedPerson, showSuccess, cameraStream]);
 
   // Solicitar fullscreen
   useEffect(() => {
@@ -121,6 +138,22 @@ export default function KioskCleanUI() {
     }
   };
 
+  // Tenta ativar/desativar a torch da câmera (se suportada)
+  const enableTorch = async (enable = true) => {
+    try {
+      const track = cameraStream?.getVideoTracks?.()[0];
+      if (!track) return false;
+      const capabilities = track.getCapabilities?.();
+      if (capabilities && capabilities.torch) {
+        await track.applyConstraints?.({ advanced: [{ torch: enable }] });
+        return true;
+      }
+    } catch (e) {
+      console.warn('[KIOSK] Torch not available or failed', e);
+    }
+    return false;
+  };
+
   // ==================== CAPTURA E RECONHECIMENTO ====================
   const handleCapture = async () => {
     if (!videoRef.current || isProcessing) return;
@@ -129,6 +162,16 @@ export default function KioskCleanUI() {
     setError('');
 
     try {
+      // Se o flash está habilitado, tentar ativar torch; usar overlay como fallback
+      let torchEnabled = false;
+      if (flashEnabled) {
+        torchEnabled = await enableTorch(true);
+        if (!torchEnabled) {
+          setIsFlashing(true);
+          await new Promise(res => setTimeout(res, 180));
+        }
+      }
+
       // Capturar frame da câmera
       const canvas = canvasRef.current;
       const video = videoRef.current;
@@ -157,6 +200,10 @@ export default function KioskCleanUI() {
 
       // Chamar API de reconhecimento facial
       const recognitionResult = await apiService.recognizeFace(blob);
+
+      // Desligar torch/flash imediatamente após captura
+      try { await enableTorch(false); } catch (e) { /* ignore */ }
+      setIsFlashing(false);
 
       console.log('[KIOSK] Recognition result:', recognitionResult);
 
@@ -214,6 +261,8 @@ export default function KioskCleanUI() {
       }
     } finally {
       setIsProcessing(false);
+      // Garantir overlay desligado se algo der errado
+      setIsFlashing(false);
     }
   };
 
@@ -401,6 +450,30 @@ export default function KioskCleanUI() {
   // Tela principal - Câmera
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
+      {/* Botão de toggle de flash no canto superior esquerdo */}
+      <div className="absolute top-4 left-4 z-50">
+        <button
+          onClick={async () => {
+            const next = !flashEnabled;
+            setFlashEnabled(next);
+            if (!next) {
+              try { await enableTorch(false); } catch (e) { /* ignore */ }
+            }
+          }}
+          aria-pressed={flashEnabled}
+          title={flashEnabled ? 'Flash ativado' : 'Flash desativado'}
+          className="p-3 rounded-full bg-black/30 hover:bg-black/50 focus:outline-none focus:ring-2 focus:ring-white"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" className={flashEnabled ? 'text-yellow-400' : 'text-white'} fill="currentColor">
+            <path d="M11 21h-1l1-7H5l7-12v7h6l-6 12z" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Flash overlay (tela branca) — aparece quando isFlashing === true */}
+      {isFlashing && (
+        <div className="absolute inset-0 bg-white z-40" style={{ opacity: 1 }} />
+      )}
       {/* Vídeo da câmera sempre visível */}
       {cameraStream && (
         <video

@@ -366,6 +366,7 @@ def deletar_registro(registro_id):
                 
                 # Calcular se tem horários cadastrados
                 if horario_entrada_esperado and horario_saida_esperado:
+                    intervalo_to_use = funcionario.get('intervalo_emp', configuracoes.get('duracao_intervalo', 60))
                     calculo = calculate_overtime(
                         horario_entrada_esperado,
                         horario_saida_esperado,
@@ -373,7 +374,7 @@ def deletar_registro(registro_id):
                         horario_saida_real,
                         configuracoes,
                         configuracoes.get('intervalo_automatico', False),
-                        configuracoes.get('duracao_intervalo', 60)
+                        intervalo_to_use
                     )
                     
                     # Adicionar informações ao registro
@@ -548,6 +549,26 @@ def atualizar_funcionario(payload, funcionario_id):
         
         # Atualizar home_office
         funcionario['home_office'] = home_office
+
+        # Atualizar intervalo personalizado se fornecido
+        ip_val = request.form.get('intervalo_personalizado')
+        if ip_val is not None:
+            intervalo_personalizado = ip_val.lower() == 'true'
+            funcionario['intervalo_personalizado'] = intervalo_personalizado
+            if intervalo_personalizado:
+                emp_val = request.form.get('intervalo_emp')
+                try:
+                    funcionario['intervalo_emp'] = int(emp_val) if emp_val else None
+                except Exception:
+                    funcionario['intervalo_emp'] = None
+            else:
+                # definir para o padrão da empresa
+                try:
+                    cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+                    cfg = cfg_resp.get('Item', {})
+                    funcionario['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                except Exception:
+                    funcionario['intervalo_emp'] = 60
         
         tabela_funcionarios.put_item(Item=funcionario)
         return jsonify({'message': 'Funcionário atualizado com sucesso!'}), 200
@@ -764,6 +785,9 @@ def cadastrar_funcionario(payload):
             senha = data.get('senha')
             home_office = data.get('home_office', False)
             foto = None
+            # Intervalo personalizado (JSON mode)
+            intervalo_personalizado = bool(data.get('intervalo_personalizado', False))
+            intervalo_emp = data.get('intervalo_emp')
             
             if not all([nome, cargo]):
                 return jsonify({"error": "Nome e cargo são obrigatórios"}), 400
@@ -781,6 +805,16 @@ def cadastrar_funcionario(payload):
             senha = request.form.get('senha')
             home_office = request.form.get('home_office', 'false').lower() == 'true'
             
+            # Intervalo personalizado (opcional)
+            intervalo_personalizado = request.form.get('intervalo_personalizado', 'false').lower() == 'true'
+            intervalo_emp = None
+            intervalo_emp_val = request.form.get('intervalo_emp')
+            if intervalo_emp_val:
+                try:
+                    intervalo_emp = int(intervalo_emp_val)
+                except Exception:
+                    intervalo_emp = None
+
             if not all([nome, cargo, foto]):
                 return jsonify({"error": "Nome, cargo e foto são obrigatórios"}), 400
 
@@ -881,6 +915,37 @@ def cadastrar_funcionario(payload):
         funcionario_item['is_active'] = True
         funcionario_item['ativo'] = True
         funcionario_item['deleted_at'] = None
+        # Definir intervalo efetivo do funcionário
+        if request.content_type and 'application/json' in (request.content_type or ''):
+            # JSON mode: use parsed values
+            if intervalo_personalizado:
+                funcionario_item['intervalo_personalizado'] = True
+                try:
+                    funcionario_item['intervalo_emp'] = int(intervalo_emp) if intervalo_emp is not None else None
+                except Exception:
+                    funcionario_item['intervalo_emp'] = None
+            else:
+                funcionario_item['intervalo_personalizado'] = False
+                try:
+                    cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+                    cfg = cfg_resp.get('Item', {})
+                    funcionario_item['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                except Exception:
+                    funcionario_item['intervalo_emp'] = 60
+        else:
+            # FormData mode: use extracted form values
+            if intervalo_personalizado:
+                funcionario_item['intervalo_personalizado'] = True
+                funcionario_item['intervalo_emp'] = intervalo_emp if intervalo_emp is not None else None
+            else:
+                funcionario_item['intervalo_personalizado'] = False
+                # Puxar duração padrão da config da empresa
+                try:
+                    cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+                    cfg = cfg_resp.get('Item', {})
+                    funcionario_item['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                except Exception:
+                    funcionario_item['intervalo_emp'] = 60
         
         # Salvar no DynamoDB (Employees table uses company_id as partition key)
         tabela_funcionarios.put_item(Item=funcionario_item)
@@ -1261,7 +1326,17 @@ def listar_registros_resumo(payload):
         # Valores padrão
         tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
         hora_extra_entrada_antecipada = configuracoes.get('hora_extra_entrada_antecipada', False)
-        arredondamento_horas_extras = int(configuracoes.get('arredondamento_horas_extras', 5))
+        # Tratamento robusto para o campo de arredondamento: pode ser 'exato' ou valores numéricos em string
+        arredondamento_raw = configuracoes.get('arredondamento_horas_extras', 5)
+        try:
+            # 'exato' será tratado como 0 (sem arredondamento)
+            if isinstance(arredondamento_raw, str) and arredondamento_raw.lower() == 'exato':
+                arredondamento_horas_extras = 0
+            else:
+                arredondamento_horas_extras = int(arredondamento_raw)
+        except Exception:
+            print(f"[DEBUG RESUMO] Valor de arredondamento inválido: {arredondamento_raw}, usando padrão 5")
+            arredondamento_horas_extras = 5
         intervalo_automatico = configuracoes.get('intervalo_automatico', False)
         duracao_intervalo = int(configuracoes.get('duracao_intervalo', 60))
         
@@ -1460,11 +1535,12 @@ def listar_registros_resumo(payload):
                             horas_brutas = saida_dt - entrada_dt
                             horas_brutas_min = int(horas_brutas.total_seconds() / 60)
                             
-                            # Subtrair intervalo se configurado
+                            # Subtrair intervalo se configurado (usar valor do funcionário quando disponível)
                             if intervalo_automatico:
-                                horas_brutas_min = max(0, horas_brutas_min - duracao_intervalo)
+                                intervalo_emp = funcionario.get('intervalo_emp', duracao_intervalo)
+                                horas_brutas_min = max(0, horas_brutas_min - int(intervalo_emp or 0))
                             
-                            # Se tem horários esperados, calcular extras e atrasos
+                                    # Se tem horários esperados, calcular extras e atrasos
                             if horario_entrada_esperado and horario_saida_esperado:
                                 try:
                                     entrada_esperada = datetime.strptime(f"{data} {horario_entrada_esperado}", '%d-%m-%Y %H:%M')
@@ -1502,7 +1578,7 @@ def listar_registros_resumo(payload):
                                     # Horas trabalhadas = horário esperado (se trabalhou pelo menos isso)
                                     jornada_esperada_min = int((saida_esperada - entrada_esperada).total_seconds() / 60)
                                     if intervalo_automatico:
-                                        jornada_esperada_min -= duracao_intervalo
+                                        jornada_esperada_min -= int(funcionario.get('intervalo_emp', duracao_intervalo) or 0)
                                     
                                     horas_trabalhadas_min = min(horas_brutas_min, jornada_esperada_min)
                                     
@@ -1778,7 +1854,7 @@ def registrar_ponto_manual(payload):
                     horario_saida_real,
                     configuracoes,
                     configuracoes.get('intervalo_automatico', False),
-                    configuracoes.get('duracao_intervalo', 60)
+                    funcionario.get('intervalo_emp', configuracoes.get('duracao_intervalo', 60))
                 )
                 
                 # Adicionar informações ao registro

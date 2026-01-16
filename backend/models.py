@@ -235,10 +235,18 @@ class Employee:
     is_active: bool = True  # Exclusão lógica
     deleted_at: Optional[str] = None  # Timestamp da exclusão
     data_cadastro: str = None
+    # Intervalo personalizado por funcionário
+    intervalo_personalizado: bool = False
+    intervalo_emp: Optional[int] = None  # minutos - valor efetivo usado nos cálculos
     
     def to_dynamodb(self) -> Dict:
         """Converte para DynamoDB"""
         data = asdict(self)
         if self.data_cadastro is None:
             data['data_cadastro'] = datetime.now().isoformat()
+        # Garantir que os campos de intervalo estão presentes para compatibilidade
+        if 'intervalo_personalizado' not in data:
+            data['intervalo_personalizado'] = False
+        if 'intervalo_emp' not in data:
+            data['intervalo_emp'] = self.intervalo_emp
         return data
