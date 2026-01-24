@@ -14,7 +14,7 @@ import EmployeesPage from './pages/EmployeesPage';
 import RecordsPage from './pages/RecordsPage';
 import RecordsPageDetails from './pages/RecordsPageDetails';
 import EmployeeRecordsPage from './pages/EmployeeRecordsPage';
-// import DailyRecordsPage from './pages/DailyRecordsPage';
+import DailyRecordsPage from './pages/DailyRecordsPage';
 import SettingsPage from './pages/SettingsPage';
 
 // Components
@@ -209,7 +209,16 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       />
-      {/* DailyRecordsPage removida */}
+      <Route
+        path="/records/daily"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <DailyRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/settings"
         element={

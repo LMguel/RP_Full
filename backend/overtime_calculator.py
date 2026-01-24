@@ -74,9 +74,6 @@ def calculate_overtime(
     
     resultado = {
         'horas_extras_minutos': 0,
-        'atraso_minutos': 0,
-        'entrada_antecipada_minutos': 0,
-        'saida_antecipada_minutos': 0,
         'horas_trabalhadas_minutos': 0
     }
     
@@ -95,35 +92,14 @@ def calculate_overtime(
         else:
             resultado['horas_trabalhadas_minutos'] = horas_brutas
     
-    # Análise da ENTRADA
+    # Análise da ENTRADA: não registrar atrasos, apenas contar entrada antecipada como hora extra se configurado
     if entrada_real and entrada_esperado:
-        # diff_entrada: positivo => chegou DEPOIS (atraso); negativo => chegou ANTES (adiantado)
         diff_entrada = time_diff_minutes(entrada_esperado, entrada_real)
-
-        if diff_entrada > tolerancia_atraso:  # Chegou ATRASADO (além da tolerância)
-            # Atraso = diferença total ou remainder do arredondamento quando configurado
-            try:
-                interval = 0 if arredondamento == 'exato' else int(arredondamento)
-            except Exception:
-                interval = 0
-
-            if interval and interval > 0:
-                # Usa o resto da divisão pelo intervalo (ex.: 11min com intervalo 10 -> 1)
-                resultado['atraso_minutos'] = diff_entrada % interval
-            else:
-                # Sem arredondamento, considera o atraso integral
-                resultado['atraso_minutos'] = diff_entrada
-
-        elif diff_entrada < -tolerancia_atraso:  # Chegou MUITO ADIANTADO (antes da tolerância)
+        # Se chegou muito adiantado e empresa conta entrada antecipada como extra, converter em horas extras
+        if diff_entrada < -tolerancia_atraso and conta_entrada_antecipada:
             entrada_antecipada = abs(diff_entrada)
-            # Só registrar entrada antecipada (visível no status) se a empresa contar hora extra por entrada antecipada
-            if conta_entrada_antecipada:
-                resultado['entrada_antecipada_minutos'] = entrada_antecipada
-                # Se conta como hora extra, considera o tempo além da tolerância como extra
-                extra_da_entrada = max(0, entrada_antecipada - tolerancia_atraso)
-                resultado['horas_extras_minutos'] += extra_da_entrada
-            # Se não conta entrada antecipada como hora extra, manter como NORMAL (não registrar entrada_antecipada_minutos)
-        # Se diff_entrada está entre -tolerancia e +tolerancia: entrada NORMAL (não faz nada)
+            extra_da_entrada = max(0, entrada_antecipada - tolerancia_atraso)
+            resultado['horas_extras_minutos'] += extra_da_entrada
     
     # Análise da SAÍDA
     if saida_real and saida_esperado:
@@ -134,8 +110,9 @@ def calculate_overtime(
         if diff_saida > tolerancia_atraso:
             resultado['horas_extras_minutos'] += diff_saida
 
-        elif diff_saida < -tolerancia_atraso:  # Saiu MUITO ANTES (saída antecipada além da tolerância)
-            resultado['saida_antecipada_minutos'] = abs(diff_saida) - tolerancia_atraso
+        elif diff_saida < -tolerancia_atraso:
+            # Saída antecipada: não registrar minutos de penalização, apenas ignorar
+            pass
         # Se diff_saida está entre -tolerancia e +tolerancia: saída NORMAL (não faz nada)
     
     # Aplica arredondamento nas horas extras
@@ -145,21 +122,7 @@ def calculate_overtime(
             arredondamento
         )
     
-    # Compensação de saldo de horas: Se ativado, atrasos são compensados com horas extras
-    if compensar_saldo_horas and resultado['atraso_minutos'] > 0 and resultado['horas_extras_minutos'] > 0:
-        print(f"[COMPENSAÇÃO] Antes - Horas Extras: {resultado['horas_extras_minutos']}min, Atrasos: {resultado['atraso_minutos']}min")
-        
-        # Calcula a compensação
-        if resultado['horas_extras_minutos'] >= resultado['atraso_minutos']:
-            # Horas extras cobrem todos os atrasos
-            resultado['horas_extras_minutos'] -= resultado['atraso_minutos']
-            resultado['atraso_minutos'] = 0
-        else:
-            # Horas extras compensam parcialmente os atrasos
-            resultado['atraso_minutos'] -= resultado['horas_extras_minutos']
-            resultado['horas_extras_minutos'] = 0
-        
-        print(f"[COMPENSAÇÃO] Depois - Horas Extras: {resultado['horas_extras_minutos']}min, Atrasos: {resultado['atraso_minutos']}min")
+    # Não aplicar compensação de atraso
     
     return resultado
 

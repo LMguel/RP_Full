@@ -1,15 +1,3 @@
-// Função utilitária para calcular atraso considerando tolerância
-function calcularAtrasoComTolerancia(horarioPadrao: string, horarioReal: string, tolerancia: number): number {
-  // Exemplo: horarioPadrao = '07:30', horarioReal = '07:41', tolerancia = 10
-  const [padraoH, padraoM] = horarioPadrao.split(':').map(Number);
-  const [realH, realM] = horarioReal.split(':').map(Number);
-  const padraoMin = padraoH * 60 + padraoM;
-  const realMin = realH * 60 + realM;
-  const desvio = realMin - padraoMin;
-  // atraso efetivo é o desvio além da tolerância
-  const atraso = desvio - (Number.isFinite(tolerancia) ? tolerancia : 0);
-  return Math.max(0, Math.trunc(atraso));
-}
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
@@ -270,40 +258,24 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
     const padraoMin = (Number.isFinite(padraoH) ? padraoH : 0) * 60 + (Number.isFinite(padraoM) ? padraoM : 0);
     const realMin = (Number.isFinite(realH) ? realH : 0) * 60 + (Number.isFinite(realM) ? realM : 0);
     const desvio = realMin - padraoMin;
-    // Log do atraso calculado
+    // Log do cálculo
     console.log(`Registro ${record.registro_id || ''} | Funcionário: ${record.funcionario_nome || ''} | Horário padrão: ${horarioEntrada} | Horário real: ${horarioReal} | Tolerância usada: ${toleranciaAtraso} | Desvio: ${desvio} min`);
 
-    // Preferir o valor de atraso já calculado no backend quando disponível
-    // Caso contrário, calcular o atraso além da tolerância (desvio - tolerância)
-    // Preferir atraso calculado pelo backend somente quando for maior que zero;
-    // caso contrário, calcular localmente (desvio - tolerância)
-    const atrasoBackend = (record.atraso_minutos != null && !isNaN(Number(record.atraso_minutos)))
-      ? Number(record.atraso_minutos)
-      : null;
-
-    const atrasoMinutos = (atrasoBackend != null && atrasoBackend > 0)
-      ? atrasoBackend
-      : Math.max(0, desvio - toleranciaAtraso);
-
-    if (atrasoMinutos > 0) {
-      statuses.push({
-        text: `Atraso ${atrasoMinutos} min`,
-        color: '#ef4444'
-      });
-    } else if (desvio > -toleranciaAtraso && desvio <= toleranciaAtraso) {
+    if (desvio >= -toleranciaAtraso && desvio <= toleranciaAtraso) {
       // Dentro da janela de tolerância (-tolerancia .. +tolerancia)
       statuses.push({
-        text: `Pontual (dentro da tolerância)` ,
-        color: '#fbbf24'
+        text: `Pontual`,
+        color: '#10b981' // verde
       });
-    } else if (desvio <= -toleranciaAtraso) {
-      // Entrada muito antecipada além da tolerância
+    } else if (desvio < -toleranciaAtraso) {
+      // Entrada antecipada além da tolerância
       const antecipado = Math.abs(desvio) - toleranciaAtraso;
       statuses.push({
-        text: `Entrada ${antecipado} min antes (fora da tolerância)`,
-        color: '#3b82f6'
+        text: `Entrada ${antecipado} min antes`,
+        color: '#3b82f6' // azul
       });
     }
+    // Atraso removido - não exibir status de atraso
   }
 
   // Tratar registros de saída: verificar saída antecipada em relação ao horário de saída
@@ -662,27 +634,8 @@ const RecordsDetailedPage: React.FC = () => {
         methodLabel = 'Localização';
       }
 
-      // Cálculo do atraso integral para exportação
-      let atrasoExport = '';
-      if (
-        record.horario_padrao &&
-        record.horario_real &&
-        typeof record.tolerancia === 'number'
-      ) {
-        const atrasoIntegral = calcularAtrasoComTolerancia(record.horario_padrao, record.horario_real, record.tolerancia);
-        if (atrasoIntegral > 0) {
-          atrasoExport = `Atraso ${atrasoIntegral} min`;
-        }
-      } else if (record.atraso_minutos && record.atraso_minutos > 0) {
-        atrasoExport = `Atraso ${record.atraso_minutos} min`;
-      }
-
-      // Status detalhado, substituindo atraso se necessário
+      // Status detalhado
       let statusList = getDetailedStatus(record, employees, companySettings).map(s => s.text);
-      if (atrasoExport) {
-        statusList = statusList.filter(s => !s.startsWith('Atraso'));
-        statusList.unshift(atrasoExport);
-      }
 
       return {
         'ID Registro': record.registro_id,

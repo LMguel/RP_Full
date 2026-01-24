@@ -158,11 +158,11 @@ def registrar_ponto_v2(payload):
                 'foto_url': foto_url
             },
             'daily_summary': {
-                'worked_hours': float(daily_summary.worked_hours),
-                'expected_hours': float(daily_summary.expected_hours),
-                'extra_hours': float(daily_summary.extra_hours),
-                'delay_minutes': float(daily_summary.delay_minutes),
-                'status': daily_summary.status
+                'date': daily_summary.date,
+                'hora_entrada': daily_summary.actual_start,
+                'hora_saida': daily_summary.actual_end,
+                'horas_trabalhadas': float(daily_summary.worked_hours),
+                'horas_extras': float(daily_summary.extra_hours)
             }
         }), 200
         
@@ -198,12 +198,17 @@ def get_daily_summary(payload, employee_id, date_str):
         else:
             item = response['Item']
         
-        # Converter Decimal para float
-        for key, value in item.items():
-            if isinstance(value, Decimal):
-                item[key] = float(value)
-        
-        return jsonify(item), 200
+        # Mapear apenas campos objetivos (sem atraso/penalização)
+        mapped = {
+            'date': item.get('date'),
+            'employee_id': item.get('employee_id'),
+            'hora_entrada': item.get('actual_start'),
+            'hora_saida': item.get('actual_end'),
+            'horas_trabalhadas': float(item.get('worked_hours', 0)),
+            'horas_extras': float(item.get('extra_hours', 0))
+        }
+
+        return jsonify(mapped), 200
         
     except Exception as e:
         print(f"[ERRO] Get daily summary: {e}")
@@ -234,12 +239,16 @@ def get_monthly_summary(payload, employee_id, year, month):
         else:
             item = response['Item']
         
-        # Converter Decimal para float
-        for key, value in item.items():
-            if isinstance(value, Decimal):
-                item[key] = float(value)
-        
-        return jsonify(item), 200
+        # Retornar apenas os três campos solicitados
+        total_horas_trabalhadas = float(item.get('worked_hours', 0))
+        total_horas_extras = float(item.get('extra_hours', 0))
+        dias_trabalhados = int(item.get('days_worked', item.get('days_worked', 0)))
+
+        return jsonify({
+            'total_horas_trabalhadas': total_horas_trabalhadas,
+            'total_horas_extras': total_horas_extras,
+            'dias_trabalhados': dias_trabalhados
+        }), 200
         
     except Exception as e:
         print(f"[ERRO] Get monthly summary: {e}")
@@ -335,12 +344,25 @@ def list_daily_summaries(payload):
                     continue
         
         print(f"[DEBUG] Total de resumos retornados: {len(items)}")
-        
+
+        # Mapear itens para formato objetivo e remover campos de atraso
+        mapped_items = []
+        for it in items:
+            mapped_items.append({
+                'date': it.get('date'),
+                'employee_id': it.get('employee_id'),
+                'employee_name': it.get('employee_name'),
+                'hora_entrada': it.get('actual_start'),
+                'hora_saida': it.get('actual_end'),
+                'horas_trabalhadas': float(it.get('worked_hours', 0)),
+                'horas_extras': float(it.get('extra_hours', 0))
+            })
+
         return jsonify({
             'date_from': date_from,
             'date_to': date_to,
-            'total': len(items),
-            'items': items
+            'total': len(mapped_items),
+            'items': mapped_items
         }), 200
         
     except Exception as e:
@@ -390,7 +412,7 @@ def get_company_dashboard(payload, date_str):
                         try:
                             summary = calculate_daily_summary(company_id, emp_id, target_date)
                             if summary:
-                                # Converter DailySummary object para dict
+                                # Converter DailySummary object para dict (apenas campos objetivos)
                                 summary_dict = {
                                     'company_id': summary.company_id,
                                     'employee_id': summary.employee_id,
@@ -401,10 +423,7 @@ def get_company_dashboard(payload, date_str):
                                     'expected_end': summary.expected_end,
                                     'worked_hours': float(summary.worked_hours) if summary.worked_hours else 0,
                                     'expected_hours': float(summary.expected_hours) if summary.expected_hours else 0,
-                                    'daily_balance': float(summary.daily_balance) if summary.daily_balance else 0,
-                                    'delay_minutes': float(summary.delay_minutes) if summary.delay_minutes else 0,
-                                    'extra_minutes': float(summary.extra_hours * 60) if summary.extra_hours else 0,
-                                    'status': summary.status,
+                                    'extra_hours': float(summary.extra_hours) if summary.extra_hours else 0,
                                     'records_count': summary.records_count
                                 }
                                 items.append(summary_dict)
@@ -442,27 +461,23 @@ def get_company_dashboard(payload, date_str):
             emp_id = item.get('employee_id')
             item['employee_name'] = employee_names.get(emp_id, emp_id)
         
-        # Calcular totais
+        # Calcular totais (sem métricas de atraso)
         total_employees = len(items)
-        total_present = len([i for i in items if i.get('status') != 'absent'])
-        total_late = len([i for i in items if i.get('delay_minutes', 0) > 0])
-        total_extra = len([i for i in items if i.get('extra_minutes', 0) > 0])
-        
+        total_present = len([i for i in items if i.get('worked_hours', 0) > 0])
+        total_extra = len([i for i in items if i.get('extra_hours', 0) > 0])
+
         # Somar horas
         total_worked = sum(i.get('worked_hours', 0) for i in items)
         total_expected = sum(i.get('expected_hours', 0) for i in items)
-        total_balance = sum(i.get('daily_balance', 0) for i in items)
-        
+
         return jsonify({
             'date': date_str,
             'summary': {
                 'total_employees': total_employees,
                 'present': total_present,
-                'late': total_late,
                 'extra_time': total_extra,
-                'total_worked_minutes': float(total_worked),
-                'total_expected_minutes': float(total_expected),
-                'total_balance_minutes': float(total_balance)
+                'total_worked_hours': float(total_worked),
+                'total_expected_hours': float(total_expected)
             },
             'employees': items
         }), 200
@@ -500,10 +515,15 @@ def get_employee_dashboard(payload):
             
             if 'Item' in response:
                 item = response['Item']
-                for key, value in item.items():
-                    if isinstance(value, Decimal):
-                        item[key] = float(value)
-                summaries.append(item)
+                # Mapear para campos objetivos
+                mapped = {
+                    'date': item.get('date'),
+                    'hora_entrada': item.get('actual_start'),
+                    'hora_saida': item.get('actual_end'),
+                    'horas_trabalhadas': float(item.get('worked_hours', 0)),
+                    'horas_extras': float(item.get('extra_hours', 0))
+                }
+                summaries.append(mapped)
         
         # Resumo do mês atual
         month_str = f"{hoje.year}-{hoje.month:02d}"
@@ -514,16 +534,18 @@ def get_employee_dashboard(payload):
             }
         )
         
-        monthly = None
+        monthly_mapped = None
         if 'Item' in response_month:
-            monthly = response_month['Item']
-            for key, value in monthly.items():
-                if isinstance(value, Decimal):
-                    monthly[key] = float(value)
-        
+            item = response_month['Item']
+            monthly_mapped = {
+                'total_horas_trabalhadas': float(item.get('worked_hours', 0)),
+                'total_horas_extras': float(item.get('extra_hours', 0)),
+                'dias_trabalhados': int(item.get('days_worked', 0))
+            }
+
         return jsonify({
             'last_7_days': summaries,
-            'current_month': monthly
+            'current_month': monthly_mapped
         }), 200
         
     except Exception as e:

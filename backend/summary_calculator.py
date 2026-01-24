@@ -231,19 +231,9 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     if worked_hours < 0:
         worked_hours = Decimal('0')
     
-    # Calcular atraso e horas extras
+    # Calcular horas extras (remover lógica de atraso/tolerância)
     delay_minutes = Decimal('0')
     extra_hours = Decimal('0')
-    
-    if entrada and scheduled_start:
-        entrada_time = datetime.fromisoformat(entrada.replace('Z', '+00:00')).time()
-        scheduled_start_time = parse_time(scheduled_start)
-        
-        tolerance = config.get('tolerance_before', 10) or config.get('tolerancia_atraso', 10)
-        
-        diff = time_diff_minutes(scheduled_start_time, entrada_time)
-        if diff > tolerance:
-            delay_minutes = Decimal(diff)  # atraso integral
     
     # Horas extras (considerando intervalos)
     if worked_hours > expected_hours:
@@ -251,37 +241,21 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     else:
         extra_hours = Decimal('0')
     
-    # Compensação
+    # Não aplicar compensação automática de atraso; campo compensado permanece 0
     compensated_minutes = Decimal('0')
-    compensate = config.get('compensate_balance', False) or config.get('compensar_saldo_horas', False)
-    
-    if compensate and delay_minutes > 0 and extra_hours > 0:
-        extra_minutes_total = extra_hours * Decimal('60')
-        if extra_minutes_total >= delay_minutes:
-            compensated_minutes = delay_minutes
-            extra_hours = (extra_minutes_total - delay_minutes) / Decimal('60')
-            delay_minutes = Decimal('0')
-        else:
-            compensated_minutes = extra_minutes_total
-            delay_minutes -= extra_minutes_total
-            extra_hours = Decimal('0')
     
     # Saldo diário
     daily_balance = worked_hours - expected_hours
     
-    # Determinar status
+    # Determinar status simples (sem interpretação de atraso)
     status: DayStatus = "normal"
     missing_exit = saida is None
     if missing_exit and scheduled_end:
         status = "missing_exit"
         daily_balance = Decimal('0')
     else:
-        if delay_minutes > 0:
-            status = "late"
-        elif extra_hours > 0:
+        if extra_hours > 0:
             status = "extra"
-        if compensated_minutes > 0:
-            status = "compensated"
     
     # Criar resumo
     # Extrair horários de entrada/saída (suportar vários formatos)
@@ -311,8 +285,8 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         expected_hours=expected_hours,
         worked_hours=worked_hours,
         extra_hours=extra_hours,
-        delay_minutes=delay_minutes,
-        compensated_minutes=compensated_minutes,
+        delay_minutes=Decimal('0'),
+        compensated_minutes=Decimal('0'),
         daily_balance=daily_balance,
         status=status,
         breaks_total=breaks_total_hours,

@@ -81,10 +81,6 @@ const normalizeStatusKey = (status: any): string => {
     return 'normal';
   }
 
-  if (['atrasado', 'late', 'atraso'].includes(ascii)) {
-    return 'atraso';
-  }
-
   if (['entrada_antecipada', 'entradaantecipada', 'entrada_adiantada', 'entradaadiantada', 'adiantado'].includes(ascii)) {
     return 'entrada_antecipada';
   }
@@ -99,7 +95,6 @@ const normalizeStatusKey = (status: any): string => {
 const STATUS_LABEL_MAP: Record<string, string> = {
   entrada_antecipada: 'Entrada antecipada',
   normal: 'Normal',
-  atraso: 'Atraso',
   saida_antecipada: 'Saída antecipada'
 };
 
@@ -110,12 +105,6 @@ const getStatusLabelFromKey = (statusKey: string): string => {
 
 const getStatusChipStyles = (statusKey: string) => {
   switch (statusKey) {
-    case 'atraso':
-      return {
-        bgcolor: '#ffebee',
-        color: '#d32f2f',
-        border: '1px solid #ffcdd2'
-      };
     case 'entrada_antecipada':
       return {
         bgcolor: '#e3f2fd',
@@ -127,6 +116,24 @@ const getStatusChipStyles = (statusKey: string) => {
         bgcolor: '#fff3e0',
         color: '#ef6c00',
         border: '1px solid #ffe0b2'
+      };
+    case 'presente':
+      return {
+        bgcolor: '#e8f5e9',
+        color: '#2e7d32',
+        border: '1px solid #c8e6c9'
+      };
+    case 'saiu':
+      return {
+        bgcolor: '#fce4ec',
+        color: '#c2185b',
+        border: '1px solid #f8bbd9'
+      };
+    case 'entrada':
+      return {
+        bgcolor: '#e3f2fd',
+        color: '#1976d2',
+        border: '1px solid #90caf9'
       };
     default:
       return {
@@ -146,14 +153,6 @@ const getDetailedStatus = (record: RecentRecord): Array<{ text: string; color: s
     statuses.push({
       text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
       color: '#3b82f6' // azul
-    });
-  }
-
-  // Atraso
-  if (record.atraso_minutos && record.atraso_minutos > 0) {
-    statuses.push({
-      text: `Atraso ${record.atraso_minutos} min`,
-      color: '#ef4444' // vermelho
     });
   }
 
@@ -688,11 +687,11 @@ const DashboardPage = () => {
         }}
       >
         <MetricCard
-          title="Funcionários Presentes"
+          title="Registros Hoje"
           value={`${data.presentEmployees}/${data.totalEmployees}`}
           icon={Users}
           color="#1976d2"
-          subtitle="Funcionários no trabalho hoje"
+          subtitle="Funcionários com registro hoje"
         />
         <MetricCard
           title="Horas do Mês"
@@ -704,7 +703,7 @@ const DashboardPage = () => {
       </Box>
 
       {/* Alertas */}
-      {data.alerts && data.alerts.length > 0 && (
+      {data.alerts && data.alerts.filter(a => a.type !== 'atraso').length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -736,7 +735,7 @@ const DashboardPage = () => {
                   Alertas do Dia
                 </Typography>
               </Box>
-              {data.alerts.map((alert, index) => (
+              {data.alerts.filter(a => a.type !== 'atraso').map((alert, index) => (
                 <Alert key={index} severity={alert.severity || 'info'} sx={{ mb: 1, borderRadius: '8px' }}>
                   {alert.message}
                 </Alert>
@@ -747,134 +746,6 @@ const DashboardPage = () => {
       )}
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {/* Layout em duas colunas para desktop */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr' }, gap: 3 }}>
-          {/* Funcionários Presentes */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-          >
-            <Card sx={{
-              bgcolor: 'rgba(255, 255, 255, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: '16px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-              backdropFilter: 'blur(20px)'
-            }}>
-              <CardContent sx={{ p: 3 }}>
-                <Box display="flex" alignItems="center" mb={3}>
-                  <Box sx={{ 
-                    p: 1.5, 
-                    borderRadius: '12px', 
-                    bgcolor: '#2e7d32', 
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mr: 2
-                  }}>
-                    <Users size={24} />
-                  </Box>
-                  <Typography variant="h6" sx={{ color: 'white', fontWeight: 600, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-                    Funcionários Presentes
-                  </Typography>
-                </Box>
-                <Box sx={{ borderRadius: '12px', overflow: 'hidden' }}>
-                  <TableContainer
-                    component={Paper}
-                    elevation={0}
-                    sx={{ bgcolor: 'transparent', maxHeight: 320, overflowY: 'auto' }}
-                  >
-                    {/* Maintain roughly five rows visible and allow scrolling for the rest */}
-                    <Table
-                      size="small"
-                      stickyHeader
-                      sx={{
-                        '& .MuiTableCell-root': {
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
-                        },
-                      }}
-                    >
-                      <TableHead
-                        sx={{
-                          '& .MuiTableCell-root': {
-                            backgroundColor: 'rgba(15, 23, 42, 0.85)',
-                            color: 'rgba(255,255,255,0.85)',
-                            fontWeight: 600,
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.15)'
-                          },
-                          '& .MuiTableCell-root:first-of-type': {
-                            borderTopLeftRadius: '12px'
-                          },
-                          '& .MuiTableCell-root:last-of-type': {
-                            borderTopRightRadius: '12px'
-                          }
-                        }}
-                      >
-                        <TableRow>
-                          <TableCell>Nome</TableCell>
-                          <TableCell>Status</TableCell>
-                        </TableRow>
-                      </TableHead>
-                    <TableBody>
-                      {data.employeesPresent && data.employeesPresent.length > 0 ? (
-                        data.employeesPresent.map((employee, index) => (
-                          <TableRow key={index} sx={{ '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.04)' } }}>
-                            <TableCell sx={{ border: 'none', py: 1.5 }}>
-                              <Box display="flex" alignItems="center">
-                                <Avatar
-                                  src={employee.photoUrl || undefined}
-                                  sx={{ 
-                                    width: 32, 
-                                    height: 32, 
-                                    mr: 1.5, 
-                                    bgcolor: '#1976d2',
-                                    fontSize: '14px'
-                                  }}
-                                >
-                                  {employee.name?.charAt(0) || 'F'}
-                                </Avatar>
-                                <Box>
-                                  <Typography sx={{ color: 'white', fontWeight: 500 }}>
-                                    {employee.name || 'Funcionário'}
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-                                    Entrada: {employee.entryTime && employee.entryTime !== 'N/A' ? employee.entryTime : 'N/A'}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </TableCell>
-                            <TableCell sx={{ border: 'none' }}>
-                              <Chip 
-                                label={employee.statusLabel || getStatusLabelFromKey(employee.statusKey)} 
-                                size="small" 
-                                sx={{
-                                  fontWeight: 500,
-                                  ...getStatusChipStyles(employee.statusKey)
-                                }}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={2} sx={{ border: 'none', py: 4, textAlign: 'center' }}>
-                            <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontStyle: 'italic' }}>
-                              Nenhum funcionário presente
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Box>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </Box>
-
         {/* Registros Recentes - Largura completa */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

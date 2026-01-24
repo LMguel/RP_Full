@@ -370,56 +370,40 @@ def get_daily_summaries():
             if employee_id_filter and item.get('employee_id') != employee_id_filter:
                 continue
             
-            # Filtro por status
-            if status_filter and item.get('status') != status_filter:
-                continue
-            
-            # Converter Decimal para float e adicionar nome
-            summary = {}
-            for key, value in item.items():
-                if isinstance(value, Decimal):
-                    summary[key] = float(value)
-                else:
-                    summary[key] = value
-            
-            # Adicionar nome do funcionário
-            emp_id = summary.get('employee_id')
-            summary['employee_name'] = employee_names.get(emp_id, emp_id)
-            
-            # Mapear e formatar campos do DailySummary
-            # Extrair apenas HH:MM dos horários
+            # Converter Decimal e mapear apenas campos objetivos (sem atraso/penalização)
+            emp_id = item.get('employee_id')
+            actual_start = item.get('actual_start')
+            actual_end = item.get('actual_end')
+
             def extract_time_only(dt_str):
-                """Extrai HH:MM de datetime string"""
                 if not dt_str:
                     return None
                 dt_str = str(dt_str)
-                # Formato: "2025-11-13 07:30:00" -> "07:30"
                 if ' ' in dt_str:
-                    time_part = dt_str.split(' ')[1]
-                    return time_part[:5]  # HH:MM
-                # Formato: "2025-11-13T07:30:00" -> "07:30"
-                elif 'T' in dt_str:
-                    time_part = dt_str.split('T')[1]
-                    return time_part[:5]
-                # Já está no formato HH:MM
+                    return dt_str.split(' ')[1][:5]
+                if 'T' in dt_str:
+                    return dt_str.split('T')[1][:5]
                 return dt_str[:5] if len(dt_str) >= 5 else dt_str
-            
-            # Mapear horários formatados
-            actual_start = summary.get('actual_start')
-            actual_end = summary.get('actual_end')
-            summary['first_entry_time'] = extract_time_only(actual_start) if actual_start else None
-            summary['last_exit_time'] = extract_time_only(actual_end) if actual_end else None
-            
-            # calculate_daily_summary já retorna worked_hours e expected_hours em HORAS (Decimal)
-            # Apenas garantir que temos difference_minutes calculado
-            if summary.get('daily_balance') is not None:
-                # daily_balance já está em horas (Decimal), converter para minutos
-                summary['difference_minutes'] = float(summary['daily_balance']) * 60
-            elif summary.get('worked_hours') is not None and summary.get('expected_hours') is not None:
-                diff_hours = float(summary['worked_hours']) - float(summary['expected_hours'])
-                summary['difference_minutes'] = diff_hours * 60
-            
-            summaries.append(summary)
+
+            # Dia da semana em português abreviado
+            try:
+                wd = datetime.strptime(item.get('date'), '%Y-%m-%d').weekday()
+                dias = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+                dia_semana = dias[wd]
+            except Exception:
+                dia_semana = None
+
+            summary_obj = {
+                'nome': employee_names.get(emp_id, emp_id),
+                'dia_semana': dia_semana,
+                'data': item.get('date'),
+                'hora_entrada': extract_time_only(actual_start) if actual_start else None,
+                'hora_saida': extract_time_only(actual_end) if actual_end else None,
+                'horas_trabalhadas': float(item.get('worked_hours', 0)),
+                'horas_extras': float(item.get('extra_hours', 0))
+            }
+
+            summaries.append(summary_obj)
         
         # Ordenar por data descendente
         summaries.sort(key=lambda s: s.get('date', ''), reverse=True)
@@ -510,8 +494,19 @@ def get_day_details(employee_id, date):
         # Ordenar por data_hora
         day_records.sort(key=lambda r: r.get('data_hora', ''))
         
+        # Mapear summary para retornar apenas campos objetivos
+        mapped_summary = None
+        if summary:
+            mapped_summary = {
+                'data': summary.get('date') if isinstance(summary, dict) else summary.date,
+                'hora_entrada': (summary.get('first_entry_time') if isinstance(summary, dict) else summary.actual_start),
+                'hora_saida': (summary.get('last_exit_time') if isinstance(summary, dict) else summary.actual_end),
+                'horas_trabalhadas': float(summary.get('worked_hours', 0)) if isinstance(summary, dict) else float(summary.worked_hours),
+                'horas_extras': float(summary.get('extra_hours', 0)) if isinstance(summary, dict) else float(summary.extra_hours)
+            }
+
         return jsonify({
-            'summary': summary,
+            'summary': mapped_summary,
             'records': day_records
         }), 200
         

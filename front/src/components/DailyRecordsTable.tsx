@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { config } from '../config';
 import {
   Box,
   Typography,
@@ -10,22 +9,18 @@ import {
   TableHead,
   TableRow,
   Paper,
-  Chip,
-  IconButton,
-  Tooltip,
-  CircularProgress,
   TextField,
-  MenuItem,
   Button,
+  CircularProgress,
   InputAdornment,
   Autocomplete,
 } from '@mui/material';
-import { Search as SearchIcon, Clear as ClearIcon, CalendarMonth as CalendarIcon, FileDownload as FileDownloadIcon } from '@mui/icons-material';
-import { AlertTriangle, MapPin, Filter, RefreshCw } from 'lucide-react';
-import type { DailySummary, DailySummaryFilters } from '../types/dailySummary';
+import { Search as SearchIcon, Clear as ClearIcon, FileDownload as FileDownloadIcon } from '@mui/icons-material';
+import { Filter } from 'lucide-react';
+import { DateRangePicker } from '../components/DateRangePicker';
 import { getDailySummaries, getDayDetails } from '../services/dailySummaryService';
 import TimeRecordsModal from './TimeRecordsModal';
-import { DateRangePicker } from '../components/DateRangePicker';
+import * as XLSX from 'xlsx';
 import { toast } from 'react-hot-toast';
 
 interface DailyRecordsTableProps {
@@ -33,341 +28,127 @@ interface DailyRecordsTableProps {
 }
 
 const formatDateForInput = (date: Date): string => {
+  return date.toISOString().slice(0, 10);
+};
+
 const formatDateLabel = (value?: string): string => {
-const formatDateForFilename = (value?: string): string => {
-import * as XLSX from 'xlsx';
+  if (!value) return '';
+  const [y, m, d] = value.split('-');
+  return `${d}/${m}/${y}`;
+};
+
 const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }) => {
-// DailyRecordsTable removida
   const currentDate = new Date();
   const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-  
+
   const [dateRange, setDateRange] = useState({
     start_date: formatDateForInput(currentMonthStart),
-    end_date: formatDateForInput(currentMonthEnd)
+    end_date: formatDateForInput(currentMonthEnd),
   });
-  const [selectedMonth, setSelectedMonth] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [filteredEmployees, setFilteredEmployees] = useState<Array<{ id: string; nome: string }>>([]);
-  const [statusFilter, setStatusFilter] = useState<DailySummary['status'] | ''>('');
 
-  // Lista única de funcionários para o filtro
-  const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
-  const [allEmployees, setAllEmployees] = useState<Array<{ id: string; nome: string }>>([]);
+  const [summaries, setSummaries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Carregar dados
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalRecords, setModalRecords] = useState<any[]>([]);
+  const [selectedSummary, setSelectedSummary] = useState<any | null>(null);
+
   const loadSummaries = useCallback(async () => {
     setLoading(true);
     try {
-      const filters: DailySummaryFilters = {};
-
-      if (dateRange.start_date) {
-        filters.start_date = dateRange.start_date;
-      }
-      if (dateRange.end_date) {
-        filters.end_date = dateRange.end_date;
-      }
-      if (selectedMonth) {
-        filters.month = selectedMonth;
-      }
-      
-      if (selectedEmployeeId) filters.employee_id = selectedEmployeeId;
-      if (statusFilter) filters.status = statusFilter;
-      
-      console.log('[DEBUG] Chamando getDailySummaries com filtros:', filters);
-      const response = await getDailySummaries(filters, 1, 100);
-      console.log('[DEBUG] Resposta recebida:', response);
-      
+      const filters: any = {};
+      if (dateRange.start_date) filters.start_date = dateRange.start_date;
+      if (dateRange.end_date) filters.end_date = dateRange.end_date;
+      const response = await getDailySummaries(filters, 1, 500);
       if (!response || !response.summaries) {
-        console.error('[ERROR] Resposta inválida:', response);
-        toast.error('Resposta da API inválida');
         setSummaries([]);
-        setEmployees([]);
         return;
       }
-      
-      if (response.summaries.length > 0) {
-        const first = response.summaries[0];
-        console.log('[DEBUG] Primeiro sumário:', {
-          employee_name: first.employee_name,
-          first_entry_time: first.first_entry_time,
-          last_exit_time: first.last_exit_time,
-          worked_hours: first.worked_hours,
-        });
-      }
-      
-      setSummaries(response.summaries);
 
-      const uniqueEmployees = Array.from(
-        new Map(
-          response.summaries.map((s) => [s.employee_id, { id: s.employee_id, name: s.employee_name }])
-        ).values()
-      ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-      
-      setEmployees(uniqueEmployees);
-    } catch (error: any) {
-      console.error('Erro ao carregar registros diários:', error);
-      console.error('Detalhes do erro:', error.response?.data);
-      toast.error(error.response?.data?.error || 'Erro ao carregar dados');
+      const normalized = response.summaries.map((s: any) => ({
+        employee_id: s.employee_id || s.funcionario_id || s.id,
+        employee_name: s.employee_name || s.nome || s.name,
+        date: s.date || s.data,
+        first_entry_time: s.first_entry_time || s.hora_entrada || s.actual_start,
+        last_exit_time: s.last_exit_time || s.hora_saida || s.actual_end,
+        worked_hours: s.worked_hours || s.horas_trabalhadas || 0,
+        raw: s,
+      }));
+
+      setSummaries(normalized);
+      const uniques = Array.from(new Map(normalized.map((n) => [n.employee_id, { id: n.employee_id, nome: n.employee_name }])).values());
+      setFilteredEmployees(uniques.map(u => ({ id: u.id, nome: u.nome })));
+    } catch (err: any) {
+      console.error('Erro ao carregar summaries', err);
+      toast.error('Erro ao carregar registros');
       setSummaries([]);
-      setEmployees([]);
     } finally {
       setLoading(false);
     }
-  }, [dateRange.start_date, dateRange.end_date, selectedEmployeeId, statusFilter, selectedMonth]);
+  }, [dateRange.start_date, dateRange.end_date]);
 
   useEffect(() => {
     loadSummaries();
   }, [loadSummaries, reloadToken]);
 
-  // Funções utilitárias para filtro de mês
-  const getFirstDayOfMonth = (yearMonth: string): string => {
-    const [year, month] = yearMonth.split('-').map(Number);
-    return `${year}-${month.toString().padStart(2, '0')}-01`;
+  const handleDateRangeChange = (newRange: typeof dateRange) => {
+    setDateRange(newRange);
   };
 
-  const getLastDayOfMonth = (yearMonth: string): string => {
-    const [year, month] = yearMonth.split('-').map(Number);
-    const lastDay = new Date(year, month, 0).getDate();
-    return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
-  };
-
-  const getCurrentMonth = (): string => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    return `${year}-${month.toString().padStart(2, '0')}`;
-  };
-
-  const getMonthFromDate = (dateString: string): string => {
-    if (!dateString) return '';
-    const [year, month] = dateString.split('-');
-    if (!year || !month) return '';
-    return `${year}-${month.padStart(2, '0')}`;
-  };
-
-  // Carregar lista completa de funcionários
-  useEffect(() => {
-    const fetchEmployees = async () => {
-      try {
-        const response = await fetch(`${config.API_URL}/api/funcionarios`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          },
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`HTTP ${response.status}: ${text}`);
-        }
-        const data = await response.json();
-        setAllEmployees(data.funcionarios || []);
-      } catch (error) {
-        console.error('Erro ao carregar funcionários:', error);
-      }
-    };
-    fetchEmployees();
-  }, []);
-
-  // Inicializar mês atual
-  useEffect(() => {
-    const currentMonth = getCurrentMonth();
-    setSelectedMonth(currentMonth);
-  }, []);
-
-  const handleEmployeeClick = async (summary: DailySummary) => {
+  const handleEmployeeClick = async (summary: any) => {
     setSelectedSummary(summary);
     setModalOpen(true);
     setModalLoading(true);
-
     try {
-      const response = await getDayDetails(summary.employee_id, summary.date);
-      setModalRecords(response.records);
-    } catch (error: any) {
-      console.error('Erro ao carregar detalhes:', error);
-      toast.error('Erro ao carregar detalhes do dia');
+      const res = await getDayDetails(summary.employee_id, summary.date);
+      setModalRecords(res.records || []);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao buscar detalhes do dia');
       setModalRecords([]);
     } finally {
       setModalLoading(false);
     }
   };
 
-  // Busca de funcionários conforme digita
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    
-    if (!value.trim()) {
-      setFilteredEmployees([]);
-      setSelectedEmployeeId('');
-      return;
-    }
-
-    const filtered = allEmployees.filter(emp =>
-      emp.nome.toLowerCase().includes(value.toLowerCase())
-    );
-    setFilteredEmployees(filtered.slice(0, 8));
-    
-    // Se o valor corresponde exatamente a um funcionário, selecioná-lo automaticamente
-    const exactMatch = allEmployees.find(emp => 
-      emp.nome.toLowerCase() === value.toLowerCase()
-    );
-    if (exactMatch) {
-      setSelectedEmployeeId(exactMatch.id);
-    } else {
-      setSelectedEmployeeId('');
-    }
-  };
-
-  // Selecionar funcionário da lista de sugestões
-  const handleEmployeeSelect = (employee: { id: string; nome: string }) => {
-    setSearchTerm(employee.nome);
-    setSelectedEmployeeId(employee.id);
-    setFilteredEmployees([]);
-  };
-
-  // Limpar busca
-  const handleClearSearch = () => {
+  const clearFilters = () => {
+    setDateRange({ start_date: formatDateForInput(currentMonthStart), end_date: formatDateForInput(currentMonthEnd) });
     setSearchTerm('');
-    setSelectedEmployeeId('');
-    setFilteredEmployees([]);
-  };
-
-  // Manipulação do filtro de mês
-  const handleMonthChange = (month: string) => {
-    setSelectedMonth(month);
-    if (month) {
-      setDateRange({
-        start_date: getFirstDayOfMonth(month),
-        end_date: getLastDayOfMonth(month)
-      });
-    } else {
-      setDateRange({
-        start_date: formatDateForInput(currentMonthStart),
-        end_date: formatDateForInput(currentMonthEnd)
-      });
-    }
-  };
-
-  const handleDateRangeChange = (newRange: typeof dateRange) => {
-    setDateRange(newRange);
-    
-    // Atualizar mês selecionado se as datas estão no mesmo mês
-    if (newRange.start_date && newRange.end_date) {
-      const monthFromDate = getMonthFromDate(newRange.start_date);
-      const monthToDate = getMonthFromDate(newRange.end_date);
-      if (monthFromDate === monthToDate) {
-        setSelectedMonth(monthFromDate);
-      } else {
-        setSelectedMonth('');
-      }
-    }
-  };
-
-  // Limpar filtros (incluindo mês)
-  const handleClearFilters = () => {
-    setDateRange({
-      start_date: formatDateForInput(currentMonthStart),
-      end_date: formatDateForInput(currentMonthEnd)
-    });
-    setSelectedMonth('');
-    setStatusFilter('');
-    handleClearSearch();
-  };
-
-  const formatDate = (dateString: string) => {
-    const [year, month, day] = dateString.split('-');
-    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    const weekday = date.toLocaleDateString('pt-BR', { weekday: 'short' });
-    return `${day}/${month}/${year} (${weekday})`;
-  };
-
-  const getStatusColor = (status: DailySummary['status']) => {
-    switch (status) {
-      case 'normal':
-        return 'success';
-      case 'late':
-        return 'warning';
-      case 'extra':
-        return 'info';
-      case 'absent':
-      case 'missing_exit':
-        return 'error';
-      case 'incomplete':
-        return 'warning';
-      case 'compensated':
-        return 'primary';
-      default:
-        return 'default';
-    }
-  };
-
-  const getStatusLabel = (status: DailySummary['status']) => {
-    const labels = {
-      normal: 'Normal',
-      late: 'Atraso',
-      extra: 'Hora Extra',
-      absent: 'Ausente',
-      missing_exit: 'Sem Saída',
-      incomplete: 'Incompleto',
-      compensated: 'Compensado',
-    };
-    return labels[status] || status;
-  };
-
-  const formatHours = (hours: number | undefined) => {
-    if (hours === undefined || hours === null || hours === 0) return '—';
-    
-    // Backend já converte para horas
-    const h = Math.floor(hours);
-    const m = Math.round((hours - h) * 60);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   };
 
   const exportToExcel = () => {
-    if (summaries.length === 0) {
+    if (!summaries.length) {
       toast.error('Nenhum dado para exportar');
       return;
     }
-
-    const headerRows = [
-      ['Período do relatório', `${formatDateLabel(dateRange.start_date) || 'Início'} até ${formatDateLabel(dateRange.end_date) || 'Fim'}`],
-      []
-    ];
-
-    const dataRows = summaries.map(summary => ({
-      'Data': formatDate(summary.date),
-      'Funcionário': summary.employee_name,
-      'Entrada': summary.first_entry_time || '—',
-      'Saída': summary.last_exit_time || '—',
-      'Horas Trabalhadas': formatHours(summary.worked_hours),
+    const rows = summaries.map(s => ({
+      Data: formatDateLabel(s.date),
+      Funcionário: s.employee_name,
+      Entrada: s.first_entry_time || '-',
+      Saída: s.last_exit_time || '-',
     }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Registros Diarios');
+    XLSX.writeFile(wb, `registros-diarios-${formatDateLabel(dateRange.start_date)}-a-${formatDateLabel(dateRange.end_date)}.xlsx`);
+    toast.success('Exportado');
+  };
 
-    const worksheet = XLSX.utils.aoa_to_sheet(headerRows);
-    XLSX.utils.sheet_add_json(worksheet, dataRows, {
-      origin: 'A3',
-      header: ['Data', 'Funcionário', 'Entrada', 'Saída', 'Horas Trabalhadas'],
-    });
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Registros Diarios');
-
-    const startLabel = formatDateForFilename(dateRange.start_date) || 'inicio';
-    const endLabel = formatDateForFilename(dateRange.end_date) || 'fim';
-    const filename = `Relatorio-(${startLabel}_a_${endLabel}).xlsx`;
-
-    XLSX.writeFile(workbook, filename);
-    toast.success('Registros exportados com sucesso!');
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    const [y, m, d] = dateString.split('-');
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    const weekday = date.toLocaleDateString('pt-BR', { weekday: 'short' });
+    return `${d}/${m}/${y} (${weekday})`;
   };
 
   return (
-    <Paper sx={{
-      borderRadius: 2,
-      background: 'rgba(255, 255, 255, 0.08)',
-      backdropFilter: 'blur(20px)',
-      border: '1px solid rgba(255, 255, 255, 0.1)',
-      overflow: 'hidden'
-    }}>
-      {/* Seção de Filtros */}
+    <Paper sx={{ borderRadius: 2, background: 'rgba(255, 255, 255, 0.08)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
+      {/* Filtros */}
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
           <Filter size={20} color="rgba(255, 255, 255, 0.9)" />
@@ -376,15 +157,12 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
           </Typography>
         </Box>
 
-        {/* Primeira linha: Campo de busca */}
         <Box sx={{ mb: 3 }}>
           <Autocomplete
             freeSolo
-            options={filteredEmployees.map(emp => emp.nome)}
+            options={filteredEmployees.map(e => e.nome)}
             value={searchTerm}
-            onInputChange={(event, value) => {
-              handleSearchChange(value || '');
-            }}
+            onInputChange={(e, v) => setSearchTerm(v || '')}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -406,104 +184,31 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                     '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
                     '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
                   },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
                 }}
               />
             )}
           />
         </Box>
 
-        {/* Segunda linha: Mês, Período e Status */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
-          {/* Mês */}
-          <TextField
-            label="Mês"
-            type="month"
-            value={selectedMonth || ''}
-            onChange={(e) => handleMonthChange(e.target.value)}
-            size="small"
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <CalendarIcon sx={{ fontSize: 18 }} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                color: 'rgba(255, 255, 255, 0.9)',
-                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-              },
-              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-            }}
-          />
-
-          {/* Período */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 3, mb: 3 }}>
           <Box>
             <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, fontSize: '0.75rem' }}>
               Período de Consulta
             </Typography>
-            <DateRangePicker
-              value={dateRange}
-              onChange={handleDateRangeChange}
-              placeholder="Selecionar período dos registros"
-              className="w-full"
-            />
+            <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
           </Box>
-
-          {/* Status */}
-          <TextField
-            label="Status"
-            select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
-            size="small"
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                color: 'rgba(255, 255, 255, 0.9)',
-                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-              },
-              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-              '& .MuiSvgIcon-root': { color: 'rgba(255, 255, 255, 0.6)' },
-            }}
-          >
-            <MenuItem value="">Todos os Status</MenuItem>
-            <MenuItem value="normal">Normal</MenuItem>
-            <MenuItem value="late">Atraso</MenuItem>
-            <MenuItem value="extra">Hora Extra</MenuItem>
-            <MenuItem value="absent">Ausente</MenuItem>
-            <MenuItem value="missing_exit">Sem Saída</MenuItem>
-            <MenuItem value="incomplete">Incompleto</MenuItem>
-            <MenuItem value="compensated">Compensado</MenuItem>
-          </TextField>
         </Box>
 
-        {statusFilter && (
-          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              Filtrando por status:
-            </Typography>
-            <Chip label={getStatusLabel(statusFilter)} color={getStatusColor(statusFilter)} size="small" sx={{ fontWeight: 500 }} />
-          </Box>
-        )}
-
-        <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
           <Button
             variant="outlined"
             size="medium"
-            onClick={handleClearFilters}
+            onClick={clearFilters}
             startIcon={<ClearIcon />}
             sx={{
               borderColor: 'rgba(255, 255, 255, 0.3)',
               color: 'rgba(255, 255, 255, 0.8)',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              }
+              '&:hover': { borderColor: 'rgba(255, 255, 255, 0.5)', backgroundColor: 'rgba(255, 255, 255, 0.05)' },
             }}
           >
             Limpar Filtros
@@ -515,48 +220,20 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
             startIcon={<FileDownloadIcon />}
             disabled={summaries.length === 0}
             sx={{
+              ml: 'auto',
               borderColor: 'rgba(255, 255, 255, 0.3)',
               color: 'rgba(255, 255, 255, 0.8)',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              },
-              '&.Mui-disabled': {
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'rgba(255, 255, 255, 0.3)',
-              },
-              ml: 'auto'
+              '&:hover': { borderColor: 'rgba(255, 255, 255, 0.5)', backgroundColor: 'rgba(255, 255, 255, 0.05)' },
+              '&.Mui-disabled': { borderColor: 'rgba(255, 255, 255, 0.1)', color: 'rgba(255, 255, 255, 0.3)' },
             }}
           >
             Exportar Excel
           </Button>
-          <Button
-            variant="outlined"
-            size="medium"
-            onClick={loadSummaries}
-            startIcon={<RefreshCw size={16} />}
-            sx={{ 
-              ml: 1.5,
-              borderColor: 'rgba(255, 255, 255, 0.3)',
-              color: 'rgba(255, 255, 255, 0.8)',
-              '&:hover': {
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              }
-            }}
-          >
-            Atualizar
-          </Button>
         </Box>
-
       </Box>
 
-      {/* Linha divisória */}
-      <Box sx={{ 
-        height: '1px', 
-        background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)',
-        my: 0
-      }} />
+      {/* Divisória */}
+      <Box sx={{ height: '1px', background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)' }} />
 
       {/* Tabela */}
       <TableContainer sx={{ background: 'transparent' }}>
@@ -567,13 +244,12 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               <TableCell sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Funcionário</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Entrada</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Saída</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Horas Trabalhadas</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={32} sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                   <Typography variant="body2" sx={{ mt: 2, color: 'rgba(255, 255, 255, 0.6)' }}>
                     Carregando registros...
@@ -582,98 +258,45 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               </TableRow>
             ) : summaries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
                   <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
                     Nenhum registro encontrado
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              summaries.map((summary) => (
-                <TableRow
-                  key={`${summary.employee_id}-${summary.date}`}
-                  sx={{
-                    '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.05)' },
-                    cursor: 'default',
-                  }}
-                >
-                  {/* Data */}
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={500} sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                      {formatDate(summary.date)}
-                    </Typography>
-                  </TableCell>
-
-                  {/* Funcionário (Clicável) */}
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              summaries
+                .filter(s => !searchTerm || s.employee_name.toLowerCase().includes(searchTerm.toLowerCase()))
+                .map(s => (
+                  <TableRow key={`${s.employee_id}-${s.date}`} sx={{ '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.05)' } }}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={500} sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                        {formatDate(s.date)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
                       <Typography
                         variant="body2"
-                        onClick={() => handleEmployeeClick(summary)}
-                        sx={{
-                          color: 'rgba(255, 255, 255, 0.9)',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                          fontWeight: 500,
-                          '&:hover': { color: 'rgba(255, 255, 255, 1)' },
-                        }}
+                        onClick={() => handleEmployeeClick(s)}
+                        sx={{ cursor: 'pointer', textDecoration: 'underline', fontWeight: 500, color: 'rgba(255, 255, 255, 0.9)', '&:hover': { color: 'rgba(255, 255, 255, 1)' } }}
                       >
-                        {summary.employee_name}
+                        {s.employee_name}
                       </Typography>
-
-                      {/* Ícones de Alerta */}
-                      {summary.missing_exit && (
-                        <Tooltip title="Saída não registrada">
-                          <Box component="span" sx={{ display: 'inline-flex' }}>
-                            <AlertTriangle size={16} color="#ef4444" />
-                          </Box>
-                        </Tooltip>
-                      )}
-                      {summary.has_location_issues && (
-                        <Tooltip title="Batidas fora do local autorizado">
-                          <Box component="span" sx={{ display: 'inline-flex' }}>
-                            <MapPin size={16} color="#f59e0b" />
-                          </Box>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </TableCell>
-
-                  {/* Entrada */}
-                  <TableCell align="center">
-                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                      {summary.first_entry_time || '—'}
-                    </Typography>
-                  </TableCell>
-
-                  {/* Saída */}
-                  <TableCell align="center">
-                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                      {summary.last_exit_time || '—'}
-                    </Typography>
-                  </TableCell>
-
-                  {/* Horas Trabalhadas */}
-                  <TableCell align="center">
-                    <Typography variant="body2" fontWeight={500} sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                      {formatHours(summary.worked_hours)}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>{s.first_entry_time || '—'}</Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>{s.last_exit_time || '—'}</Typography>
+                    </TableCell>
+                  </TableRow>
+                ))
             )}
           </TableBody>
         </Table>
       </TableContainer>
 
-      {/* Modal de Detalhes */}
-      <TimeRecordsModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        summary={selectedSummary}
-        records={modalRecords}
-        loading={modalLoading}
-      />
+      <TimeRecordsModal open={modalOpen} onClose={() => setModalOpen(false)} summary={selectedSummary} records={modalRecords} loading={modalLoading} />
     </Paper>
   );
 };

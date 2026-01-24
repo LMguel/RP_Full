@@ -530,13 +530,12 @@ const RecordsSummaryPage: React.FC = () => {
       'Nome Funcionário': summary.funcionario_nome || summary.funcionario,
       'Horas Trabalhadas': formatMinutesToHHMM(summary.horas_trabalhadas || 0),
       'Horas Extras': formatMinutesToHHMM(summary.horas_extras || 0),
-      'Atrasos': formatMinutesToHHMM(summary.atrasos || 0),
     }));
 
     const ws = XLSX.utils.aoa_to_sheet(headerInfo);
     XLSX.utils.sheet_add_json(ws, dataToExport, {
       origin: 'A3',
-      header: ['Nome Funcionário', 'Horas Trabalhadas', 'Horas Extras', 'Atrasos']
+      header: ['Nome Funcionário', 'Horas Trabalhadas', 'Horas Extras']
     });
 
     const wb = XLSX.utils.book_new();
@@ -744,14 +743,13 @@ const RecordsSummaryPage: React.FC = () => {
                       <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Funcionário</TableCell>
                       <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Horas Trabalhadas</TableCell>
                       <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Horas Extras</TableCell>
-                      <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Atrasos</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {employeeSummaries.length === 0 ? (
                       <TableRow>
                         <TableCell 
-                          colSpan={4} 
+                          colSpan={3} 
                           align="center"
                           sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                         >
@@ -800,17 +798,6 @@ const RecordsSummaryPage: React.FC = () => {
                               }}
                             >
                               {summary.horas_extras > 0 ? formatMinutesToHHMM(summary.horas_extras) : '00:00'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                            <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                fontWeight: 500,
-                                color: summary.atrasos > 0 ? '#ef4444' : 'rgba(255, 255, 255, 0.6)'
-                              }}
-                            >
-                              {summary.atrasos > 0 ? formatMinutesToHHMM(summary.atrasos) : '00:00'}
                             </Typography>
                           </TableCell>
                         </TableRow>

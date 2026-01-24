@@ -760,21 +760,12 @@ def get_alerts_today():
 
         for summary in attendance_summaries:
             employee_name = summary.get('name', 'Funcionário')
-            arrival_dt: Optional[datetime] = summary.get('arrival_dt')
 
             if not summary.get('records'):
                 alerts.append({
                     'type': 'ausencia',
                     'message': f"{employee_name} ainda não registrou ponto hoje",
                     'severity': 'info'
-                })
-                continue
-
-            if summary.get('late') and arrival_dt:
-                alerts.append({
-                    'type': 'atraso',
-                    'message': f"{employee_name} chegou atrasado às {arrival_dt.strftime('%H:%M')}",
-                    'severity': 'warning'
                 })
 
         return jsonify({'alerts': alerts})
@@ -858,12 +849,9 @@ def get_last_five_records():
                         intervalo_automatico,
                         duracao_intervalo
                     )
-                    
+                    # Guardar apenas horas extras calculadas
                     status_por_funcionario[employee_id] = {
-                        'atraso_minutos': calculo.get('atraso_minutos', 0),
-                        'horas_extras_minutos': calculo.get('horas_extras_minutos', 0),
-                        'entrada_antecipada_minutos': calculo.get('entrada_antecipada_minutos', 0),
-                        'saida_antecipada_minutos': calculo.get('saida_antecipada_minutos', 0),
+                        'horas_extras_minutos': calculo.get('horas_extras_minutos', 0)
                     }
                 except Exception as calc_err:
                     print(f"[DEBUG last-five] Erro ao calcular status para {employee_id}: {calc_err}")
@@ -891,32 +879,17 @@ def get_last_five_records():
                 # Atribuir status ao registro correto:
                 # - ENTRADA: atraso e entrada_antecipada
                 # - SAÍDA: horas_extras e saida_antecipada
-                atraso_minutos = 0
                 horas_extras_minutos = 0
-                entrada_antecipada_minutos = 0
-                saida_antecipada_minutos = 0
-                
-                if record_type == 'entrada':
-                    atraso_minutos = status_calculado.get('atraso_minutos', 0)
-                    entrada_antecipada_minutos = status_calculado.get('entrada_antecipada_minutos', 0)
-                elif record_type == 'saida':
+                if record_type == 'saida':
                     horas_extras_minutos = status_calculado.get('horas_extras_minutos', 0)
-                    saida_antecipada_minutos = status_calculado.get('saida_antecipada_minutos', 0)
 
-                status_key = _normalize_status(record.get('status'), 'normal')
                 daily_records.append({
                     'nome': employee_name,
                     'hora': record_dt.strftime('%H:%M:%S'),
                     'tipo': record_type,
-                    'status': status_key,
-                    'status_label': record.get('status_label') or _get_status_label(status_key),
                     'metodo': record.get('method', 'manual'),
                     'datetime': record_dt,
-                    # Campos de status detalhado
-                    'atraso_minutos': atraso_minutos,
-                    'horas_extras_minutos': horas_extras_minutos,
-                    'entrada_antecipada_minutos': entrada_antecipada_minutos,
-                    'saida_antecipada_minutos': saida_antecipada_minutos,
+                    'horas_extras_minutos': horas_extras_minutos
                 })
 
         daily_records.sort(key=lambda item: item['datetime'], reverse=True)
@@ -990,7 +963,7 @@ def get_hours_week():
 
 @dashboard_routes.route('/api/employees/present', methods=['GET'])
 def get_employees_present():
-    """Funcionários presentes agora"""
+    """Funcionários que registraram ponto hoje (entrada ou saída)"""
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     payload = verify_token(token)
     if not payload:
@@ -1002,36 +975,57 @@ def get_employees_present():
     try:
         attendance_summaries, _ = _compute_attendance(company_id, today)
 
-        present_employees: List[Dict[str, Any]] = []
+        employees_with_records: List[Dict[str, Any]] = []
         for summary in attendance_summaries:
-            if not summary.get('present'):
+            # Incluir qualquer funcionário que tenha feito registro no dia
+            if not summary.get('records'):
                 continue
 
             arrival_record = next(
                 (record for record in summary.get('records', []) if _is_entry_event(record.get('tipo'))),
                 None
             )
-            if not arrival_record:
-                continue
+            
+            exit_record = next(
+                (record for record in summary.get('records', []) if not _is_entry_event(record.get('tipo'))),
+                None
+            )
 
-            entry_status_key = arrival_record.get('status') or summary.get('entry_status') or 'normal'
-            entry_status_key = _normalize_status(entry_status_key, 'normal')
-            entry_status_label = arrival_record.get('status_label') or summary.get('entry_status_label') or _get_status_label(entry_status_key)
+            # Determinar status: presente, saiu ou apenas entrada
+            is_present = summary.get('present', False)
+            if is_present:
+                status_key = 'presente'
+                status_label = 'Presente'
+            elif exit_record:
+                status_key = 'saiu'
+                status_label = 'Saiu'
+            else:
+                status_key = 'entrada'
+                status_label = 'Entrada registrada'
+            
+            entry_time = summary.get('arrival_str') or 'N/A'
+            exit_time = None
+            if exit_record:
+                exit_time = exit_record.get('hora', 'N/A')
+            
             arrival_method = arrival_record.get('method') if arrival_record else None
 
-            present_employees.append({
+            employees_with_records.append({
                 'foto': summary.get('photo_url', ''),
                 'nome': summary.get('name', 'N/A'),
-                'hora_entrada': summary.get('arrival_str') or 'N/A',
-                'status': entry_status_label,
-                'status_key': entry_status_key,
-                'status_label': entry_status_label,
-                'entry_status': entry_status_key,
-                'entry_status_label': entry_status_label,
+                'hora_entrada': entry_time,
+                'hora_saida': exit_time,
+                'status': status_label,
+                'status_key': status_key,
+                'status_label': status_label,
+                'entry_status': status_key,
+                'entry_status_label': status_label,
                 'metodo': arrival_method or 'manual'
             })
 
-        present_employees.sort(key=lambda item: item.get('hora_entrada') or '')
+        employees_with_records.sort(key=lambda item: item.get('hora_entrada') or '')
+
+        return jsonify({'employees': employees_with_records})
 
         return jsonify({'employees': present_employees})
 

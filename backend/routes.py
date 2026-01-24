@@ -377,16 +377,10 @@ def deletar_registro(registro_id):
                         intervalo_to_use
                     )
                     
-                    # Adicionar informações ao registro
+                    # Adicionar informações ao registro (apenas horas extras e trabalhadas)
                     registro['horas_extras_minutos'] = calculo['horas_extras_minutos']
-                    registro['atraso_minutos'] = calculo['atraso_minutos']
-                    registro['entrada_antecipada_minutos'] = calculo['entrada_antecipada_minutos']
-                    registro['saida_antecipada_minutos'] = calculo['saida_antecipada_minutos']
                     registro['horas_trabalhadas_minutos'] = calculo['horas_trabalhadas_minutos']
-                    
-                    # Formatar para exibição
                     registro['horas_extras_formatado'] = format_minutes_to_time(calculo['horas_extras_minutos'])
-                    registro['atraso_formatado'] = format_minutes_to_time(calculo['atraso_minutos'])
             except Exception as e:
                 print(f"Erro ao calcular horas extras: {str(e)}")
                 # Continua o registro mesmo se falhar o cálculo
@@ -1173,15 +1167,13 @@ def listar_registros(payload):
                             duracao_intervalo
                         )
                         
-                        # Armazenar status calculado
+                        # Armazenar status calculado (apenas horas extras e minutos trabalhados)
                         status_por_func_data[chave] = {
-                            'atraso_minutos': calculo.get('atraso_minutos', 0),
                             'horas_extras_minutos': calculo.get('horas_extras_minutos', 0),
-                            'entrada_antecipada_minutos': calculo.get('entrada_antecipada_minutos', 0),
-                            'saida_antecipada_minutos': calculo.get('saida_antecipada_minutos', 0),
+                            'horas_trabalhadas_minutos': calculo.get('horas_trabalhadas_minutos', 0)
                         }
                         
-                        print(f"[DEBUG CALC] {employee_id}: entrada={horario_entrada_real}, saída={horario_saida_real}, atraso={calculo.get('atraso_minutos', 0)}, extras={calculo.get('horas_extras_minutos', 0)}")
+                        print(f"[DEBUG CALC] {employee_id}: entrada={horario_entrada_real}, saída={horario_saida_real}, extras={calculo.get('horas_extras_minutos', 0)}")
                     except Exception as calc_err:
                         print(f"[DEBUG] Erro ao calcular status para {employee_id}: {calc_err}")
             
@@ -1215,32 +1207,18 @@ def listar_registros(payload):
                 # Atribuir status ao registro correto:
                 # - ENTRADA: atraso e entrada_antecipada
                 # - SAÍDA: horas_extras e saida_antecipada
-                atraso_minutos = 0
                 horas_extras_minutos = 0
-                entrada_antecipada_minutos = 0
-                saida_antecipada_minutos = 0
-                
-                if tipo_registro == 'entrada':
-                    # Na entrada mostramos: atraso ou entrada antecipada
-                    atraso_minutos = status_calculado.get('atraso_minutos', 0)
-                    entrada_antecipada_minutos = status_calculado.get('entrada_antecipada_minutos', 0)
-                elif tipo_registro in ('saída', 'saida'):
-                    # Na saída mostramos: horas extras ou saída antecipada
+                horas_trabalhadas_minutos = 0
+                if tipo_registro in ('saída', 'saida'):
                     horas_extras_minutos = status_calculado.get('horas_extras_minutos', 0)
-                    saida_antecipada_minutos = status_calculado.get('saida_antecipada_minutos', 0)
-                
                 registro_formatado = {
-                    'registro_id': f"{reg.get('company_id', '')}_{composite_key}",  # ID único
+                    'registro_id': f"{reg.get('company_id', '')}_{composite_key}",
                     'funcionario_id': employee_id,
                     'data_hora': data_hora,
-                    'type': tipo_registro,  # Campo padronizado
-                    'tipo': tipo_registro,  # Compatibilidade com frontend legado
-                    'method': metodo_registro,  # CAMERA, LOCATION, MANUAL
-                    # Campos de status - atribuídos ao registro correto
-                    'atraso_minutos': atraso_minutos,
+                    'type': tipo_registro,
+                    'tipo': tipo_registro,
+                    'method': metodo_registro,
                     'horas_extras_minutos': horas_extras_minutos,
-                    'entrada_antecipada_minutos': entrada_antecipada_minutos,
-                    'saida_antecipada_minutos': saida_antecipada_minutos,
                 }
                 
                 registros_formatados.append(registro_formatado)
@@ -1611,10 +1589,8 @@ def listar_registros_resumo(payload):
                 'funcionario_nome': func_nome,
                 'horas_trabalhadas': min_para_hhmm(total_horas_trabalhadas_min),
                 'horas_extras': min_para_hhmm(total_horas_extras_min),
-                'atrasos': min_para_hhmm(total_atrasos_min),
                 'horas_trabalhadas_minutos': total_horas_trabalhadas_min,
                 'horas_extras_minutos': total_horas_extras_min,
-                'atraso_minutos': total_atrasos_min,
                 'total_registros': total_registros
             })
             
@@ -1857,14 +1833,10 @@ def registrar_ponto_manual(payload):
                     funcionario.get('intervalo_emp', configuracoes.get('duracao_intervalo', 60))
                 )
                 
-                # Adicionar informações ao registro
+                # Adicionar informações ao registro (apenas horas extras e trabalhadas)
                 registro['horas_extras_minutos'] = calculo['horas_extras_minutos']
-                registro['atraso_minutos'] = calculo['atraso_minutos']
-                registro['entrada_antecipada_minutos'] = calculo['entrada_antecipada_minutos']
-                registro['saida_antecipada_minutos'] = calculo['saida_antecipada_minutos']
                 registro['horas_trabalhadas_minutos'] = calculo['horas_trabalhadas_minutos']
                 registro['horas_extras_formatado'] = format_minutes_to_time(calculo['horas_extras_minutos'])
-                registro['atraso_formatado'] = format_minutes_to_time(calculo['atraso_minutos'])
         except Exception as e:
             print(f"Erro ao calcular horas extras no ponto manual: {str(e)}")
             # Continua o registro mesmo se falhar o cálculo
