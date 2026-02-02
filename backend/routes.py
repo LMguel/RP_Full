@@ -1844,7 +1844,7 @@ def listar_registros_protegido(payload):
 def login():
     """Login exclusivo para empresas usando credenciais da tabela UserCompany."""
     if request.method == 'OPTIONS':
-        return '', 200
+        return jsonify({}), 200
 
     from auth import verify_password, get_secret_key
     import datetime

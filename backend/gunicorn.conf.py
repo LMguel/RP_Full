@@ -13,8 +13,8 @@ timeout = 120
 keepalive = 5
 
 # Logging
-accesslog = "/var/log/registraponto/access.log"
-errorlog = "/var/log/registraponto/error.log"
+accesslog = "-"  # stdout
+errorlog = "-"   # stderr
 loglevel = "info"
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 
@@ -23,7 +23,7 @@ proc_name = "registraponto"
 
 # Server mechanics
 daemon = False
-pidfile = "/var/run/registraponto.pid"
+pidfile = None  # Desabilitado para evitar problemas de permissão
 umask = 0
 user = None
 group = None
