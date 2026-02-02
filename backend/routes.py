@@ -1,5 +1,4 @@
 from flask import Blueprint, request, jsonify
-from flask_cors import CORS
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
@@ -44,23 +43,7 @@ def normalizar_string(texto):
     limpo = re.sub(r'[^a-zA-Z0-9_.\-]', '_', sem_acento)
     return limpo
 
-# Enable CORS for all routes in this blueprint
-CORS(routes, resources={
-    r"/*": {
-        "origins": [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "https://localhost:3000",
-            "http://localhost:5173",  # Vite dev server
-            "http://127.0.0.1:5173",   # Vite alternative
-            "http://127.0.0.1:3000",
-            "http://192.168.0.39:3000",
-            "https://d1w38wqzsvujrr.cloudfront.net"  # CloudFront
-        ],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# CORS configurado globalmente no app.py
 
 def token_required(f):
     @wraps(f)

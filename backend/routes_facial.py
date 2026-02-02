@@ -3,7 +3,6 @@ ROTAS DE RECONHECIMENTO FACIAL
 Endpoints para registro de ponto usando AWS Rekognition
 """
 from flask import Blueprint, request, jsonify
-from flask_cors import CORS
 from datetime import datetime
 import pytz
 import os
@@ -16,26 +15,7 @@ from aws_utils import reconhecer_funcionario, tabela_funcionarios, tabela_regist
 
 routes_facial = Blueprint('routes_facial', __name__)
 
-# Enable CORS
-CORS(routes_facial, resources={
-    r"/*": {
-        "origins": [
-            "http://localhost:3000", 
-            "http://localhost:3001", 
-            "http://localhost:3002",  # PWA mobile
-            "http://localhost:5173", 
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001",
-            "http://127.0.0.1:3002",
-            "http://192.168.1.5:3000", 
-            "https://192.168.1.5:3000",
-            "https://d1w38wqzsvujrr.cloudfront.net"  # CloudFront
-        ],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# CORS configurado globalmente no app.py
 
 def token_required(f):
     @wraps(f)

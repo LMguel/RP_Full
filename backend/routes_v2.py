@@ -3,7 +3,6 @@ ROTAS V2 - Nova Arquitetura com DailySummary e MonthlySummary
 Endpoints modernos para registro de ponto e dashboards
 """
 from flask import Blueprint, request, jsonify
-from flask_cors import CORS
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 import boto3
@@ -31,14 +30,7 @@ import json
 
 routes_v2 = Blueprint('routes_v2', __name__, url_prefix='/api/v2')
 
-# Enable CORS
-CORS(routes_v2, resources={
-    r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173", "https://d1w38wqzsvujrr.cloudfront.net"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# CORS configurado globalmente no app.py
 
 # DynamoDB - usar as tabelas summary diretamente
 table_daily = dynamodb.Table('DailySummary')

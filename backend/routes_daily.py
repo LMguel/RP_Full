@@ -1,5 +1,4 @@
 from flask import Blueprint, request, jsonify
-from flask_cors import CORS
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -16,23 +15,7 @@ table_employees = dynamodb.Table('Employees')
 
 daily_routes = Blueprint('daily_routes', __name__)
 
-# Enable CORS
-CORS(daily_routes, resources={
-    r"/*": {
-        "origins": [
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:3002",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "https://d1w38wqzsvujrr.cloudfront.net"  # CloudFront
-        ],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": False,
-        "expose_headers": ["Content-Type", "Authorization"]
-    }
-})
+# CORS configurado globalmente no app.py
 
 # Decorator para autenticação
 def token_required(f):
