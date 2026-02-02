@@ -13,6 +13,12 @@ import {
   Autocomplete,
   CircularProgress,
   InputAdornment,
+  ToggleButton,
+  ToggleButtonGroup,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -20,6 +26,8 @@ import {
   Person as PersonIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
+  Schedule as ScheduleIcon,
+  AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
 import { Employee, HorarioPreset } from '../types';
 import { config } from '../config';
@@ -61,6 +69,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [intervaloPersonalizado, setIntervaloPersonalizado] = useState<boolean>(employee?.intervalo_personalizado || false);
   const [intervaloEmp, setIntervaloEmp] = useState<string>(employee?.intervalo_emp?.toString() || '');
+  const [tipoHorario, setTipoHorario] = useState<'fixo' | 'variavel'>(
+    employee?.horario_entrada ? 'fixo' : 'variavel'
+  );
+  const [selectedPreset, setSelectedPreset] = useState<string>('');
 
   const allCargos = [...new Set(existingCargos)].sort();
 
@@ -70,16 +82,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         setLoadingHorarios(true);
         try {
           const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-          // Novo endpoint que retorna presets usados pelos funcionários
-          const response = await fetch(`${config.API_URL}/horarios/funcionarios`, {
+          // Buscar presets de horários configurados pela empresa
+          const response = await fetch(`${config.API_URL}/api/horarios`, {
             headers: {
               'Authorization': `Bearer ${token}`
             }
           });
           if (response.ok) {
             const data = await response.json();
-            // data é um array de strings: ["Padrão", "Manhã", "Noite"]
-            setHorariosPreset(data);
+            // data é um array de objetos: [{nome, horario_entrada, horario_saida}, ...]
+            setHorariosPreset(Array.isArray(data) ? data : []);
+            console.log('[EmployeeForm] Horários carregados:', data);
+          } else {
+            console.error('[EmployeeForm] Erro ao carregar horários:', response.status);
+            setHorariosPreset([]);
           }
         } catch (error) {
           console.error('Erro ao carregar horários:', error);
@@ -104,6 +120,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setPhotoPreview(employee.foto_url);
       setIntervaloPersonalizado(!!employee.intervalo_personalizado);
       setIntervaloEmp(employee.intervalo_emp ? employee.intervalo_emp.toString() : '');
+      // Determinar tipo de horário baseado no funcionário
+      setTipoHorario(employee.horario_entrada ? 'fixo' : 'variavel');
+      setSelectedPreset('');
     } else {
       setFormData({ 
         nome: '', 
@@ -116,6 +135,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setPhoto(null);
       setPhotoPreview(null);
       setNomeHorario('');
+      setTipoHorario('variavel');
+      setSelectedPreset('');
     }
     setErrors({});
   }, [employee, open]);
@@ -149,42 +170,35 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     }
   };
 
-  const handleHorarioPresetChange = (event: any, newValue: HorarioPreset | string | null) => {
-    if (typeof newValue === 'string' && newValue.trim()) {
-      // Se é uma string (nome do preset), buscar os horários
-      setNomeHorario(newValue);
-      buscarHorariosPorNome(newValue);
-    } else if (newValue && typeof newValue === 'object') {
+  const handleHorarioPresetChange = (presetNome: string) => {
+    setSelectedPreset(presetNome);
+    const preset = horariosPreset.find(h => h.nome === presetNome);
+    if (preset) {
       setFormData(prev => ({
         ...prev,
-        horario_entrada: newValue.horario_entrada,
-        horario_saida: newValue.horario_saida,
+        horario_entrada: preset.horario_entrada,
+        horario_saida: preset.horario_saida,
       }));
-      setNomeHorario(newValue.nome);
-    } else {
-      setNomeHorario('');
+      setNomeHorario(preset.nome);
     }
   };
 
-  const buscarHorariosPorNome = async (nomeHorario: string) => {
-    try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      const response = await fetch(`${config.API_URL}/horarios/${encodeURIComponent(nomeHorario)}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        const horario = await response.json();
+  const handleTipoHorarioChange = (
+    event: React.MouseEvent<HTMLElement>,
+    newTipo: 'fixo' | 'variavel' | null
+  ) => {
+    if (newTipo !== null) {
+      setTipoHorario(newTipo);
+      if (newTipo === 'variavel') {
+        // Limpar horários quando mudar para variável
         setFormData(prev => ({
           ...prev,
-          horario_entrada: horario.horario_entrada,
-          horario_saida: horario.horario_saida,
+          horario_entrada: '',
+          horario_saida: '',
         }));
+        setSelectedPreset('');
+        setNomeHorario('');
       }
-    } catch (error) {
-      console.error('Erro ao buscar horários:', error);
     }
   };
 
@@ -262,14 +276,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       formDataToSend.append('intervalo_emp', intervaloEmp);
     }
 
-    if (formData.horario_entrada) {
-      formDataToSend.append('horario_entrada', formData.horario_entrada);
-    }
-    if (formData.horario_saida) {
-      formDataToSend.append('horario_saida', formData.horario_saida);
-    }
-    if (nomeHorario) {
-      formDataToSend.append('nome_horario', nomeHorario);
+    // Enviar tipo de horário
+    formDataToSend.append('tipo_horario', tipoHorario);
+
+    // Só enviar horários se for tipo fixo
+    if (tipoHorario === 'fixo') {
+      if (formData.horario_entrada) {
+        formDataToSend.append('horario_entrada', formData.horario_entrada);
+      }
+      if (formData.horario_saida) {
+        formDataToSend.append('horario_saida', formData.horario_saida);
+      }
+      if (nomeHorario) {
+        formDataToSend.append('nome_horario', nomeHorario);
+      }
     }
 
     await onSubmit(formDataToSend);
@@ -287,6 +307,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     setPhoto(null);
     setPhotoPreview(null);
     setNomeHorario('');
+    setTipoHorario('variavel');
+    setSelectedPreset('');
     setErrors({});
     onClose();
   };
@@ -612,89 +634,223 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 Horários de Trabalho
               </Typography>
               
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                <TextField
-                  fullWidth
-                  label="Horário de Entrada"
-                  name="horario_entrada"
-                  type="time"
-                  value={formData.horario_entrada}
-                  onChange={handleChange}
+              {/* Toggle Horário Fixo / Variável */}
+              <Box sx={{ mb: 3 }}>
+                <ToggleButtonGroup
+                  value={tipoHorario}
+                  exclusive
+                  onChange={handleTipoHorarioChange}
                   disabled={loading}
-                  variant="outlined"
-                  InputLabelProps={{
-                    shrink: true,
-                  }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.7)',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      '&.Mui-focused': {
-                        color: 'rgba(255, 255, 255, 0.9)'
-                      }
-                    },
-                    '& .MuiInputBase-input': {
-                      color: 'white',
-                    },
-                    '& input[type="time"]::-webkit-calendar-picker-indicator': {
-                      filter: 'invert(1) brightness(0.7)',
-                    },
-                  }}
-                />
-                
-                <TextField
                   fullWidth
-                  label="Horário de Saída"
-                  name="horario_saida"
-                  type="time"
-                  value={formData.horario_saida}
-                  onChange={handleChange}
-                  disabled={loading}
-                  variant="outlined"
-                  InputLabelProps={{
-                    shrink: true,
-                  }}
                   sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.7)',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
+                    '& .MuiToggleButton-root': {
                       color: 'rgba(255, 255, 255, 0.7)',
-                      '&.Mui-focused': {
-                        color: 'rgba(255, 255, 255, 0.9)'
-                      }
-                    },
-                    '& .MuiInputBase-input': {
-                      color: 'white',
-                    },
-                    '& input[type="time"]::-webkit-calendar-picker-indicator': {
-                      filter: 'invert(1) brightness(0.7)',
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                      py: 1.5,
+                      '&.Mui-selected': {
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        color: 'white',
+                        borderColor: '#3b82f6',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                        },
+                      },
+                      '&:hover': {
+                        background: 'rgba(255, 255, 255, 0.05)',
+                      },
                     },
                   }}
-                />
+                >
+                  <ToggleButton value="fixo">
+                    <ScheduleIcon sx={{ mr: 1 }} />
+                    Horário Fixo
+                  </ToggleButton>
+                  <ToggleButton value="variavel">
+                    <AccessTimeIcon sx={{ mr: 1 }} />
+                    Horário Variável
+                  </ToggleButton>
+                </ToggleButtonGroup>
               </Box>
+
+              {tipoHorario === 'fixo' ? (
+                <>
+                  {/* Seleção de Horário Pré-definido */}
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel 
+                      id="preset-horario-label"
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        '&.Mui-focused': { color: '#3b82f6' }
+                      }}
+                    >
+                      Selecionar Horário Pré-definido
+                    </InputLabel>
+                    <Select
+                      labelId="preset-horario-label"
+                      value={selectedPreset}
+                      label="Selecionar Horário Pré-definido"
+                      onChange={(e) => handleHorarioPresetChange(e.target.value)}
+                      disabled={loading || loadingHorarios}
+                      sx={{
+                        color: 'white',
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(255, 255, 255, 0.3)',
+                        },
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(255, 255, 255, 0.5)',
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#3b82f6',
+                        },
+                        '& .MuiSvgIcon-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                        },
+                      }}
+                      MenuProps={{
+                        PaperProps: {
+                          sx: {
+                            background: 'rgba(15, 23, 42, 0.95)',
+                            backdropFilter: 'blur(20px)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            '& .MuiMenuItem-root': {
+                              color: 'white',
+                              '&:hover': {
+                                background: 'rgba(59, 130, 246, 0.2)',
+                              },
+                              '&.Mui-selected': {
+                                background: 'rgba(59, 130, 246, 0.3)',
+                              },
+                            },
+                          },
+                        },
+                      }}
+                    >
+                      {horariosPreset.length === 0 ? (
+                        <MenuItem disabled>
+                          <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic' }}>
+                            Nenhum horário cadastrado. Configure em Configurações.
+                          </Typography>
+                        </MenuItem>
+                      ) : (
+                        horariosPreset.map((preset) => (
+                          <MenuItem key={preset.nome} value={preset.nome}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                              <Typography>{preset.nome}</Typography>
+                              <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' }}>
+                                {preset.horario_entrada} - {preset.horario_saida}
+                              </Typography>
+                            </Box>
+                          </MenuItem>
+                        ))
+                      )}
+                    </Select>
+                  </FormControl>
+
+                  {/* Campos de horário (preenchidos automaticamente ou manual) */}
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                    <TextField
+                      fullWidth
+                      label="Horário de Entrada"
+                      name="horario_entrada"
+                      type="time"
+                      value={formData.horario_entrada}
+                      onChange={handleChange}
+                      disabled={loading}
+                      variant="outlined"
+                      InputLabelProps={{
+                        shrink: true,
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.3)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.5)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-focused': {
+                            color: 'rgba(255, 255, 255, 0.9)'
+                          }
+                        },
+                        '& .MuiInputBase-input': {
+                          color: 'white',
+                        },
+                        '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                          filter: 'invert(1) brightness(0.7)',
+                        },
+                      }}
+                    />
+                    
+                    <TextField
+                      fullWidth
+                      label="Horário de Saída"
+                      name="horario_saida"
+                      type="time"
+                      value={formData.horario_saida}
+                      onChange={handleChange}
+                      disabled={loading}
+                      variant="outlined"
+                      InputLabelProps={{
+                        shrink: true,
+                      }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          '& fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.3)',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.5)',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-focused': {
+                            color: 'rgba(255, 255, 255, 0.9)'
+                          }
+                        },
+                        '& .MuiInputBase-input': {
+                          color: 'white',
+                        },
+                        '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                          filter: 'invert(1) brightness(0.7)',
+                        },
+                      }}
+                    />
+                  </Box>
+                </>
+              ) : (
+                <Box 
+                  sx={{ 
+                    p: 3,
+                    background: 'rgba(59, 130, 246, 0.1)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                    textAlign: 'center',
+                  }}
+                >
+                  <AccessTimeIcon sx={{ fontSize: 40, color: '#60a5fa', mb: 1 }} />
+                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 500 }}>
+                    Horário Variável
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px', mt: 1 }}>
+                    O funcionário não terá horário fixo de entrada e saída definido.
+                    Os registros de ponto serão armazenados normalmente, sem cálculo de atrasos ou horas extras.
+                  </Typography>
+                </Box>
+              )}
             </Box>
           </Box>
         </DialogContent>

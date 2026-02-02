@@ -1,31 +1,19 @@
-/// <reference types="vite/client" />
-
-interface ImportMetaEnv {
-  readonly VITE_API_URL: string
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv
-}
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import PageLayout from '../sections/PageLayout';
-import RecordsFilters from '../components/RecordsFilters';
+import UnifiedRecordsFilter from '../components/UnifiedRecordsFilter';
 import TimeRecordForm from '../components/TimeRecordForm';
 import {
   Box,
   Typography,
   Button,
-  Card,
-  CardContent,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Chip,
   IconButton,
   CircularProgress,
@@ -35,25 +23,10 @@ import {
   DialogActions,
   Snackbar,
   Alert,
-  TextField,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  ListItemAvatar,
-  Avatar,
-  Collapse,
-  InputAdornment,
 } from '@mui/material';
 import {
   Add as AddIcon,
-  FileDownload as FileDownloadIcon,
   Delete as DeleteIcon,
-  AccessTime as AccessTimeIcon,
-  Search as SearchIcon,
-  Person as PersonIcon,
-  Clear as ClearIcon,
-  CalendarMonth as CalendarIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
@@ -342,6 +315,9 @@ const RecordsDetailedPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { employeeId: paramEmployeeId, employeeName: paramEmployeeName } = useParams<{ employeeId: string; employeeName: string }>();
 
+  // Tipo simplificado para filtro de funcionário
+  type EmployeeOption = { id: string; nome: string; cargo?: string };
+
   // Estados principais
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [companySettings, setCompanySettings] = useState<any>(null);
@@ -350,14 +326,18 @@ const RecordsDetailedPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Estados para busca unificada
-  const [searchTerm, setSearchTerm] = useState(paramEmployeeName ? decodeURIComponent(paramEmployeeName) : '');
-  const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState(paramEmployeeId || '');
+  // Estados para filtros unificados
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeOption | null>(null);
   
-  // Estados para filtros
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Estados para filtros de data
+  const currentDate = new Date();
+  const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+  
+  const [dateRange, setDateRange] = useState({
+    start_date: currentMonthStart.toISOString().split('T')[0],
+    end_date: currentMonthEnd.toISOString().split('T')[0]
+  });
   const [selectedMonth, setSelectedMonth] = useState('');
   
   // Funções utilitárias para filtro de mês
@@ -400,11 +380,11 @@ const RecordsDetailedPage: React.FC = () => {
     const dateToParam = urlParams.get('dateTo');
     
     if (dateFromParam) {
-      setDateFrom(dateFromParam);
+      setDateRange(prev => ({ ...prev, start_date: dateFromParam }));
       console.log('📅 RecordsPageDetails: Aplicando filtro dateFrom da URL:', dateFromParam);
     }
     if (dateToParam) {
-      setDateTo(dateToParam);
+      setDateRange(prev => ({ ...prev, end_date: dateToParam }));
       console.log('📅 RecordsPageDetails: Aplicando filtro dateTo da URL:', dateToParam);
     }
   }, []);
@@ -426,7 +406,7 @@ const RecordsDetailedPage: React.FC = () => {
 
   // Função para buscar registros
   const buscarRegistros = useCallback(async () => {
-    if (dateFrom && dateTo && dateFrom > dateTo) {
+    if (dateRange.start_date && dateRange.end_date && dateRange.start_date > dateRange.end_date) {
       setError('A data de início não pode ser maior que a data de fim.');
       setRecords([]);
       setFilteredRecords([]);
@@ -458,10 +438,10 @@ const RecordsDetailedPage: React.FC = () => {
       }
       // Aplicar filtros se especificados
       let filtered = [...allRecords];
-      if (selectedEmployeeId) {
-        filtered = filtered.filter(record => record.funcionario_id === selectedEmployeeId);
+      if (selectedEmployee?.id) {
+        filtered = filtered.filter(record => record.funcionario_id === selectedEmployee.id);
       }
-      if (dateFrom || dateTo) {
+      if (dateRange.start_date || dateRange.end_date) {
         filtered = filtered.filter(record => {
           if (!record.data_hora) return false;
           let recordDateStr = record.data_hora.split(' ')[0] || record.data_hora.split('T')[0];
@@ -480,8 +460,8 @@ const RecordsDetailedPage: React.FC = () => {
           } else {
             recordDateForComparison = recordDateStr;
           }
-          if (dateFrom && recordDateForComparison < dateFrom) return false;
-          if (dateTo && recordDateForComparison > dateTo) return false;
+          if (dateRange.start_date && recordDateForComparison < dateRange.start_date) return false;
+          if (dateRange.end_date && recordDateForComparison > dateRange.end_date) return false;
           return true;
         });
       }
@@ -499,49 +479,8 @@ const RecordsDetailedPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, selectedEmployeeId]);
+  }, [dateRange.start_date, dateRange.end_date, selectedEmployee?.id]);
 
-  // Busca de funcionários conforme digita
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value);
-    
-    if (!value.trim()) {
-      setFilteredEmployees([]);
-      setSelectedEmployeeId('');
-      return;
-    }
-
-    const filtered = employees.filter(emp =>
-      emp.nome.toLowerCase().includes(value.toLowerCase())
-    );
-    setFilteredEmployees(filtered.slice(0, 8));
-    
-    // Se o valor corresponde exatamente a um funcionário, selecioná-lo automaticamente
-    const exactMatch = employees.find(emp => 
-      emp.nome.toLowerCase() === value.toLowerCase()
-    );
-    if (exactMatch) {
-      setSelectedEmployeeId(exactMatch.id);
-    } else {
-      setSelectedEmployeeId('');
-    }
-  }, [employees]);
-
-  // Selecionar funcionário da lista de sugestões
-  const handleEmployeeSelect = (employee: Employee) => {
-    setSearchTerm(employee.nome);
-    setSelectedEmployeeId(employee.id);
-    setFilteredEmployees([]); // Limpar sugestões após seleção
-  };
-
-  // Limpar busca
-  const handleClearSearch = () => {
-    setSearchTerm('');
-    setSelectedEmployeeId('');
-    setFilteredEmployees([]);
-  };
-
-  // Efeitos
   useEffect(() => {
     buscarRegistros();
   }, [buscarRegistros]);
@@ -550,7 +489,20 @@ const RecordsDetailedPage: React.FC = () => {
     const fetchEmployees = async () => {
       try {
         const response = await apiService.getEmployees();
-        setEmployees(response.funcionarios || []);
+        const employeesList = response.funcionarios || [];
+        // Ordenar alfabeticamente
+        const sortedEmployees = [...employeesList].sort((a: Employee, b: Employee) =>
+          (a.nome || '').localeCompare(b.nome || '')
+        );
+        setEmployees(sortedEmployees);
+        
+        // Se há um funcionário na URL, selecionar automaticamente
+        if (paramEmployeeId && sortedEmployees.length > 0) {
+          const foundEmployee = sortedEmployees.find((e: Employee) => e.id === paramEmployeeId);
+          if (foundEmployee) {
+            setSelectedEmployee(foundEmployee);
+          }
+        }
       } catch (err) {
         console.error('Erro ao buscar funcionários:', err);
         showSnackbar('Erro ao carregar lista de funcionários', 'error');
@@ -569,7 +521,7 @@ const RecordsDetailedPage: React.FC = () => {
     
     fetchEmployees();
     fetchCompanySettings();
-  }, []);
+  }, [paramEmployeeId]);
 
   // Snackbar
   const showSnackbar = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
@@ -617,8 +569,8 @@ const RecordsDetailedPage: React.FC = () => {
       return `${day}-${month}-${year}`;
     };
 
-    const reportStart = dateFrom || (selectedMonth ? getFirstDayOfMonth(selectedMonth) : '');
-    const reportEnd = dateTo || (selectedMonth ? getLastDayOfMonth(selectedMonth) : '');
+    const reportStart = dateRange.start_date || (selectedMonth ? getFirstDayOfMonth(selectedMonth) : '');
+    const reportEnd = dateRange.end_date || (selectedMonth ? getLastDayOfMonth(selectedMonth) : '');
 
     const headerInfo = [
       ['Período do relatório', `${formatDate(reportStart) || 'Início'} até ${formatDate(reportEnd) || 'Fim'}`],
@@ -815,188 +767,47 @@ const RecordsDetailedPage: React.FC = () => {
           border: '1px solid rgba(255, 255, 255, 0.1)',
           overflow: 'hidden'
         }}>
-          {/* Seção de Filtros */}
-          <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-              <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
-              <Typography variant="subtitle1" fontWeight={600} sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                Filtros
-              </Typography>
-            </Box>
-
-            {/* Primeira linha: Campo de busca */}
-            <Box sx={{ mb: 3 }}>
-              <TextField
-                placeholder="Buscar funcionário..."
-                value={searchTerm}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                fullWidth
-                size="small"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-            </Box>
-
-            {/* Segunda linha: Mês, Data Início e Data Fim */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
-              {/* Mês */}
-              <TextField
-                label="Mês"
-                type="month"
-                value={selectedMonth || ''}
-                onChange={(e) => {
-                  const month = e.target.value;
-                  setSelectedMonth(month);
-                  if (month) {
-                    setDateFrom(getFirstDayOfMonth(month));
-                    setDateTo(getLastDayOfMonth(month));
-                  } else {
-                    setDateFrom('');
-                    setDateTo('');
-                  }
-                }}
-                size="small"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <CalendarIcon sx={{ fontSize: 18 }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-
-              {/* Data Início */}
-              <TextField
-                label="Data Início"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  // Atualizar mês se mudou manualmente
-                  if (e.target.value && dateTo) {
-                    const monthFromDate = getMonthFromDate(e.target.value);
-                    const monthToDate = getMonthFromDate(dateTo);
-                    if (monthFromDate === monthToDate) {
-                      setSelectedMonth(monthFromDate);
-                    } else {
-                      setSelectedMonth('');
-                    }
-                  }
-                }}
-                size="small"
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-
-              {/* Data Fim */}
-              <TextField
-                label="Data Fim"
-                type="date"
-                value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  // Atualizar mês se mudou manualmente
-                  if (dateFrom && e.target.value) {
-                    const monthFromDate = getMonthFromDate(dateFrom);
-                    const monthToDate = getMonthFromDate(e.target.value);
-                    if (monthFromDate === monthToDate) {
-                      setSelectedMonth(monthFromDate);
-                    } else {
-                      setSelectedMonth('');
-                    }
-                  }
-                }}
-                size="small"
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
-              <Button
-                variant="outlined"
-                size="medium"
-                onClick={() => {
-                  setDateFrom('');
-                  setDateTo('');
+          {/* Seção de Filtros Unificados */}
+          <UnifiedRecordsFilter
+            selectedEmployee={selectedEmployee}
+            onEmployeeChange={setSelectedEmployee}
+            selectedMonth={selectedMonth}
+            onMonthChange={(month) => {
+              setSelectedMonth(month);
+              if (month) {
+                setDateRange({
+                  start_date: getFirstDayOfMonth(month),
+                  end_date: getLastDayOfMonth(month)
+                });
+              }
+            }}
+            dateRange={dateRange}
+            onDateRangeChange={(newRange) => {
+              setDateRange(newRange);
+              // Atualizar mês se as datas estão no mesmo mês
+              if (newRange.start_date && newRange.end_date) {
+                const monthFrom = getMonthFromDate(newRange.start_date);
+                const monthTo = getMonthFromDate(newRange.end_date);
+                if (monthFrom === monthTo) {
+                  setSelectedMonth(monthFrom);
+                } else {
                   setSelectedMonth('');
-                  handleClearSearch();
-                }}
-                startIcon={<ClearIcon />}
-                sx={{
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  '&:hover': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  }
-                }}
-              >
-                Limpar Filtros
-              </Button>
-              <Button
-                variant="outlined"
-                size="medium"
-                startIcon={<FileDownloadIcon />}
-                onClick={exportToExcel}
-                disabled={filteredRecords.length === 0}
-                sx={{
-                  ml: 'auto',
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  '&:hover': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  },
-                  '&.Mui-disabled': {
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    color: 'rgba(255, 255, 255, 0.3)',
-                  }
-                }}
-              >
-                Exportar Excel
-              </Button>
-            </Box>
-          </Box>
+                }
+              }
+            }}
+            onClearFilters={() => {
+              setDateRange({
+                start_date: currentMonthStart.toISOString().split('T')[0],
+                end_date: currentMonthEnd.toISOString().split('T')[0]
+              });
+              setSelectedMonth('');
+              setSelectedEmployee(null);
+            }}
+            onExportExcel={exportToExcel}
+            showExportButton={true}
+            exportDisabled={filteredRecords.length === 0}
+            employees={employees}
+          />
 
           {/* Linha divisória */}
           <Box sx={{ 

@@ -3,12 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import PageLayout from '../sections/PageLayout';
 import {
   Box,
-  Card,
-  CardContent,
-  TextField,
-  Autocomplete,
-  InputAdornment,
-  IconButton,
   Typography,
   Paper,
   TableContainer,
@@ -21,20 +15,11 @@ import {
   CircularProgress,
   Alert,
   Snackbar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
 } from '@mui/material';
-import { DateRangePicker } from '../components/DateRangePicker';
 import {
-  Search as SearchIcon,
-  Clear as ClearIcon,
   Add as AddIcon,
-  FileDownload as FileDownloadIcon,
-  CalendarToday as CalendarIcon,
 } from '@mui/icons-material';
-import { Filter } from 'lucide-react';
+import UnifiedRecordsFilter from '../components/UnifiedRecordsFilter';
 import TimeRecordForm from '../components/TimeRecordForm';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
@@ -59,16 +44,17 @@ const RecordsSummaryPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
+  // Tipo simplificado para filtro de funcionário
+  type EmployeeOption = { id: string; nome: string; cargo?: string };
+  
   // Estados principais
   const [employeeSummaries, setEmployeeSummaries] = useState<EmployeeSummary[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Estados para busca unificada
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  // Estados para filtros unificados
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeOption | null>(null);
   
   // Estados para filtros
   const currentDate = new Date();
@@ -212,7 +198,7 @@ const RecordsSummaryPage: React.FC = () => {
       // Enviar datas no formato ISO YYYY-MM-DD (mesmo formato salvo no banco)
       if (dateRange.start_date) params.inicio = dateRange.start_date;
       if (dateRange.end_date) params.fim = dateRange.end_date;
-      if (selectedEmployeeId) params.employee_id = selectedEmployeeId;
+      if (selectedEmployee?.id) params.employee_id = selectedEmployee.id;
 
       // Usar o novo endpoint de resumo que calcula tudo no backend
       console.log('📊 [API] Buscando resumo com params:', params);
@@ -316,40 +302,7 @@ const RecordsSummaryPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [dateRange.start_date, dateRange.end_date, selectedEmployeeId]);
-
-  // Busca de funcionários conforme digita
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value);
-    
-    if (!value.trim()) {
-      setFilteredEmployees([]);
-      setSelectedEmployeeId('');
-      return;
-    }
-
-    const filtered = employees.filter(emp =>
-      emp.nome.toLowerCase().includes(value.toLowerCase())
-    );
-    setFilteredEmployees(filtered.slice(0, 8));
-    
-    // Se o valor corresponde exatamente a um funcionário, selecioná-lo automaticamente
-    const exactMatch = employees.find(emp => 
-      emp.nome.toLowerCase() === value.toLowerCase()
-    );
-    if (exactMatch) {
-      setSelectedEmployeeId(exactMatch.id);
-    } else {
-      setSelectedEmployeeId('');
-    }
-  }, [employees]);
-
-  // Selecionar funcionário da lista de sugestões
-  const handleEmployeeSelect = (employee: Employee) => {
-    setSearchTerm(employee.nome);
-    setSelectedEmployeeId(employee.id);
-    setFilteredEmployees([]); // Limpar sugestões após seleção
-  };
+  }, [dateRange.start_date, dateRange.end_date, selectedEmployee?.id]);
 
   // Navegação via clique na tabela de resumo
   const handleClickFuncionario = (summary: EmployeeSummary) => {
@@ -359,13 +312,6 @@ const RecordsSummaryPage: React.FC = () => {
     } else {
       showSnackbar('ID do funcionário não encontrado', 'error');
     }
-  };
-
-  // Limpar busca
-  const handleClearSearch = () => {
-    setSearchTerm('');
-    setSelectedEmployeeId('');
-    setFilteredEmployees([]);
   };
 
   // Manipulação do filtro de mês
@@ -413,7 +359,7 @@ const RecordsSummaryPage: React.FC = () => {
       end_date: currentMonthEnd.toISOString().split('T')[0]
     });
     setSelectedMonth('');
-    handleClearSearch();
+    setSelectedEmployee(null);
   };
 
   // Efeitos
@@ -425,7 +371,12 @@ const RecordsSummaryPage: React.FC = () => {
     const fetchEmployees = async () => {
       try {
         const response = await apiService.getEmployees();
-        setEmployees(response.funcionarios || []);
+        const employeesList = response.funcionarios || [];
+        // Ordenar alfabeticamente
+        const sortedEmployees = [...employeesList].sort((a: Employee, b: Employee) =>
+          (a.nome || '').localeCompare(b.nome || '')
+        );
+        setEmployees(sortedEmployees);
       } catch (err) {
         console.error('Erro ao buscar funcionários:', err);
         showSnackbar('Erro ao carregar lista de funcionários', 'error');
@@ -578,134 +529,20 @@ const RecordsSummaryPage: React.FC = () => {
           border: '1px solid rgba(255, 255, 255, 0.1)',
           overflow: 'hidden'
         }}>
-          {/* Seção de Filtros */}
-          <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-              <Filter size={20} color="rgba(255, 255, 255, 0.9)" />
-              <Typography variant="subtitle1" fontWeight={600} sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                Filtros
-              </Typography>
-            </Box>
-
-            {/* Primeira linha: Campo de busca */}
-            <Box sx={{ mb: 3 }}>
-              <Autocomplete
-                freeSolo
-                options={filteredEmployees.map(emp => emp.nome)}
-                value={searchTerm}
-                onInputChange={(event, value) => {
-                  handleSearchChange(value || '');
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    fullWidth
-                    placeholder="Buscar por funcionário..."
-                    size="small"
-                    InputProps={{
-                      ...params.InputProps,
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                        '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                        '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                      },
-                      '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                    }}
-                  />
-                )}
-              />
-            </Box>
-
-            {/* Segunda linha: Mês, Data Início e Data Fim */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
-              {/* Mês */}
-              <TextField
-                label="Mês"
-                type="month"
-                value={selectedMonth || ''}
-                onChange={(e) => handleMonthChange(e.target.value)}
-                size="small"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <CalendarIcon sx={{ fontSize: 18 }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-
-              {/* Período */}
-              <Box sx={{ flex: '1 1 300px' }}>
-                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, fontSize: '0.75rem' }}>
-                  Período de Consulta
-                </Typography>
-                <DateRangePicker
-                  value={dateRange}
-                  onChange={handleDateRangeChange}
-                  placeholder="Selecionar período dos registros"
-                  className="w-full"
-                />
-              </Box>
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
-              <Button
-                variant="outlined"
-                size="medium"
-                onClick={handleClearFilters}
-                startIcon={<ClearIcon />}
-                sx={{
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  '&:hover': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  }
-                }}
-              >
-                Limpar Filtros
-              </Button>
-              <Button
-                variant="outlined"
-                size="medium"
-                startIcon={<FileDownloadIcon />}
-                onClick={exportToExcel}
-                disabled={employeeSummaries.length === 0}
-                sx={{
-                  ml: 'auto',
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  '&:hover': {
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  },
-                  '&.Mui-disabled': {
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    color: 'rgba(255, 255, 255, 0.3)',
-                  }
-                }}
-              >
-                Exportar Excel
-              </Button>
-            </Box>
-          </Box>
+          {/* Seção de Filtros Unificados */}
+          <UnifiedRecordsFilter
+            selectedEmployee={selectedEmployee}
+            onEmployeeChange={setSelectedEmployee}
+            selectedMonth={selectedMonth}
+            onMonthChange={handleMonthChange}
+            dateRange={dateRange}
+            onDateRangeChange={handleDateRangeChange}
+            onClearFilters={handleClearFilters}
+            onExportExcel={exportToExcel}
+            showExportButton={true}
+            exportDisabled={employeeSummaries.length === 0}
+            employees={employees}
+          />
 
           {/* Linha divisória */}
           <Box sx={{ 

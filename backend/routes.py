@@ -2176,16 +2176,17 @@ def listar_horarios_preset(payload):
     try:
         empresa_id = payload.get('company_id')
         
-        # Buscar horários pré-definidos salvos em ConfigCompany
+        # Buscar configurações da empresa (tabela tem apenas company_id como chave)
         response = tabela_configuracoes.get_item(
-            Key={
-                'company_id': empresa_id,
-                'config_key': 'horarios_preset'
-            }
+            Key={'company_id': empresa_id}
         )
         
         config_item = response.get('Item', {})
-        horarios = config_item.get('horarios', [])
+        horarios = config_item.get('horarios_preset', [])
+        
+        # Garantir que é uma lista
+        if not isinstance(horarios, list):
+            horarios = []
         
         # Ordenar por nome
         horarios = sorted(horarios, key=lambda x: x.get('nome', ''))
@@ -2193,6 +2194,8 @@ def listar_horarios_preset(payload):
         return jsonify(horarios)
     except Exception as e:
         print(f"Erro ao listar horários: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @routes.route('/horarios/funcionarios', methods=['GET'])
@@ -2240,14 +2243,11 @@ def obter_horario_por_nome(nome_horario, payload):
         
         # Buscar configuração de horários da empresa
         response = tabela_configuracoes.get_item(
-            Key={
-                'company_id': empresa_id,
-                'config_key': 'horarios_preset'
-            }
+            Key={'company_id': empresa_id}
         )
         
         config_item = response.get('Item', {})
-        horarios = config_item.get('horarios', [])
+        horarios = config_item.get('horarios_preset', [])
         
         # Procurar pelo nome
         horario_encontrado = next((h for h in horarios if h['nome'] == nome_horario), None)
@@ -2292,14 +2292,15 @@ def criar_horario_preset(payload):
         
         # Buscar configuração existente ou criar nova
         response = tabela_configuracoes.get_item(
-            Key={
-                'company_id': empresa_id,
-                'config_key': 'horarios_preset'
-            }
+            Key={'company_id': empresa_id}
         )
         
         config_item = response.get('Item', {})
-        horarios = config_item.get('horarios', [])
+        horarios = config_item.get('horarios_preset', [])
+        
+        # Garantir que é uma lista
+        if not isinstance(horarios, list):
+            horarios = []
         
         # Verificar se horário com esse nome já existe
         horario_existente = next((h for h in horarios if h['nome'] == nome), None)
@@ -2319,15 +2320,15 @@ def criar_horario_preset(payload):
                 'data_criacao': datetime.now().isoformat()
             })
         
-        # Salvar de volta em ConfigCompany
-        config_item = {
-            'company_id': empresa_id,
-            'config_key': 'horarios_preset',
-            'horarios': horarios,
-            'updated_at': datetime.now().isoformat()
-        }
-        
-        tabela_configuracoes.put_item(Item=config_item)
+        # Atualizar apenas o campo horarios_preset no item existente
+        tabela_configuracoes.update_item(
+            Key={'company_id': empresa_id},
+            UpdateExpression='SET horarios_preset = :hp, updated_at = :ua',
+            ExpressionAttributeValues={
+                ':hp': horarios,
+                ':ua': datetime.now().isoformat()
+            }
+        )
         
         print(f"[HORARIOS] Horário '{nome}' salvo com sucesso para empresa {empresa_id}")
         
@@ -2340,6 +2341,56 @@ def criar_horario_preset(payload):
         
     except Exception as e:
         print(f"Erro ao criar horário preset: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@routes.route('/horarios/<nome_horario>', methods=['DELETE'])
+@token_required
+def excluir_horario_preset(nome_horario, payload):
+    """
+    Exclui um horário pré-definido da empresa
+    """
+    try:
+        empresa_id = payload.get('company_id')
+        
+        # Buscar configuração existente
+        response = tabela_configuracoes.get_item(
+            Key={'company_id': empresa_id}
+        )
+        
+        config_item = response.get('Item', {})
+        horarios = config_item.get('horarios_preset', [])
+        
+        # Garantir que é uma lista
+        if not isinstance(horarios, list):
+            horarios = []
+        
+        # Filtrar para remover o horário
+        horarios_filtrados = [h for h in horarios if h['nome'] != nome_horario]
+        
+        if len(horarios_filtrados) == len(horarios):
+            return jsonify({'error': f'Horário "{nome_horario}" não encontrado'}), 404
+        
+        # Atualizar apenas o campo horarios_preset
+        tabela_configuracoes.update_item(
+            Key={'company_id': empresa_id},
+            UpdateExpression='SET horarios_preset = :hp, updated_at = :ua',
+            ExpressionAttributeValues={
+                ':hp': horarios_filtrados,
+                ':ua': datetime.now().isoformat()
+            }
+        )
+        
+        print(f"[HORARIOS] Horário '{nome_horario}' excluído com sucesso para empresa {empresa_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Horário "{nome_horario}" excluído com sucesso'
+        }), 200
+        
+    except Exception as e:
+        print(f"Erro ao excluir horário preset: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

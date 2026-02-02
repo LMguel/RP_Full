@@ -51,6 +51,8 @@ def token_required(f):
         
         try:
             data = verify_token(token)
+            if not data:
+                return jsonify({'error': 'Token inválido ou expirado'}), 401
             request.user_data = data
         except Exception as e:
             return jsonify({'error': 'Token inválido ou expirado'}), 401
@@ -244,24 +246,23 @@ def get_daily_summaries():
         
         print(f"[DEBUG] Buscando TimeRecords REAIS - start_date: {start_date}, end_date: {end_date}")
         
-        # MUDANÇA: Buscar registros REAIS da tabela TimeRecords ao invés de DailySummary cache
+        # OTIMIZAÇÃO: Processar registros diretamente sem chamar calculate_daily_summary
         try:
             print(f"[DEBUG] Iniciando busca de registros - company_id: {company_id}")
             
-            # Otimização: Limitar a busca para evitar timeout
-            # Usar scan com limite e filtro mais específico
+            # Buscar registros com scan (necessário pois não temos índice por data)
             filter_expr = Attr('company_id').eq(company_id)
             
             response = table_records.scan(
                 FilterExpression=filter_expr,
-                Limit=2000,  # Limitar quantidade para evitar timeout
+                Limit=3000,
                 Select='ALL_ATTRIBUTES'
             )
             all_records = response.get('Items', [])
             
             print(f"[DEBUG] Registros encontrados (bruto): {len(all_records)}")
             
-            # Filtrar por data de forma mais eficiente
+            # Filtrar por data de forma eficiente
             records_in_range = []
             for record in all_records:
                 data_hora = record.get('data_hora', '')
@@ -289,68 +290,113 @@ def get_daily_summaries():
             
             print(f"[DEBUG] Grupos de funcionário+data: {len(grouped)}")
             
-            # Calcular sumário para cada grupo usando summary_calculator
-            from summary_calculator import calculate_daily_summary
+            # OTIMIZAÇÃO: Calcular sumários diretamente dos registros agrupados
+            # sem fazer consultas adicionais ao DynamoDB
             items = []
-            
-            # Limitar quantidade para evitar timeout
-            max_groups = 200  # Processar no máximo 200 grupos por vez
-            group_count = 0
             
             grouped_items = sorted(grouped.items(), key=lambda kv: kv[0].split('#')[1], reverse=True)
             for key, records in grouped_items:
-                if group_count >= max_groups:
-                    print(f"[DEBUG] Limite de {max_groups} grupos atingido, parando processamento")
-                    break
-                    
                 emp_id, date_str = key.split('#')
-                try:
-                    # Converter string YYYY-MM-DD para objeto date
-                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                
+                # Extrair horários de entrada e saída dos registros
+                entradas = []
+                saidas = []
+                
+                for rec in records:
+                    tipo = str(rec.get('tipo', '') or rec.get('type', '') or '').lower().strip()
+                    data_hora = rec.get('data_hora', '') or rec.get('timestamp', '')
                     
-                    print(f"[DEBUG] Calculando sumário para {emp_id} em {date_str}")
-                    summary = calculate_daily_summary(company_id, emp_id, target_date)
+                    # Extrair apenas o horário (HH:MM)
+                    hora = None
+                    if data_hora:
+                        data_hora_str = str(data_hora)
+                        if 'T' in data_hora_str:
+                            hora = data_hora_str.split('T')[1][:5]
+                        elif ' ' in data_hora_str:
+                            parts = data_hora_str.split(' ')
+                            if len(parts) > 1:
+                                hora = parts[1][:5]
+                        elif len(data_hora_str) > 16:
+                            hora = data_hora_str[11:16]
                     
-                    if summary:
-                        # Converter para dict
-                        summary_dict = {
-                            'company_id': summary.company_id,
-                            'employee_id': summary.employee_id,
-                            'date': summary.date,
-                            'actual_start': summary.actual_start,
-                            'actual_end': summary.actual_end,
-                            'worked_hours': summary.worked_hours,
-                            'expected_hours': summary.expected_hours,
-                            'status': summary.status,
-                            'delay_minutes': summary.delay_minutes,
-                            'extra_hours': summary.extra_hours,
-                            'daily_balance': summary.daily_balance,
-                            'records_count': summary.records_count
-                        }
-                        items.append(summary_dict)
-                        group_count += 1
-                except Exception as calc_error:
-                    print(f"[ERRO] Erro ao calcular sumário para {key}: {calc_error}")
-                    # Continuar processamento mesmo com erro
-                    group_count += 1
+                    if hora:
+                        # Aceitar várias variações de entrada/saída
+                        if tipo in ['entrada', 'entry', 'in', 'check-in', 'checkin', 'e']:
+                            entradas.append(hora)
+                        elif tipo in ['saída', 'saida', 'exit', 'out', 'check-out', 'checkout', 's']:
+                            saidas.append(hora)
+                        else:
+                            # Se não tem tipo definido, usar ordem dos registros
+                            # Primeiro registro = entrada, último = saída
+                            pass
+                
+                # Se não conseguiu determinar pelo tipo, usar primeiro e último registro
+                if not entradas and not saidas and records:
+                    sorted_records = sorted(records, key=lambda r: r.get('data_hora', '') or r.get('timestamp', ''))
+                    if sorted_records:
+                        first_rec = sorted_records[0]
+                        last_rec = sorted_records[-1]
+                        
+                        first_dt = first_rec.get('data_hora', '') or first_rec.get('timestamp', '')
+                        last_dt = last_rec.get('data_hora', '') or last_rec.get('timestamp', '')
+                        
+                        if first_dt:
+                            first_dt_str = str(first_dt)
+                            if 'T' in first_dt_str:
+                                entradas.append(first_dt_str.split('T')[1][:5])
+                            elif ' ' in first_dt_str:
+                                entradas.append(first_dt_str.split(' ')[1][:5])
+                        
+                        if last_dt and len(sorted_records) > 1:
+                            last_dt_str = str(last_dt)
+                            if 'T' in last_dt_str:
+                                saidas.append(last_dt_str.split('T')[1][:5])
+                            elif ' ' in last_dt_str:
+                                saidas.append(last_dt_str.split(' ')[1][:5])
+                
+                # Pegar primeira entrada e última saída
+                first_entry = min(entradas) if entradas else None
+                last_exit = max(saidas) if saidas else None
+                
+                # Calcular horas trabalhadas de forma simples
+                worked_hours = 0
+                if first_entry and last_exit:
+                    try:
+                        h1, m1 = map(int, first_entry.split(':'))
+                        h2, m2 = map(int, last_exit.split(':'))
+                        minutes_worked = (h2 * 60 + m2) - (h1 * 60 + m1)
+                        worked_hours = round(minutes_worked / 60, 2)
+                    except:
+                        pass
+                
+                summary_dict = {
+                    'company_id': company_id,
+                    'employee_id': emp_id,
+                    'date': date_str,
+                    'actual_start': first_entry,
+                    'actual_end': last_exit,
+                    'worked_hours': worked_hours,
+                    'expected_hours': 8,
+                    'status': 'presente' if first_entry else 'ausente',
+                    'delay_minutes': 0,
+                    'extra_hours': 0,
+                    'daily_balance': 0,
+                    'records_count': len(records)
+                }
+                items.append(summary_dict)
             
-            print(f"[DEBUG] Sumários calculados: {len(items)}")
-            if items:
-                print(f"[DEBUG] Exemplo de item calculado:")
-                example_item = items[0]
-                print(f"  - actual_start: {example_item.get('actual_start')}")
-                print(f"  - actual_end: {example_item.get('actual_end')}")
-                print(f"  - worked_hours: {example_item.get('worked_hours')}")
+            print(f"[DEBUG] Sumários processados: {len(items)}")
         except Exception as query_error:
-            print(f"[WARNING] Erro ao buscar DailySummary: {str(query_error)}")
-            print(f"[INFO] Tabela DailySummary pode não existir, retornando lista vazia")
+            print(f"[WARNING] Erro ao buscar registros: {str(query_error)}")
+            import traceback
+            traceback.print_exc()
             items = []
         
-        # Buscar nomes dos funcionários (otimizado)
-        employee_names = {}
+        # Buscar nomes dos funcionários e seus dados (otimizado)
+        employee_data = {}
         if items:
             try:
-                print(f"[DEBUG] Buscando nomes de funcionários para {len(items)} items")
+                print(f"[DEBUG] Buscando dados de funcionários para {len(items)} items")
                 
                 # Otimização: usar scan com limite
                 emp_response = table_employees.scan(
@@ -358,10 +404,22 @@ def get_daily_summaries():
                     Limit=100  # Limitar para evitar timeout
                 )
                 for emp in emp_response.get('Items', []):
-                    employee_names[emp.get('id')] = emp.get('nome', emp.get('id'))
-                print(f"[DEBUG] Nomes de funcionários carregados: {len(employee_names)}")
+                    # Pegar intervalo do funcionário (intervalo_emp) ou usar padrão 60 min
+                    intervalo = emp.get('intervalo_emp') or emp.get('intervalo') or 60
+                    try:
+                        intervalo = int(intervalo)
+                    except:
+                        intervalo = 60
+                    
+                    employee_data[emp.get('id')] = {
+                        'nome': emp.get('nome', emp.get('id')),
+                        'horario_entrada': emp.get('horario_entrada'),
+                        'horario_saida': emp.get('horario_saida'),
+                        'intervalo': intervalo
+                    }
+                print(f"[DEBUG] Dados de funcionários carregados: {len(employee_data)}")
             except Exception as e:
-                print(f"[AVISO] Erro ao buscar nomes: {e}")
+                print(f"[AVISO] Erro ao buscar dados funcionários: {e}")
         
         # Aplicar filtros adicionais
         summaries = []
@@ -374,6 +432,18 @@ def get_daily_summaries():
             emp_id = item.get('employee_id')
             actual_start = item.get('actual_start')
             actual_end = item.get('actual_end')
+            
+            # Obter dados do funcionário
+            emp_info = employee_data.get(emp_id, {})
+            emp_nome = emp_info.get('nome', emp_id)
+            emp_horario_saida = emp_info.get('horario_saida')
+            emp_intervalo = emp_info.get('intervalo', 60)  # Intervalo em minutos
+            
+            # Garantir que intervalo seja número
+            try:
+                emp_intervalo = int(emp_intervalo) if emp_intervalo else 60
+            except:
+                emp_intervalo = 60
 
             def extract_time_only(dt_str):
                 if not dt_str:
@@ -385,6 +455,44 @@ def get_daily_summaries():
                     return dt_str.split('T')[1][:5]
                 return dt_str[:5] if len(dt_str) >= 5 else dt_str
 
+            hora_entrada = extract_time_only(actual_start) if actual_start else None
+            hora_saida = extract_time_only(actual_end) if actual_end else None
+            
+            # Se não tem saída registrada mas tem entrada, usar horário padrão do funcionário
+            saida_automatica = False
+            if hora_entrada and not hora_saida and emp_horario_saida:
+                hora_saida = extract_time_only(emp_horario_saida)
+                saida_automatica = True
+            
+            # Calcular horas trabalhadas descontando intervalo
+            horas_trabalhadas = None
+            horas_trabalhadas_str = None
+            if hora_entrada and hora_saida:
+                try:
+                    h1, m1 = map(int, hora_entrada.split(':'))
+                    h2, m2 = map(int, hora_saida.split(':'))
+                    minutos_totais = (h2 * 60 + m2) - (h1 * 60 + m1)
+                    
+                    # Descontar intervalo apenas se trabalhou mais que o intervalo
+                    if minutos_totais > emp_intervalo:
+                        minutos_trabalhados = minutos_totais - emp_intervalo
+                    else:
+                        minutos_trabalhados = minutos_totais
+                    
+                    horas = minutos_trabalhados // 60
+                    minutos = minutos_trabalhados % 60
+                    horas_trabalhadas = round(minutos_trabalhados / 60, 2)
+                    
+                    # Formatar como "XhYYmin" ou "Xh"
+                    if minutos > 0:
+                        horas_trabalhadas_str = f"{horas}h{minutos:02d}min"
+                    else:
+                        horas_trabalhadas_str = f"{horas}h"
+                except Exception as e:
+                    print(f"[AVISO] Erro ao calcular horas: {e}")
+                    horas_trabalhadas = 0
+                    horas_trabalhadas_str = None
+
             # Dia da semana em português abreviado
             try:
                 wd = datetime.strptime(item.get('date'), '%Y-%m-%d').weekday()
@@ -394,12 +502,16 @@ def get_daily_summaries():
                 dia_semana = None
 
             summary_obj = {
-                'nome': employee_names.get(emp_id, emp_id),
+                'nome': emp_nome,
+                'employee_id': emp_id,
                 'dia_semana': dia_semana,
                 'data': item.get('date'),
-                'hora_entrada': extract_time_only(actual_start) if actual_start else None,
-                'hora_saida': extract_time_only(actual_end) if actual_end else None,
-                'horas_trabalhadas': float(item.get('worked_hours', 0)),
+                'hora_entrada': hora_entrada,
+                'hora_saida': hora_saida,
+                'saida_automatica': saida_automatica,
+                'horas_trabalhadas': horas_trabalhadas,
+                'horas_trabalhadas_str': horas_trabalhadas_str,
+                'intervalo_descontado': emp_intervalo,
                 'horas_extras': float(item.get('extra_hours', 0))
             }
 

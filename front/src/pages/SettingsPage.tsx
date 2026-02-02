@@ -37,6 +37,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 import { CompanySettings } from '../types';
 import LocationSettings from '../components/LocationSettings';
+import HorarioEmpresaSettings from '../components/HorarioEmpresaSettings';
 
 // Componente para configurações de ponto e horas extras
 const TimeTrackingSettings: React.FC = () => {
@@ -493,6 +494,17 @@ const SettingsPage: React.FC = () => {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <TimeTrackingSettings />
+          </motion.div>
+        </Grid>
+
+        {/* Horários da Empresa */}
+        <Grid size={{ xs: 12 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.15 }}
+          >
+            <HorarioEmpresaSettings />
           </motion.div>
         </Grid>
 
