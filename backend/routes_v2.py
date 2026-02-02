@@ -34,7 +34,7 @@ routes_v2 = Blueprint('routes_v2', __name__, url_prefix='/api/v2')
 # Enable CORS
 CORS(routes_v2, resources={
     r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173"],
+        "origins": ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173", "https://d1w38wqzsvujrr.cloudfront.net"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }

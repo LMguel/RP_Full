@@ -29,7 +29,8 @@ CORS(routes_facial, resources={
             "http://127.0.0.1:3001",
             "http://127.0.0.1:3002",
             "http://192.168.1.5:3000", 
-            "https://192.168.1.5:3000"
+            "https://192.168.1.5:3000",
+            "https://d1w38wqzsvujrr.cloudfront.net"  # CloudFront
         ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
