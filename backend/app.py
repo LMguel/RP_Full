@@ -20,7 +20,12 @@ if 'AWS_LAMBDA_STAGE_VARIABLES' in os.environ:
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback-secret-key-for-development')
 
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 app.register_blueprint(routes, url_prefix='/api')
 app.register_blueprint(routes_v2)
@@ -29,15 +34,6 @@ app.register_blueprint(dashboard_routes)
 app.register_blueprint(auth_admin_routes)
 app.register_blueprint(admin_routes)
 app.register_blueprint(routes_facial)
-
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = make_response()
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
-        response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS")
-        return response
 
 @app.route('/health', methods=['GET'])
 def health_check():
