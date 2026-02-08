@@ -1497,49 +1497,38 @@ def listar_registros_resumo(payload):
             print("[DEBUG RESUMO] Nenhum funcionário encontrado")
             return jsonify([])
         
-        # Buscar registros usando o novo schema (OTIMIZADO)
+        # Buscar TODOS os registros da empresa no período com paginação completa
         try:
             print(f"[DEBUG RESUMO] Iniciando busca de registros - Período: {data_inicio} até {data_fim}")
+            func_ids_set = set(f['id'] for f in funcionarios_filtrados)
+            print(f"[DEBUG RESUMO] Buscando para {len(func_ids_set)} funcionários")
+            
+            # Montar filtro base
+            base_filter = Attr('company_id').eq(empresa_id)
+            if data_inicio and data_fim:
+                start_ts = f"{data_inicio} 00:00:00"
+                end_ts = f"{data_fim} 23:59:59"
+                date_filter = Attr('data_hora').between(start_ts, end_ts)
+                scan_filter = base_filter & date_filter
+            else:
+                scan_filter = base_filter
+            
+            # Scan com paginação completa (sem Limit)
             registros_raw = []
-            func_ids = [f['id'] for f in funcionarios_filtrados]  # Removido limite para incluir todos os funcionários
-            print(f"[DEBUG RESUMO] Buscando para {len(func_ids)} funcionários")
-            # Buscar registros para cada funcionário (com limite)
-            for i, func_id in enumerate(func_ids):
-                print(f"[DEBUG RESUMO] Processando funcionário {i+1}/{len(func_ids)}: {func_id}")
-                if data_inicio and data_fim:
-                    # Usar scan por company_id e intervalo de data (aceitar tanto 'date_time' quanto 'data_hora')
-                    start_ts = f"{data_inicio} 00:00:00"
-                    end_ts = f"{data_fim} 23:59:59"
-                    date_filter = Attr('date_time').between(start_ts, end_ts) | Attr('data_hora').between(start_ts, end_ts)
-                    response = tabela_registros.scan(
-                        FilterExpression=Attr('company_id').eq(empresa_id) & date_filter,
-                        Limit=500
-                    )
-                else:
-                    # Buscar por company_id e filtrar o employee_id localmente (alguns registros usam employee_id#date_time como chave)
-                    response = tabela_registros.scan(
-                        FilterExpression=Attr('company_id').eq(empresa_id),
-                        Limit=200
-                    )
+            scan_kwargs = {'FilterExpression': scan_filter}
+            while True:
+                response = tabela_registros.scan(**scan_kwargs)
                 items = response.get('Items', [])
-                # Filtrar itens para incluir tanto registros com atributo `employee_id`
-                # quanto registros que usam a chave composta `employee_id#date_time`
-                filtered_items = []
-                for it in items:
-                    emp_field = it.get('employee_id')
-                    composite = it.get('employee_id#date_time') or it.get('employee_id_date_time') or ''
-                    if emp_field and str(emp_field) == str(func_id):
-                        filtered_items.append(it)
-                        continue
-                    if composite and str(composite).startswith(f"{func_id}#"):
-                        filtered_items.append(it)
-                        continue
-                items = filtered_items
-                print(f"[DEBUG RESUMO] Funcionário {func_id}: {len(items)} registros")
                 registros_raw.extend(items)
-            print(f"[DEBUG RESUMO] Registros raw encontrados: {len(registros_raw)}")
-            # Inicializar registros
-            # IMPORTANTE: Filtrar registros INVALIDADOS e AJUSTADOS - apenas ATIVO conta no resumo
+                # Verificar se há mais páginas
+                last_key = response.get('LastEvaluatedKey')
+                if not last_key:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = last_key
+            
+            print(f"[DEBUG RESUMO] Registros raw encontrados (scan completo): {len(registros_raw)}")
+            
+            # Filtrar por employee_id e status
             registros = []
             for item in registros_raw:
                 # Ignorar registros invalidados ou ajustados
@@ -1547,38 +1536,62 @@ def listar_registros_resumo(payload):
                 if record_status in ('INVALIDADO', 'AJUSTADO'):
                     continue
                 
-                # Extrair campos do schema novo
+                # Determinar employee_id do registro
                 employee_id = item.get('employee_id')
-                data_hora = item.get('date_time') or item.get('data_hora')
+                if not employee_id:
+                    composite = item.get('employee_id#date_time') or ''
+                    if '#' in composite:
+                        employee_id = composite.split('#')[0]
+                
+                # Verificar se pertence a um funcionário filtrado
+                if not employee_id or str(employee_id) not in func_ids_set:
+                    continue
+                
+                # Extrair campos
+                data_hora = item.get('data_hora') or item.get('date_time')
+                data_hora_calculo = item.get('data_hora_calculo') or data_hora
                 tipo = item.get('type') or item.get('tipo')
-                # Formatar data para DD-MM-YYYY HH:MM:SS
+                
+                # Normalizar data para DD-MM-YYYY HH:MM:SS
                 data_hora_formatada = data_hora
+                data_hora_calculo_fmt = data_hora_calculo
                 if data_hora:
                     try:
-                        # Suporta tanto YYYY-MM-DD quanto DD-MM-YYYY
                         if '-' in data_hora:
                             partes = data_hora.split(' ')
-                            if len(partes) == 2:
-                                data_part, hora_part = partes
-                                if data_part.count('-') == 2:
-                                    # YYYY-MM-DD ou DD-MM-YYYY
-                                    split = data_part.split('-')
-                                    if len(split[0]) == 4:
-                                        yyyy, mm, dd = split
-                                        data_hora_formatada = f"{dd}-{mm}-{yyyy} {hora_part}"
-                                    else:
-                                        dd, mm, yyyy = split
-                                        data_hora_formatada = f"{dd}-{mm}-{yyyy} {hora_part}"
+                            if len(partes) >= 2:
+                                data_part, hora_part = partes[0], partes[1]
+                                split = data_part.split('-')
+                                if len(split) == 3 and len(split[0]) == 4:
+                                    yyyy, mm, dd = split
+                                    data_hora_formatada = f"{dd}-{mm}-{yyyy} {hora_part}"
                     except Exception as e:
                         print(f"[DEBUG RESUMO] Erro ao formatar data {data_hora}: {e}")
-                        data_hora_formatada = data_hora
+                
+                if data_hora_calculo and data_hora_calculo != data_hora:
+                    try:
+                        if '-' in data_hora_calculo:
+                            partes = data_hora_calculo.split(' ')
+                            if len(partes) >= 2:
+                                data_part, hora_part = partes[0], partes[1]
+                                split = data_part.split('-')
+                                if len(split) == 3 and len(split[0]) == 4:
+                                    yyyy, mm, dd = split
+                                    data_hora_calculo_fmt = f"{dd}-{mm}-{yyyy} {hora_part}"
+                    except Exception:
+                        data_hora_calculo_fmt = data_hora_formatada
+                else:
+                    data_hora_calculo_fmt = data_hora_formatada
+                
                 registro_formatado = {
-                    'employee_id': employee_id,
+                    'employee_id': str(employee_id),
                     'data_hora': data_hora_formatada,
+                    'data_hora_calculo': data_hora_calculo_fmt,
                     'tipo': tipo,
                 }
                 registros.append(registro_formatado)
-            print(f"[DEBUG RESUMO] Registros formatados: {len(registros)}")
+            
+            print(f"[DEBUG RESUMO] Registros filtrados e formatados: {len(registros)}")
         except Exception as e:
             print(f"[DEBUG RESUMO] Erro ao buscar registros: {str(e)}")
             import traceback
@@ -1642,6 +1655,8 @@ def listar_registros_resumo(payload):
                             return ''
                         s = str(t).strip().lower()
                         s = s.replace('á', 'a').replace('ã', 'a').replace('â', 'a')
+                        s = s.replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+                        s = s.replace('é', 'e').replace('ê', 'e').replace('ô', 'o')
                         return s
 
                     for reg in regs_do_dia:

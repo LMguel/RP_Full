@@ -272,7 +272,10 @@ def _candidate_employee_ids(employee: Dict[str, Any]) -> List[str]:
 
 
 def _normalize_type(value: str) -> str:
-    return value.replace('á', 'a').replace('ã', 'a').replace('â', 'a')
+    s = value.replace('á', 'a').replace('ã', 'a').replace('â', 'a')
+    s = s.replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+    s = s.replace('é', 'e').replace('ê', 'e').replace('ô', 'o')
+    return s
 
 
 def _is_entry_event(record_type: str) -> bool:

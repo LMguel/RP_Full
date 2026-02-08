@@ -189,19 +189,20 @@ const RecordsSummaryPage: React.FC = () => {
       const params: {
         inicio?: string;
         fim?: string;
-        employee_id?: string;
+        funcionario_id?: string;
       } = {};
 
       // Enviar datas no formato ISO YYYY-MM-DD (mesmo formato salvo no banco)
       if (dateRange.start_date) params.inicio = dateRange.start_date;
       if (dateRange.end_date) params.fim = dateRange.end_date;
-      if (selectedEmployee?.id) params.employee_id = selectedEmployee.id;
+      if (selectedEmployee?.id) params.funcionario_id = selectedEmployee.id;
 
       // Usar o novo endpoint de resumo que calcula tudo no backend
       console.log('📊 [API] Buscando resumo com params:', params);
       const response = await apiService.getTimeRecordsSummary(params);
       console.log('📊 [API] Resposta do resumo:', response);
       
+      // Função auxiliar simplificada para converter para número
       const toNumber = (value: any): number => {
         if (typeof value === 'number') return value;
         if (typeof value === 'string') {
@@ -209,73 +210,46 @@ const RecordsSummaryPage: React.FC = () => {
           const parsed = parseFloat(normalized);
           return Number.isFinite(parsed) ? parsed : 0;
         }
-        if (typeof value === 'boolean') return value ? 1 : 0;
-        if (typeof value === 'bigint') return Number(value);
+        return 0;
+      };
+
+      // Função para converter HH:MM em minutos
+      const parseHHMMToMinutes = (val: any): number => {
+        if (typeof val === 'string' && /^\d{1,3}:\d{2}$/.test(val)) {
+          const [h, m] = val.split(':').map(Number);
+          return h * 60 + m;
+        }
         return 0;
       };
 
       let summaries: EmployeeSummary[] = [];
 
-      // Processar resposta do endpoint de resumo
+      // Processar resposta do endpoint de resumo (SIMPLIFICADO)
       if (Array.isArray(response)) {
-        summaries = response.reduce((acc: EmployeeSummary[], item: any) => {
-          const parseHHMMToMinutes = (val: any) => {
-            if (typeof val === 'string' && /^\d{1,3}:\d{2}$/.test(val)) {
-              const [h, m] = val.split(':').map(Number);
-              return h * 60 + m;
-            }
-            return null;
-          };
+        console.log('📊 [RESUMO] Resposta da API:', response);
+        
+        summaries = response.map((item: any) => {
+          // Backend retorna valores já calculados em minutos
+          const horasTrabalhadas = item.horas_trabalhadas_minutos != null 
+            ? toNumber(item.horas_trabalhadas_minutos)
+            : parseHHMMToMinutes(item.horas_trabalhadas);
 
-          // Horas trabalhadas: prefer minute field, otherwise parse HH:MM
-          let horasTrabalhadas = 0;
-          if (item.horas_trabalhadas_minutos != null) {
-            horasTrabalhadas = toNumber(item.horas_trabalhadas_minutos);
-          } else if (item.total_minutos_trabalhados != null) {
-            horasTrabalhadas = toNumber(item.total_minutos_trabalhados);
-          } else if (typeof item.horas_trabalhadas === 'string') {
-            const parsed = parseHHMMToMinutes(item.horas_trabalhadas);
-            horasTrabalhadas = parsed != null ? parsed : toNumber(item.horas_trabalhadas);
-          } else {
-            horasTrabalhadas = toNumber(item.horas_trabalhadas);
-          }
+          const horasExtras = item.horas_extras_minutos != null
+            ? toNumber(item.horas_extras_minutos)
+            : parseHHMMToMinutes(item.horas_extras);
 
-          const horasExtras = (() => {
-            if (item.horas_extras_minutos != null) return toNumber(item.horas_extras_minutos);
-            if (item.total_minutos_extras != null) return toNumber(item.total_minutos_extras);
-            if (typeof item.horas_extras === 'string') {
-              const parsed = parseHHMMToMinutes(item.horas_extras);
-              return parsed != null ? parsed : toNumber(item.horas_extras);
-            }
-            return toNumber(item.horas_extras);
-          })();
-          // Ajuste: garantir que o campo de atraso some o atraso integral do dia, não só o excesso
-          // Preferir atraso_minutos, que deve ser o atraso integral já calculado pelo backend
-          const atrasos = (() => {
-            if (item.atraso_minutos != null) return toNumber(item.atraso_minutos);
-            if (item.delay_minutes != null) return toNumber(item.delay_minutes);
-            if (item.total_minutos_atraso != null) return toNumber(item.total_minutos_atraso);
-            if (typeof item.atrasos === 'string') {
-              const parsed = parseHHMMToMinutes(item.atrasos);
-              return parsed != null ? parsed : toNumber(item.atrasos);
-            }
-            return toNumber(item.atrasos);
-          })();
-          const totalRegistros = toNumber(
-            item.total_registros ??
-            item.totalRegistros ??
-            item.total_registros_periodo ??
-            item.registros_count ??
-            item.total_registros ??
-            (Array.isArray(item.registros) ? item.registros.length : 0)
-          );
+          const atrasos = item.atraso_minutos != null
+            ? toNumber(item.atraso_minutos)
+            : 0;
 
-          // Não filtrar por "hasRegistros" aqui — aceitar todos os itens retornados pela API
+          const totalRegistros = toNumber(item.total_registros || 0);
 
-          const employeeId = item.employee_id ?? item.funcionario_id ?? item.funcionarioId ?? item.id;
-          const funcName = item.funcionario_nome ?? item.funcionario ?? item.nome ?? item.employee_name ?? employeeId;
+          const employeeId = item.funcionario_id || item.employee_id || '';
+          const funcName = item.funcionario_nome || item.funcionario || 'Desconhecido';
 
-          acc.push({
+          console.log(`📊 [RESUMO] ${funcName}: trabalhadas=${horasTrabalhadas}min, extras=${horasExtras}min`);
+
+          return {
             employee_id: employeeId,
             funcionario: funcName,
             funcionario_nome: funcName,
@@ -283,10 +257,8 @@ const RecordsSummaryPage: React.FC = () => {
             horas_extras: horasExtras,
             atrasos,
             total_registros: totalRegistros,
-          });
-
-          return acc;
-        }, []);
+          };
+        });
       }
       
       console.log('📊 [RESUMO] Summaries processados:', summaries);
