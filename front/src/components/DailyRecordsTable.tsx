@@ -137,11 +137,15 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
         employee_name: s.employee_name || s.nome || s.name,
         date: s.date || s.data,
         first_entry_time: s.first_entry_time || s.hora_entrada || s.actual_start,
+        intervalo_saida: s.intervalo_saida || null,
+        intervalo_volta: s.intervalo_volta || null,
+        intervalo_automatico: s.intervalo_automatico ?? false,
         last_exit_time: s.last_exit_time || s.hora_saida || s.actual_end,
         worked_hours: s.worked_hours || s.horas_trabalhadas || 0,
         worked_hours_str: s.horas_trabalhadas_str || null,
-        saida_automatica: s.saida_automatica || false,
-        intervalo_descontado: s.intervalo_descontado || 60,
+        horas_extras: s.horas_extras || 0,
+        horas_extras_str: s.horas_extras_str || null,
+        intervalo_descontado: s.intervalo_descontado ?? 0,
         raw: s,
       }));
 
@@ -215,8 +219,11 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       Data: formatDateLabel(s.date),
       Funcionário: s.employee_name,
       Entrada: s.first_entry_time || '-',
-      Saída: s.last_exit_time ? (s.saida_automatica ? `${s.last_exit_time} (auto)` : s.last_exit_time) : '-',
+      'Saída Intervalo': s.intervalo_saida || (s.intervalo_automatico ? '*' : '-'),
+      'Volta Intervalo': s.intervalo_volta || (s.intervalo_automatico ? '*' : '-'),
+      Saída: s.last_exit_time || '-',
       'Horas Trabalhadas': s.worked_hours_str || '-',
+      'Hora Extra': s.horas_extras_str || '-',
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -261,14 +268,17 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               <TableCell sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Data</TableCell>
               <TableCell sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Funcionário</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Entrada</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Saída Intervalo</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Volta Intervalo</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Saída</TableCell>
               <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Horas Trabalhadas</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 600, color: 'rgba(255, 255, 255, 0.9)' }}>Hora Extra</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={32} sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                   <Typography variant="body2" sx={{ mt: 2, color: 'rgba(255, 255, 255, 0.6)' }}>
                     Carregando registros...
@@ -277,7 +287,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               </TableRow>
             ) : summaries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                   <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
                     Nenhum registro encontrado
                   </Typography>
@@ -306,23 +316,26 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                       <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>{s.first_entry_time || '—'}</Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                        <Typography variant="body2" sx={{ color: s.saida_automatica ? 'rgba(251, 191, 36, 0.9)' : 'rgba(255, 255, 255, 0.8)' }}>
-                          {s.last_exit_time || '—'}
-                        </Typography>
-                        {s.saida_automatica && (
-                          <Typography variant="caption" sx={{ color: 'rgba(251, 191, 36, 0.7)', fontSize: '0.65rem' }}>
-                            (auto)
-                          </Typography>
-                        )}
-                      </Box>
+                      <Typography variant="body2" sx={{ color: s.intervalo_automatico && !s.intervalo_saida ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.8)', fontStyle: s.intervalo_automatico && !s.intervalo_saida ? 'italic' : 'normal' }}>
+                        {s.intervalo_saida || (s.intervalo_automatico ? '*' : '—')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" sx={{ color: s.intervalo_automatico && !s.intervalo_volta ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.8)', fontStyle: s.intervalo_automatico && !s.intervalo_volta ? 'italic' : 'normal' }}>
+                        {s.intervalo_volta || (s.intervalo_automatico ? '*' : '—')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                        {s.last_exit_time || '—'}
+                      </Typography>
                     </TableCell>
                     <TableCell align="center">
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                         {s.worked_hours_str ? (
                           <>
-                            <ScheduleIcon sx={{ fontSize: 16, color: 'rgba(74, 222, 128, 0.8)' }} />
-                            <Typography variant="body2" sx={{ color: 'rgba(74, 222, 128, 0.9)', fontWeight: 500 }}>
+                            <ScheduleIcon sx={{ fontSize: 16, color: 'rgba(255, 255, 255, 0.7)' }} />
+                            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 500 }}>
                               {s.worked_hours_str}
                             </Typography>
                           </>
@@ -330,6 +343,15 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                           <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>—</Typography>
                         )}
                       </Box>
+                    </TableCell>
+                    <TableCell align="center">
+                      {s.horas_extras_str ? (
+                        <Typography variant="body2" sx={{ color: '#4ade80', fontWeight: 600 }}>
+                          +{s.horas_extras_str}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>—</Typography>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

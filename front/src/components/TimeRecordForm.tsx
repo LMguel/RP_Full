@@ -30,6 +30,7 @@ interface TimeRecordFormProps {
     employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
+    justificativa: string;
   }) => Promise<void>;
   loading?: boolean;
   employees?: Employee[];
@@ -48,6 +49,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     date: '', // YYYY-MM-DD
     time: '', // HH:MM
     tipo: 'entrada' as 'entrada' | 'saída',
+    justificativa: '',
   });
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeInput, setEmployeeInput] = useState('');
@@ -152,6 +154,12 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       newErrors.tipo = 'Tipo de registro é obrigatório';
     }
 
+    if (!formData.justificativa.trim()) {
+      newErrors.justificativa = 'Justificativa é obrigatória para registro manual';
+    } else if (formData.justificativa.trim().length < 5) {
+      newErrors.justificativa = 'Justificativa deve ter pelo menos 5 caracteres';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -222,6 +230,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         employee_id: selectedEmployee.id,
         data_hora: formattedDateTime,
         tipo: formData.tipo,
+        justificativa: formData.justificativa.trim(),
       });
     } catch (error) {
       console.error('Erro ao salvar registro:', error);
@@ -239,6 +248,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       date: '',
       time: '',
       tipo: 'entrada',
+      justificativa: '',
     });
     setEmployeeInput('');
     setErrors({});
@@ -549,6 +559,44 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                   </Typography>
                 )}
               </FormControl>
+
+              <TextField
+                fullWidth
+                name="justificativa"
+                label="Justificativa *"
+                placeholder="Informe o motivo do registro manual (obrigatório)"
+                value={formData.justificativa}
+                onChange={handleChange}
+                error={!!errors.justificativa}
+                helperText={errors.justificativa}
+                multiline
+                rows={3}
+                disabled={loading}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    color: 'white',
+                    '& fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.5)',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: 'rgba(255, 255, 255, 0.7)',
+                    },
+                    background: 'rgba(255, 255, 255, 0.05)',
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    '&.Mui-focused': {
+                      color: 'rgba(255, 255, 255, 0.9)'
+                    }
+                  },
+                  '& .MuiFormHelperText-root': {
+                    color: errors.justificativa ? '#ef4444' : 'rgba(255, 255, 255, 0.5)',
+                  },
+                }}
+              />
             </Box>
           )}
         </DialogContent>

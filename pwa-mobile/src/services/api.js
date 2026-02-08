@@ -3,7 +3,7 @@ import axios from 'axios';
 // Forçar uso da API pública do projeto para o PWA dist.
 // Sempre retornar a URL fixa de produção.
 const getApiUrl = () => {
-  return 'https://registra-ponto.duckdns.org';
+  return 'http://192.168.1.111:5000';
 };
 
 const API_URL = getApiUrl();

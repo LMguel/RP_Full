@@ -24,8 +24,8 @@ table_records = dynamodb.Table('TimeRecords')
 table_daily_summary = dynamodb.Table('DailySummary')
 table_monthly_summary = dynamodb.Table('MonthlySummary')
 DEFAULT_TOLERANCE_MINUTES = 10
-ENTRY_TYPES = {'entrada', 'in', 'break_end', 'retorno', 'return'}
-EXIT_TYPES = {'saida', 'saída', 'out', 'break_start', 'intervalo', 'intervalo_inicio'}
+ENTRY_TYPES = {'entrada', 'in', 'retorno', 'return'}
+EXIT_TYPES = {'saida', 'saída', 'out'}
 
 STATUS_LABELS = {
     'entrada_antecipada': 'Entrada antecipada',
@@ -287,8 +287,7 @@ def _is_entry_event(record_type: str) -> bool:
         ascii_normalized in ENTRY_TYPES or
         ascii_normalized.startswith('entrada') or
         ascii_normalized.startswith('retorno') or
-        ascii_normalized.startswith('return') or
-        ascii_normalized.startswith('break_end')
+        ascii_normalized.startswith('return')
     )
 
 
@@ -302,9 +301,7 @@ def _is_exit_event(record_type: str) -> bool:
     return (
         normalized in EXIT_TYPES or
         ascii_normalized in EXIT_TYPES or
-        ascii_normalized.startswith('saida') or
-        ascii_normalized.startswith('intervalo') or
-        ascii_normalized.startswith('break_start')
+        ascii_normalized.startswith('saida')
     )
 
 
@@ -347,34 +344,40 @@ def _fetch_employee_records(company_id: str, employee_id: str, date_str: str) ->
     key_condition = Key('company_id').eq(company_id) & Key('employee_id#date_time').begins_with(f"{employee_id}#{date_str}")
 
     try:
-        return _paginate_query(
+        records = _paginate_query(
             table_records,
             KeyConditionExpression=key_condition
         )
     except Exception as error:
         print(f"Erro ao consultar registros para funcionario {employee_id}: {error}")
-        return _paginate_scan(
+        records = _paginate_scan(
             table_records,
             FilterExpression=Attr('company_id').eq(company_id) &
                              Attr('employee_id#date_time').begins_with(f"{employee_id}#{date_str}")
         )
+    
+    # Filtrar registros INVALIDADOS e AJUSTADOS - apenas ATIVO deve ser considerado
+    return [r for r in records if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
 
 
 def _fetch_employee_month_records(company_id: str, employee_id: str, month_str: str) -> List[Dict[str, Any]]:
     key_condition = Key('company_id').eq(company_id) & Key('employee_id#date_time').begins_with(f"{employee_id}#{month_str}")
 
     try:
-        return _paginate_query(
+        records = _paginate_query(
             table_records,
             KeyConditionExpression=key_condition
         )
     except Exception as error:
         print(f"Erro ao consultar registros do mês para funcionario {employee_id}: {error}")
-        return _paginate_scan(
+        records = _paginate_scan(
             table_records,
             FilterExpression=Attr('company_id').eq(company_id) &
                              Attr('employee_id#date_time').begins_with(f"{employee_id}#{month_str}")
         )
+    
+    # Filtrar registros INVALIDADOS e AJUSTADOS - apenas ATIVO deve ser considerado
+    return [r for r in records if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
 
 
 def _build_attendance_summary(

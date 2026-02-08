@@ -18,7 +18,11 @@ def time_diff_minutes(time1, time2):
     return int(diff.total_seconds() / 60)
 
 def round_minutes(minutes, arredondamento):
-    """Arredonda minutos conforme configuração"""
+    """Arredonda minutos para baixo ao bloco mais próximo conforme configuração.
+    Ex: 25min com intervalo 15 → (25//15)*15 = 15min
+    Ex: 11min com intervalo 10 → (11//10)*10 = 10min
+    Ex: 9min com intervalo 10 → (9//10)*10 = 0min
+    """
     if arredondamento == 'exato':
         return minutes
 
@@ -27,10 +31,9 @@ def round_minutes(minutes, arredondamento):
     except Exception:
         return minutes
 
-    # Usar o resto da divisão pelo intervalo para contar apenas os minutos além
-    # do bloco de arredondamento. Ex: 11min com intervalo 10 -> 1min.
+    # Arredondar para baixo ao bloco completo mais próximo
     if interval > 0:
-        return minutes % interval
+        return (minutes // interval) * interval
     return minutes
 
 def calculate_overtime(
@@ -40,7 +43,8 @@ def calculate_overtime(
     horario_saida_real,
     configuracoes,
     intervalo_automatico=None,
-    duracao_intervalo=None
+    duracao_intervalo=None,
+    break_real_minutes=None
 ):
     """
     Calcula horas extras, atrasos e adiantamentos baseado nas configurações da empresa.
@@ -51,6 +55,9 @@ def calculate_overtime(
         horario_entrada_real: String HH:MM
         horario_saida_real: String HH:MM
         configuracoes: Dict com tolerancia_atraso, hora_extra_entrada_antecipada, arredondamento_horas_extras, compensar_saldo_horas
+        intervalo_automatico: Bool - se True, desconta duracao_intervalo; se False, desconta break_real_minutes
+        duracao_intervalo: Int - duração do intervalo automático em minutos
+        break_real_minutes: Int - tempo real de intervalo em minutos (break_start → break_end)
     
     Returns:
         Dict com horas_extras_minutos, atraso_minutos, entrada_antecipada_minutos, saida_antecipada_minutos
@@ -85,10 +92,14 @@ def calculate_overtime(
     if entrada_esperado and saida_esperado:
         horas_brutas = time_diff_minutes(entrada_esperado, saida_esperado)
         
-        # Se intervalo automático estiver ativado, desconta o tempo de intervalo
+        # Se intervalo automático estiver ativado, desconta o tempo de intervalo fixo
+        # Se intervalo manual e temos break_real_minutes, desconta o tempo real
         if intervalo_automatico and duracao_intervalo > 0:
             resultado['horas_trabalhadas_minutos'] = max(0, horas_brutas - duracao_intervalo)
             print(f"[DEBUG] Intervalo automático: {duracao_intervalo}min descontados. Horas brutas: {horas_brutas}, Líquidas: {resultado['horas_trabalhadas_minutos']}")
+        elif not intervalo_automatico and break_real_minutes is not None and break_real_minutes > 0:
+            resultado['horas_trabalhadas_minutos'] = max(0, horas_brutas - break_real_minutes)
+            print(f"[DEBUG] Intervalo manual: {break_real_minutes}min reais descontados. Horas brutas: {horas_brutas}, Líquidas: {resultado['horas_trabalhadas_minutos']}")
         else:
             resultado['horas_trabalhadas_minutos'] = horas_brutas
     

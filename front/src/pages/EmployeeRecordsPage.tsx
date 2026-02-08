@@ -29,6 +29,8 @@ import {
 import {
   ArrowBack as ArrowBackIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
+  Block as BlockIcon,
   Email as EmailIcon,
   FileDownload as FileDownloadIcon,
   AccessTime as AccessTimeIcon,
@@ -37,7 +39,7 @@ import {
   FilterList as FilterIcon,
   CalendarMonth as CalendarIcon,
 } from '@mui/icons-material';
-import { InputAdornment } from '@mui/material';
+import { InputAdornment, Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { apiService } from '../services/api';
@@ -93,6 +95,14 @@ const EmployeeRecordsPage: React.FC = () => {
   // Estados para dialogs
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState<TimeRecord | null>(null);
+  const [invalidateJustificativa, setInvalidateJustificativa] = useState('');
+  const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
+  const [recordToAdjust, setRecordToAdjust] = useState<TimeRecord | null>(null);
+  const [adjustData, setAdjustData] = useState({ date: '', time: '', tipo: 'entrada' as 'entrada' | 'saída', justificativa: '' });
+  
+  // Popover para exibir justificativa ao clicar no status
+  const [justificativaAnchorEl, setJustificativaAnchorEl] = useState<HTMLElement | null>(null);
+  const [justificativaTexto, setJustificativaTexto] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [emailDestino, setEmailDestino] = useState('');
@@ -273,20 +283,70 @@ const EmployeeRecordsPage: React.FC = () => {
     }
   };
 
-  // Função para excluir registro
+  // Função para invalidar registro (soft delete)
   const handleDeleteRecord = async () => {
     if (!recordToDelete) return;
+    if (!invalidateJustificativa.trim()) return;
 
     try {
       setSubmitting(true);
-      await apiService.deleteTimeRecord(recordToDelete.registro_id);
-      showSnackbar('Registro excluído com sucesso!', 'error');
+      await apiService.invalidateTimeRecord(recordToDelete.registro_id, invalidateJustificativa.trim());
+      showSnackbar('Registro invalidado com sucesso!', 'success');
       setDeleteDialogOpen(false);
       setRecordToDelete(null);
+      setInvalidateJustificativa('');
       buscarRegistrosFuncionario();
     } catch (err: any) {
-      console.error('Error deleting record:', err);
-      showSnackbar('Erro ao excluir registro', 'error');
+      console.error('Error invalidating record:', err);
+      showSnackbar('Erro ao invalidar registro', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Função para ajustar registro
+  const handleAdjustClick = (record: TimeRecord) => {
+    const recordType = (record.type || record.tipo || 'entrada').toLowerCase();
+    let date = '';
+    let time = '';
+    if (record.data_hora) {
+      const parts = record.data_hora.includes('T') ? record.data_hora.split('T') : record.data_hora.split(' ');
+      date = parts[0] || '';
+      time = (parts[1] || '').substring(0, 5);
+      if (date.length === 10 && date[2] === '-') {
+        const [d, m, y] = date.split('-');
+        date = `${y}-${m}-${d}`;
+      }
+    }
+    setRecordToAdjust(record);
+    setAdjustData({
+      date,
+      time,
+      tipo: (recordType === 'saída' || recordType === 'saida') ? 'saída' : 'entrada',
+      justificativa: '',
+    });
+    setAdjustDialogOpen(true);
+  };
+
+  const handleAdjustConfirm = async () => {
+    if (!recordToAdjust || !recordToAdjust.registro_id) return;
+    if (!adjustData.justificativa.trim() || !adjustData.date || !adjustData.time) return;
+    setSubmitting(true);
+    try {
+      const formattedDateTime = `${adjustData.date} ${adjustData.time}:00`;
+      await apiService.adjustTimeRecord(recordToAdjust.registro_id, {
+        data_hora: formattedDateTime,
+        tipo: adjustData.tipo,
+        justificativa: adjustData.justificativa.trim(),
+      });
+      showSnackbar('Registro ajustado com sucesso!', 'success');
+      setAdjustDialogOpen(false);
+      setRecordToAdjust(null);
+      buscarRegistrosFuncionario();
+    } catch (err: any) {
+      console.error('Error adjusting record:', err);
+      const msg = err?.response?.data?.error || 'Erro ao ajustar registro';
+      showSnackbar(msg, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -340,11 +400,21 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   const getStatusColor = (tipo: string) => {
-    return tipo === 'entrada' ? 'success' : 'error';
+    if (tipo === 'entrada') return 'success';
+    return 'error';
   };
 
   const getStatusText = (tipo: string) => {
-    return tipo === 'entrada' ? 'Entrada' : 'Saída';
+    const labels: Record<string, string> = {
+      'entrada': 'Entrada',
+      'saida': 'Saída',
+      'saída': 'Saída',
+      'intervalo_inicio': 'Saída Intervalo',
+      'intervalo_fim': 'Volta Intervalo',
+      'retorno': 'Volta Intervalo',
+      'saida_antecipada': 'Saída Antecipada',
+    };
+    return labels[tipo.toLowerCase()] || (tipo === 'entrada' ? 'Entrada' : 'Saída');
   };
 
   // Função para determinar o status detalhado do registro
@@ -355,7 +425,7 @@ const EmployeeRecordsPage: React.FC = () => {
     if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
       statuses.push({
         text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
-        color: '#3b82f6' // azul
+        color: '#93c5fd' // azul claro
       });
     }
 
@@ -386,8 +456,8 @@ const EmployeeRecordsPage: React.FC = () => {
     // Se não tem nenhum status especial
     if (statuses.length === 0) {
       return [{
-        text: 'Normal',
-        color: 'rgba(255, 255, 255, 0.6)' // cinza
+        text: 'Pontual',
+        color: '#10b981' // verde
       }];
     }
 
@@ -732,6 +802,39 @@ const EmployeeRecordsPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              {/* Status do registro */}
+                              {(() => {
+                                const recordStatus = (record as any).status || 'ATIVO';
+                                let statusColor = '#10b981';
+                                let statusBg = 'rgba(16, 185, 129, 0.15)';
+                                if (recordStatus === 'AJUSTADO') {
+                                  statusColor = '#f59e0b';
+                                  statusBg = 'rgba(245, 158, 11, 0.15)';
+                                } else if (recordStatus === 'INVALIDADO') {
+                                  statusColor = '#ef4444';
+                                  statusBg = 'rgba(239, 68, 68, 0.15)';
+                                }
+                                const hasJustificativa = !!(record as any).justificativa;
+                                const isClickable = hasJustificativa && (recordStatus === 'INVALIDADO' || recordStatus === 'AJUSTADO');
+                                return (
+                                  <Chip
+                                    label={recordStatus}
+                                    size="small"
+                                    onClick={isClickable ? (e) => {
+                                      setJustificativaTexto((record as any).justificativa);
+                                      setJustificativaAnchorEl(e.currentTarget);
+                                    } : undefined}
+                                    sx={{
+                                      backgroundColor: statusBg,
+                                      border: `1px solid ${statusColor}`,
+                                      color: statusColor,
+                                      fontSize: '0.7rem',
+                                      fontWeight: 600,
+                                      cursor: isClickable ? 'pointer' : 'default',
+                                    }}
+                                  />
+                                );
+                              })()}
                               {getDetailedStatus(record).map((status, idx) => (
                                 <Chip
                                   key={idx}
@@ -748,24 +851,54 @@ const EmployeeRecordsPage: React.FC = () => {
                             </Box>
                           </TableCell>
                           <TableCell align="center">
-                            <IconButton
-                              onClick={() => {
-                                if (record.registro_id) {
-                                  setRecordToDelete(record);
-                                  setDeleteDialogOpen(true);
-                                }
-                              }}
-                              size="small"
-                              sx={{
-                                color: '#ef4444',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                                }
-                              }}
-                              disabled={!record.registro_id}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
+                            {(() => {
+                              const recordStatus = (record as any).status || 'ATIVO';
+                              const isInactive = recordStatus === 'INVALIDADO' || recordStatus === 'AJUSTADO';
+                              return (
+                                <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                                  <Tooltip title="Ajustar registro">
+                                    <span>
+                                      <IconButton
+                                        onClick={() => handleAdjustClick(record)}
+                                        size="small"
+                                        disabled={isInactive || !record.registro_id}
+                                        sx={{ 
+                                          color: isInactive ? 'rgba(255,255,255,0.2)' : '#3b82f6',
+                                          '&:hover': {
+                                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                          }
+                                        }}
+                                      >
+                                        <EditIcon fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                  <Tooltip title="Invalidar registro">
+                                    <span>
+                                      <IconButton
+                                        onClick={() => {
+                                          if (record.registro_id) {
+                                            setRecordToDelete(record);
+                                            setInvalidateJustificativa('');
+                                            setDeleteDialogOpen(true);
+                                          }
+                                        }}
+                                        size="small"
+                                        disabled={isInactive || !record.registro_id}
+                                        sx={{
+                                          color: isInactive ? 'rgba(255,255,255,0.2)' : '#ef4444',
+                                          '&:hover': {
+                                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                          }
+                                        }}
+                                      >
+                                        <BlockIcon fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                </Box>
+                              );
+                            })()}
                           </TableCell>
                         </TableRow>
                       );
@@ -791,10 +924,37 @@ const EmployeeRecordsPage: React.FC = () => {
         </Box>
       </Paper>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Popover para justificativa */}
+      <Popover
+        open={Boolean(justificativaAnchorEl)}
+        anchorEl={justificativaAnchorEl}
+        onClose={() => setJustificativaAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        PaperProps={{
+          sx: {
+            p: 2,
+            maxWidth: 350,
+            background: 'rgba(30, 41, 59, 0.97)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }
+        }}
+      >
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
+          Justificativa
+        </Typography>
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
+          {justificativaTexto}
+        </Typography>
+      </Popover>
+
+      {/* Invalidate Confirmation Dialog */}
       <Dialog
         open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
+        onClose={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }}
         PaperProps={{
           sx: { 
             borderRadius: 2,
@@ -806,19 +966,39 @@ const EmployeeRecordsPage: React.FC = () => {
         }}
       >
         <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
-          Confirmar Exclusão
+          Invalidar Registro
         </DialogTitle>
         <DialogContent>
-          <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-            Tem certeza que deseja excluir este registro de ponto?
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 1 }}>
+            Tem certeza que deseja invalidar este registro de ponto?
           </Typography>
-          <Typography variant="body2" sx={{ color: '#ef4444', mt: 2 }}>
-            Esta ação não pode ser desfeita.
+          <Typography variant="body2" sx={{ color: '#f59e0b', mb: 2 }}>
+            O registro não será excluído, mas marcado como INVALIDADO.
           </Typography>
+          <TextField
+            fullWidth
+            label="Justificativa *"
+            placeholder="Informe o motivo da invalidação"
+            value={invalidateJustificativa}
+            onChange={(e) => setInvalidateJustificativa(e.target.value)}
+            multiline
+            rows={3}
+            helperText="Obrigatório: informe por que este registro está sendo invalidado"
+            sx={{
+              mt: 1,
+              '& .MuiOutlinedInput-root': {
+                color: 'white',
+                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+              },
+              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+              '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.5)' },
+            }}
+          />
         </DialogContent>
         <DialogActions>
           <Button
-            onClick={() => setDeleteDialogOpen(false)}
+            onClick={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }}
             disabled={submitting}
             sx={{ 
               color: 'rgba(255, 255, 255, 0.7)',
@@ -833,8 +1013,8 @@ const EmployeeRecordsPage: React.FC = () => {
             onClick={handleDeleteRecord}
             color="error"
             variant="contained"
-            disabled={submitting}
-            startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <DeleteIcon />}
+            disabled={submitting || !invalidateJustificativa.trim()}
+            startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <BlockIcon />}
             sx={{
               backgroundColor: '#ef4444',
               '&:hover': {
@@ -842,7 +1022,108 @@ const EmployeeRecordsPage: React.FC = () => {
               }
             }}
           >
-            {submitting ? 'Excluindo...' : 'Excluir'}
+            {submitting ? 'Invalidando...' : 'Invalidar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Adjust Record Dialog */}
+      <Dialog
+        open={adjustDialogOpen}
+        onClose={() => !submitting && setAdjustDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            borderRadius: 2,
+            background: 'rgba(30, 41, 138, 0.95)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: 'white'
+          }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
+          Ajustar Registro
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 2 }}>
+            O registro original será marcado como AJUSTADO e um novo registro será criado com os dados corrigidos.
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="Nova Data"
+                type="date"
+                value={adjustData.date}
+                onChange={(e) => setAdjustData(prev => ({ ...prev, date: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+                sx={{
+                  flex: 1,
+                  '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+              <TextField
+                label="Novo Horário"
+                type="time"
+                value={adjustData.time}
+                onChange={(e) => setAdjustData(prev => ({ ...prev, time: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+                sx={{
+                  flex: 1,
+                  '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
+                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                }}
+              />
+            </Box>
+            <TextField
+              select
+              label="Tipo"
+              value={adjustData.tipo}
+              onChange={(e) => setAdjustData(prev => ({ ...prev, tipo: e.target.value as 'entrada' | 'saída' }))}
+              SelectProps={{ native: true }}
+              sx={{
+                '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
+                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                '& option': { color: 'black' },
+              }}
+            >
+              <option value="entrada">Entrada</option>
+              <option value="saída">Saída</option>
+            </TextField>
+            <TextField
+              fullWidth
+              label="Justificativa *"
+              placeholder="Informe o motivo do ajuste"
+              value={adjustData.justificativa}
+              onChange={(e) => setAdjustData(prev => ({ ...prev, justificativa: e.target.value }))}
+              multiline
+              rows={3}
+              helperText="Obrigatório: informe por que este registro está sendo ajustado"
+              sx={{
+                '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
+                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.5)' },
+              }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setAdjustDialogOpen(false)}
+            disabled={submitting}
+            sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleAdjustConfirm}
+            variant="contained"
+            disabled={submitting || !adjustData.justificativa.trim() || !adjustData.date || !adjustData.time}
+            sx={{ background: '#2563eb', '&:hover': { background: '#1d4ed8' } }}
+          >
+            {submitting ? 'Ajustando...' : 'Confirmar Ajuste'}
           </Button>
         </DialogActions>
       </Dialog>

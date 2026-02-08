@@ -150,7 +150,8 @@ export default function RegistroPontoPage() {
       if (response.success) {
         const distanceInfo = response.distance ? ` - Distância: ${response.distance}` : '';
         console.log('Resposta do servidor:', response);
-        setSuccess(`Ponto de ${tipo} registrado com sucesso!${distanceInfo}`);
+        const tipoLabel = response.tipo_label || tipo;
+        setSuccess(`Ponto de ${tipoLabel} registrado com sucesso!${distanceInfo}`);
         
         setTimeout(() => {
           navigate('/funcionario/dashboard');

@@ -16,9 +16,6 @@ import {
   Alert,
   Snackbar,
 } from '@mui/material';
-import {
-  Add as AddIcon,
-} from '@mui/icons-material';
 import UnifiedRecordsFilter from '../components/UnifiedRecordsFilter';
 import TimeRecordForm from '../components/TimeRecordForm';
 import { motion } from 'framer-motion';
@@ -423,6 +420,7 @@ const RecordsSummaryPage: React.FC = () => {
     employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
+    justificativa: string;
   }) => {
     setSubmitting(true);
     try {
@@ -516,8 +514,7 @@ const RecordsSummaryPage: React.FC = () => {
               onClick={handleAddRecord}
               className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
             >
-              <AddIcon />
-              Adicionar Registro
+              + Adicionar Registro Manual
             </button>
           </div>
         </motion.div>

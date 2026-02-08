@@ -99,6 +99,9 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         )
         records = response.get('Items', [])
     
+    # Filtrar registros INVALIDADOS e AJUSTADOS - apenas ATIVO deve ser considerado
+    records = [r for r in records if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
+    
     if not records:
         # Sem registros = ausência
         scheduled_start, scheduled_end = get_employee_schedule(company_id, employee_id, target_date)
@@ -125,8 +128,11 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     records.sort(key=lambda x: x.get('data_hora', ''))
     
     # Extrair entrada/saída e intervalos
-    entrada = None
-    saida = None
+    # Separar horário REAL (exibição) do horário de CÁLCULO (arredondado pela tolerância)
+    entrada = None         # Horário de cálculo (arredondado)
+    entrada_real = None    # Horário real (para exibição)
+    saida = None           # Horário de cálculo (arredondado)
+    saida_real = None      # Horário real (para exibição)
     breaks: List[Dict[str, str]] = []
     has_location_issues = False
     
@@ -138,7 +144,9 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         normalized_type = str(record_type_raw).lower()
         normalized_type = normalized_type.replace('í', 'i').replace('á', 'a').replace('ã', 'a')
         normalized_type = normalized_type.replace('-', '_')
-        dt_str = record.get('data_hora', '')
+        # Usar data_hora_calculo (arredondado pela tolerância) para cálculos, se disponível
+        dt_str_real = record.get('data_hora', '')
+        dt_str = record.get('data_hora_calculo', '') or dt_str_real
         
         print(f"[DEBUG] Registro: tipo={record_type_raw}, data_hora={dt_str[:16] if dt_str else 'N/A'}")
         
@@ -157,11 +165,13 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
 
         if normalized_type in ['entrada', 'in']:
             if not entrada:
-                entrada = dt_str
-                print(f"[DEBUG] Entrada definida: {entrada}")
+                entrada = dt_str          # Horário arredondado para cálculo
+                entrada_real = dt_str_real # Horário real para exibição
+                print(f"[DEBUG] Entrada definida: calc={entrada}, real={entrada_real}")
         elif normalized_type in ['saida', 'saida', 'out']:
-            saida = dt_str
-            print(f"[DEBUG] Saída definida: {saida}")
+            saida = dt_str          # Horário arredondado para cálculo
+            saida_real = dt_str_real # Horário real para exibição
+            print(f"[DEBUG] Saída definida: calc={saida}, real={saida_real}")
         elif normalized_type in ['break_start', 'intervalo_inicio', 'pausa_inicio', 'almoco_inicio', 'start_break']:
             breaks.append({'start': dt_str})
         elif normalized_type in ['break_end', 'intervalo_fim', 'pausa_fim', 'almoco_fim', 'end_break'] and breaks:
@@ -170,7 +180,7 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
                     br['end'] = dt_str
                     break
     
-    print(f"[DEBUG] Resultado final - Entrada: {entrada[:16] if entrada else 'None'}, Saída: {saida[:16] if saida else 'None'}")
+    print(f"[DEBUG] Resultado final - Entrada calc: {entrada[:16] if entrada else 'None'}, real: {(entrada_real or '')[:16] or 'None'}, Saída calc: {saida[:16] if saida else 'None'}, real: {(saida_real or '')[:16] or 'None'}")
     
     # Obter horários esperados
     scheduled_start, scheduled_end = get_employee_schedule(company_id, employee_id, target_date)
@@ -258,7 +268,7 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
             status = "extra"
     
     # Criar resumo
-    # Extrair horários de entrada/saída (suportar vários formatos)
+    # Extrair horários de entrada/saída REAIS (para exibição, não arredondados)
     def extract_time(dt_str):
         if not dt_str:
             return None
@@ -268,8 +278,9 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
             return dt_str.split(' ')[1][:5]
         return None
     
-    actual_start_time = extract_time(entrada)
-    actual_end_time = extract_time(saida)
+    # Usar horários REAIS para exibição (não os arredondados)
+    actual_start_time = extract_time(entrada_real or entrada)
+    actual_end_time = extract_time(saida_real or saida)
     
     print(f"[DEBUG] Horários extraídos - actual_start: {actual_start_time}, actual_end: {actual_end_time}")
     

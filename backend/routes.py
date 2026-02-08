@@ -43,6 +43,18 @@ def normalizar_string(texto):
     limpo = re.sub(r'[^a-zA-Z0-9_.\-]', '_', sem_acento)
     return limpo
 
+def _emp_tem_intervalo(funcionario):
+    """Verifica de forma robusta se o funcionário tem intervalo_emp definido (> 0).
+    Cobre edge cases: None, '', '0', 'None', 'null', False, Decimal(0), 0.
+    Retorna (bool, int) - se tem intervalo e o valor numérico.
+    """
+    val = funcionario.get('intervalo_emp') if isinstance(funcionario, dict) else None
+    try:
+        num = int(val) if val is not None and str(val).strip() not in ('', 'None', 'null', 'false', 'False') else 0
+    except (ValueError, TypeError):
+        num = 0
+    return num > 0, num
+
 # CORS configurado globalmente no app.py
 
 def token_required(f):
@@ -72,8 +84,9 @@ def health():
     logger.info(f"Request received: {request.method} {request.path}")
     return 'OK', 200
 
-@routes.route('/registros/<registro_id>', methods=['DELETE', 'OPTIONS'])
-def deletar_registro(registro_id):
+@routes.route('/registros/<registro_id>/invalidar', methods=['PUT', 'OPTIONS'])
+def invalidar_registro(registro_id):
+    """Invalida um registro de ponto (soft delete). Requer justificativa."""
     # Tratar OPTIONS primeiro (CORS preflight)
     if request.method == 'OPTIONS':
         return '', 200
@@ -98,6 +111,12 @@ def deletar_registro(registro_id):
         
         if not company_id:
             return jsonify({'error': 'Company ID não encontrado no token'}), 400
+        
+        # Justificativa obrigatória
+        data = request.get_json() or {}
+        justificativa = (data.get('justificativa') or '').strip()
+        if not justificativa:
+            return jsonify({'error': 'Justificativa é obrigatória para invalidar um registro'}), 400
         
         try:
             # Extrair composite_key do registro_id
@@ -133,44 +152,41 @@ def deletar_registro(registro_id):
             if extracted_company_id != company_id:
                 print(f"[DELETE REGISTRO] Company ID não corresponde: {extracted_company_id} != {company_id}")
                 return jsonify({'error': 'Acesso negado'}), 403
-            # Verificar se o registro existe antes de deletar
+            # Verificar se o registro existe antes de invalidar
             verify_response = tabela_registros.get_item(Key={
                 'company_id': company_id,
                 'employee_id#date_time': composite_key
             })
             if 'Item' not in verify_response:
-                print(f"[DELETE REGISTRO] ❌ Registro não encontrado no DynamoDB")
+                print(f"[INVALIDAR REGISTRO] ❌ Registro não encontrado no DynamoDB")
                 return jsonify({'error': 'Registro não encontrado'}), 404
-            # Deletar o registro
-            tabela_registros.delete_item(Key={
-                'company_id': company_id,
-                'employee_id#date_time': composite_key
-            })
-            # Verificar se foi realmente deletado
-            verify_after = tabela_registros.get_item(Key={
-                'company_id': company_id,
-                'employee_id#date_time': composite_key
-            })
-            if 'Item' in verify_after:
-                print(f"[DELETE REGISTRO] ⚠️ AVISO: Registro ainda existe após delete_item!")
-            else:
-                print(f"[DELETE REGISTRO] ✅ Confirmado: Registro deletado com sucesso!")
-            return jsonify({'success': True}), 200
+            
+            registro_atual = verify_response['Item']
+            status_atual = registro_atual.get('status', 'ATIVO')
+            if status_atual == 'INVALIDADO':
+                return jsonify({'error': 'Registro já está invalidado'}), 400
+            
+            # Atualizar status para INVALIDADO (soft delete)
+            tabela_registros.update_item(
+                Key={
+                    'company_id': company_id,
+                    'employee_id#date_time': composite_key
+                },
+                UpdateExpression='SET #status = :status, justificativa = :justificativa, invalidado_em = :now, invalidado_por = :user',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'INVALIDADO',
+                    ':justificativa': justificativa,
+                    ':now': datetime.now().isoformat(),
+                    ':user': payload.get('usuario_id', payload.get('email', 'admin'))
+                }
+            )
+            print(f"[INVALIDAR REGISTRO] ✅ Registro invalidado com sucesso! Justificativa: {justificativa}")
+            return jsonify({'success': True, 'message': 'Registro invalidado com sucesso'}), 200
         except Exception:
             import traceback
             traceback.print_exc()
-            return jsonify({'error': 'Erro ao deletar registro'}), 500
-            # Verificar se foi realmente deletado
-            verify_after = tabela_registros.get_item(Key={
-                'company_id': company_id,
-                'employee_id#date_time': composite_key
-            })
-
-            if 'Item' in verify_after:
-                print(f"[DELETE REGISTRO] ⚠️ AVISO: Registro ainda existe após delete_item!")
-            else:
-                print(f"[DELETE REGISTRO] ✅ Confirmado: Registro deletado com sucesso!")
-            return jsonify({'success': True}), 200
+            return jsonify({'error': 'Erro ao invalidar registro'}), 500
 
         # Se ExternalImageId foi indexado com prefixo company_id_employee_id, explodimos
         # para obter company_id e funcionario_id (evita scans globais).
@@ -284,6 +300,7 @@ def deletar_registro(registro_id):
         agora = datetime.now(ZoneInfo('America/Sao_Paulo'))
         hoje = agora.strftime('%Y-%m-%d')
         data_hora_str = agora.strftime('%Y-%m-%d %H:%M:%S')
+        data_hora_calculo = data_hora_str  # Por padrão igual ao real
         
         # Buscar registros do dia usando composite key da tabela TimeRecords
         # HASH: company_id, RANGE: employee_id#date_time
@@ -291,13 +308,58 @@ def deletar_registro(registro_id):
         response_registros = tabela_registros.scan(
             FilterExpression=Attr('company_id').eq(company_id) & Attr('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje}")
         )
-        registros_do_dia = sorted(response_registros['Items'], key=lambda x: x.get('employee_id#date_time', ''))
+        registros_do_dia_raw = sorted(response_registros['Items'], key=lambda x: x.get('employee_id#date_time', ''))
+        # Filtrar registros INVALIDADOS/AJUSTADOS para determinação correta do tipo
+        registros_do_dia = [r for r in registros_do_dia_raw if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
 
         # Verificar último registro para determinar tipo (entrada/saída)
+        # Todos os funcionários usam apenas entrada/saída como toggle simples
+        # A diferença entre com/sem intervalo_emp é apenas no CÁLCULO de horas
         ultimo_tipo = registros_do_dia[-1].get('type', registros_do_dia[-1].get('tipo', 'saida')) if registros_do_dia else 'saida'
-        tipo = 'entrada' if not registros_do_dia or ultimo_tipo in ('saida', 'saída') else 'saida'
         
-        # Se for modo preview, retornar apenas informações sem salvar
+        print(f"[REGISTRO] ===== DETERMINAÇÃO DE TIPO =====")
+        print(f"[REGISTRO] registros_do_dia count={len(registros_do_dia)}, ultimo_tipo={ultimo_tipo}")
+        
+        if not registros_do_dia:
+            tipo = 'entrada'
+        else:
+            # Simples toggle: entrada → saída → entrada → saída ...
+            tipo = 'entrada' if ultimo_tipo in ('saida', 'saída') else 'saida'
+        
+        # Se for entrada, verificar arredondamento para cálculo
+        if tipo == 'entrada':
+            try:
+                # Buscar configurações
+                config_response = tabela_configuracoes.get_item(Key={'company_id': company_id})
+                config = config_response.get('Item', {})
+                tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
+                horario_entrada_esperado = funcionario.get('horario_entrada')
+                
+                if horario_entrada_esperado:
+                    # Parse horário esperado
+                    try:
+                        entrada_esperada = datetime.strptime(f"{hoje} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
+                        entrada_esperada = entrada_esperada.replace(tzinfo=ZoneInfo('America/Sao_Paulo'))
+                    except:
+                        entrada_esperada = datetime.strptime(f"{hoje} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
+                        entrada_esperada = entrada_esperada.replace(tzinfo=ZoneInfo('America/Sao_Paulo'))
+                    
+                    diff_min = int((agora - entrada_esperada).total_seconds() // 60)
+                    
+                    if diff_min <= tolerancia_atraso:
+                        # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
+                        data_hora_calculo = f"{hoje} {horario_entrada_esperado}"
+                        print(f"[REGISTRO] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
+            except Exception as e:
+                print(f"[REGISTRO] Aviso ao calcular arredondamento: {e}")
+        
+        # Mapeamento de tipo para label amigável
+        tipo_labels = {
+            'entrada': 'Entrada',
+            'saida': 'Saída',
+            'saída': 'Saída',
+        }
+        tipo_label = tipo_labels.get(tipo, tipo)
         if preview_mode:
             print(f"[REGISTRO] 👁️ Modo preview - retornando reconhecimento sem salvar")
             return jsonify({
@@ -306,6 +368,7 @@ def deletar_registro(registro_id):
                 'nome': funcionario_nome,
                 'tipo_registro': tipo,
                 'tipo': tipo,
+                'tipo_label': tipo_label,
                 'confidence': 0.92,  # Simular confiança alta (em produção, pegar do Rekognition)
                 'livenessOk': True,  # Simular liveness OK
                 'message': f'Funcionário reconhecido: {funcionario_nome}'
@@ -316,6 +379,9 @@ def deletar_registro(registro_id):
         registro = {
             'company_id': company_id,  # HASH key
             'employee_id#date_time': f"{funcionario_id}#{data_hora_str}",  # RANGE key
+            'employee_id': funcionario_id,
+            'data_hora': data_hora_str,  # Horário REAL para exibição
+            'data_hora_calculo': data_hora_calculo,  # Horário arredondado para cálculos
             'type': tipo,  # Usar 'type' padronizado
             'method': 'FACIAL',  # Reconhecimento facial (legado)
             'funcionario_nome': funcionario_nome,
@@ -323,7 +389,7 @@ def deletar_registro(registro_id):
         }
         
     # Se for saída, calcular horas extras
-        if tipo == 'saída' and registros_do_dia:
+        if tipo in ('saida', 'saída') and registros_do_dia:
             try:
                 # Buscar configurações da empresa
                 empresa_id = funcionario.get('company_id')
@@ -348,18 +414,67 @@ def deletar_registro(registro_id):
                 horario_entrada_real = primeiro_registro_key.split('#')[1].split(' ')[1][:5] if '#' in primeiro_registro_key else '00:00'
                 horario_saida_real = agora.strftime('%H:%M')
                 
+                # Para funcionários SEM intervalo_emp, com múltiplos pares entrada/saída,
+                # calcular tempo de intervalo como gap entre pares (saída1 → entrada2)
+                break_real_minutes = None
+                func_tem_intervalo_exit, func_intervalo_val_exit = _emp_tem_intervalo(funcionario)
+                is_auto = configuracoes.get('intervalo_automatico', False)
+                
+                if not is_auto and not func_tem_intervalo_exit:
+                    # Funcionário sem intervalo: verificar se há pares intermediários (saída + entrada = intervalo)
+                    # Registros: entrada1, saída1, entrada2, saída2(agora) 
+                    # O gap entre saída1 e entrada2 É o intervalo
+                    entradas_exit = []
+                    saidas_exit = []
+                    for r in registros_do_dia:
+                        r_tipo = str(r.get('type', r.get('tipo', ''))).lower()
+                        r_hora = r.get('data_hora', '')
+                        if r_tipo in ('entrada', 'entry', 'in', 'check-in', 'checkin', 'e'):
+                            entradas_exit.append(r_hora)
+                        elif r_tipo in ('saida', 'saída', 'exit', 'out', 'check-out', 'checkout', 's'):
+                            saidas_exit.append(r_hora)
+                    
+                    # Se já tem pelo menos 1 saída e 2 entradas (ou seja, saiu e voltou)
+                    if len(saidas_exit) >= 1 and len(entradas_exit) >= 2:
+                        try:
+                            # O intervalo é a primeira saída até a segunda entrada
+                            bs_dt = datetime.strptime(saidas_exit[0], '%Y-%m-%d %H:%M:%S')
+                            be_dt = datetime.strptime(entradas_exit[1], '%Y-%m-%d %H:%M:%S')
+                            break_real_minutes = int((be_dt - bs_dt).total_seconds() / 60)
+                            if break_real_minutes < 0:
+                                break_real_minutes = None
+                            print(f"[REGISTRO] Intervalo real (gap entre pares): {break_real_minutes}min ({saidas_exit[0]} → {entradas_exit[1]})")
+                        except Exception as brk_err:
+                            print(f"[REGISTRO] Erro ao calcular intervalo real: {brk_err}")
+                
                 # Calcular se tem horários cadastrados
                 if horario_entrada_esperado and horario_saida_esperado:
-                    intervalo_to_use = funcionario.get('intervalo_emp', configuracoes.get('duracao_intervalo', 60))
-                    calculo = calculate_overtime(
-                        horario_entrada_esperado,
-                        horario_saida_esperado,
-                        horario_entrada_real,
-                        horario_saida_real,
-                        configuracoes,
-                        configuracoes.get('intervalo_automatico', False),
-                        intervalo_to_use
-                    )
+                    
+                    # Se automático OU funcionário com intervalo definido, descontar fixo
+                    if is_auto or func_tem_intervalo_exit:
+                        intervalo_to_use = int(func_intervalo_val_exit or configuracoes.get('duracao_intervalo', 60))
+                        calculo = calculate_overtime(
+                            horario_entrada_esperado,
+                            horario_saida_esperado,
+                            horario_entrada_real,
+                            horario_saida_real,
+                            configuracoes,
+                            True,  # forçar desconto fixo
+                            intervalo_to_use,
+                            None
+                        )
+                    else:
+                        # Sem intervalo definido: usar intervalo real (gap entre pares)
+                        calculo = calculate_overtime(
+                            horario_entrada_esperado,
+                            horario_saida_esperado,
+                            horario_entrada_real,
+                            horario_saida_real,
+                            configuracoes,
+                            False,
+                            configuracoes.get('duracao_intervalo', 60),
+                            break_real_minutes
+                        )
                     
                     # Adicionar informações ao registro (apenas horas extras e trabalhadas)
                     registro['horas_extras_minutos'] = calculo['horas_extras_minutos']
@@ -378,7 +493,8 @@ def deletar_registro(registro_id):
             'success': True,
             'funcionario': funcionario_nome,
             'hora': data_hora_str,
-            'tipo': tipo
+            'tipo': tipo,
+            'tipo_label': tipo_label
         })
 
     except Exception as e:
@@ -540,13 +656,16 @@ def atualizar_funcionario(payload, funcionario_id):
                 except Exception:
                     funcionario['intervalo_emp'] = None
             else:
-                # definir para o padrão da empresa
+                # definir para o padrão da empresa (apenas se intervalo automático estiver ativo)
                 try:
                     cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
                     cfg = cfg_resp.get('Item', {})
-                    funcionario['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                    if cfg.get('intervalo_automatico', False):
+                        funcionario['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                    else:
+                        funcionario['intervalo_emp'] = None
                 except Exception:
-                    funcionario['intervalo_emp'] = 60
+                    funcionario['intervalo_emp'] = None
         
         tabela_funcionarios.put_item(Item=funcionario)
         return jsonify({'message': 'Funcionário atualizado com sucesso!'}), 200
@@ -907,9 +1026,12 @@ def cadastrar_funcionario(payload):
                 try:
                     cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
                     cfg = cfg_resp.get('Item', {})
-                    funcionario_item['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                    if cfg.get('intervalo_automatico', False):
+                        funcionario_item['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                    else:
+                        funcionario_item['intervalo_emp'] = None
                 except Exception:
-                    funcionario_item['intervalo_emp'] = 60
+                    funcionario_item['intervalo_emp'] = None
         else:
             # FormData mode: use extracted form values
             if intervalo_personalizado:
@@ -917,13 +1039,16 @@ def cadastrar_funcionario(payload):
                 funcionario_item['intervalo_emp'] = intervalo_emp if intervalo_emp is not None else None
             else:
                 funcionario_item['intervalo_personalizado'] = False
-                # Puxar duração padrão da config da empresa
+                # Puxar duração padrão da config da empresa (apenas se intervalo automático estiver ativo)
                 try:
                     cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
                     cfg = cfg_resp.get('Item', {})
-                    funcionario_item['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                    if cfg.get('intervalo_automatico', False):
+                        funcionario_item['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
+                    else:
+                        funcionario_item['intervalo_emp'] = None
                 except Exception:
-                    funcionario_item['intervalo_emp'] = 60
+                    funcionario_item['intervalo_emp'] = None
         
         # Salvar no DynamoDB (Employees table uses company_id as partition key)
         tabela_funcionarios.put_item(Item=funcionario_item)
@@ -1140,16 +1265,54 @@ def listar_registros(payload):
                         else:
                             horario_saida_real = '00:00'
                         
-                        # Calcular usando calculate_overtime
-                        calculo = calculate_overtime(
-                            horario_entrada_esperado,
-                            horario_saida_esperado,
-                            horario_entrada_real,
-                            horario_saida_real,
-                            configuracoes,
-                            intervalo_automatico,
-                            duracao_intervalo
-                        )
+                        # Calcular break real se necessário (gap entre 1ª saída e 2ª entrada)
+                        dash_break_real = None
+                        if not intervalo_automatico:
+                            dash_entradas = []
+                            dash_saidas = []
+                            for r in regs_do_dia:
+                                rt = str(r.get('type', r.get('tipo', ''))).lower()
+                                rh = r.get('data_hora', '')
+                                if rt in ('entrada', 'entry', 'in', 'check-in', 'checkin', 'e'):
+                                    dash_entradas.append(rh)
+                                elif rt in ('saida', 'saída', 'exit', 'out', 'check-out', 'checkout', 's'):
+                                    dash_saidas.append(rh)
+                            # Se há 2+ entradas e 1+ saída, o gap é o intervalo
+                            if len(dash_saidas) >= 1 and len(dash_entradas) >= 2:
+                                try:
+                                    bsd = datetime.strptime(dash_saidas[0], '%Y-%m-%d %H:%M:%S')
+                                    bed = datetime.strptime(dash_entradas[1], '%Y-%m-%d %H:%M:%S')
+                                    dash_break_real = int((bed - bsd).total_seconds() / 60)
+                                    if dash_break_real < 0:
+                                        dash_break_real = None
+                                except:
+                                    pass
+                        
+                        # 3 cases: auto, manual+tem intervalo, manual+sem intervalo
+                        dash_func_ti, dash_func_val = _emp_tem_intervalo(funcionario)
+                        
+                        if intervalo_automatico or dash_func_ti:
+                            calculo = calculate_overtime(
+                                horario_entrada_esperado,
+                                horario_saida_esperado,
+                                horario_entrada_real,
+                                horario_saida_real,
+                                configuracoes,
+                                True,
+                                dash_func_val if dash_func_ti else duracao_intervalo,
+                                None
+                            )
+                        else:
+                            calculo = calculate_overtime(
+                                horario_entrada_esperado,
+                                horario_saida_esperado,
+                                horario_entrada_real,
+                                horario_saida_real,
+                                configuracoes,
+                                False,
+                                duracao_intervalo,
+                                dash_break_real
+                            )
                         
                         # Armazenar status calculado (apenas horas extras e minutos trabalhados)
                         status_por_func_data[chave] = {
@@ -1203,6 +1366,15 @@ def listar_registros(payload):
                     'tipo': tipo_registro,
                     'method': metodo_registro,
                     'horas_extras_minutos': horas_extras_minutos,
+                    'status': reg.get('status', 'ATIVO'),
+                    'justificativa': reg.get('justificativa', ''),
+                    'registro_original_id': reg.get('registro_original_id', ''),
+                    'registro_original_key': reg.get('registro_original_key', ''),
+                    'invalidado_em': reg.get('invalidado_em', ''),
+                    'invalidado_por': reg.get('invalidado_por', ''),
+                    'ajustado_por': reg.get('ajustado_por', ''),
+                    'criado_por': reg.get('criado_por', ''),
+                    'criado_em': reg.get('criado_em', ''),
                 }
                 
                 registros_formatados.append(registro_formatado)
@@ -1367,8 +1539,14 @@ def listar_registros_resumo(payload):
                 registros_raw.extend(items)
             print(f"[DEBUG RESUMO] Registros raw encontrados: {len(registros_raw)}")
             # Inicializar registros
+            # IMPORTANTE: Filtrar registros INVALIDADOS e AJUSTADOS - apenas ATIVO conta no resumo
             registros = []
             for item in registros_raw:
+                # Ignorar registros invalidados ou ajustados
+                record_status = (item.get('status') or 'ATIVO').upper()
+                if record_status in ('INVALIDADO', 'AJUSTADO'):
+                    continue
+                
                 # Extrair campos do schema novo
                 employee_id = item.get('employee_id')
                 data_hora = item.get('date_time') or item.get('data_hora')
@@ -1451,11 +1629,13 @@ def listar_registros_resumo(payload):
             if func_id in registros_por_funcionario_data:
                 for data, regs_do_dia in registros_por_funcionario_data[func_id].items():
                     # Ordenar registros por hora
-                    regs_do_dia.sort(key=lambda x: x['data_hora'])
+                    regs_do_dia.sort(key=lambda x: x.get('data_hora', ''))
                     
-                    # Encontrar primeira entrada e última saída
+                    # Encontrar primeira entrada, última saída, e gap entre pares (intervalo)
                     entrada = None
                     saida = None
+                    all_entradas = []
+                    all_saidas = []
 
                     def _normalize_type(t):
                         if not t:
@@ -1466,21 +1646,28 @@ def listar_registros_resumo(payload):
 
                     for reg in regs_do_dia:
                         reg_tipo = _normalize_type(reg.get('tipo') or reg.get('type') or '')
-                        # Considerar vários formatos comuns
-                        is_entry = reg_tipo in ('entrada', 'in', 'retorno', 'return') or reg_tipo.startswith('entrada') or reg_tipo.startswith('retorno') or 'entry' in reg_tipo
-                        is_exit = reg_tipo in ('saida', 'saída', 'out', 'intervalo', 'break_start') or reg_tipo.startswith('saida') or reg_tipo.startswith('intervalo') or 'out' in reg_tipo
+                        is_entry = reg_tipo in ('entrada', 'in') or reg_tipo.startswith('entrada') or 'entry' in reg_tipo
+                        is_exit = reg_tipo in ('saida', 'saida', 'out') or reg_tipo.startswith('saida') or 'out' in reg_tipo
 
-                        if is_entry and not entrada:
-                            entrada = reg['data_hora']
+                        hora_para_calculo = reg.get('data_hora_calculo') or reg.get('data_hora', '')
+
+                        if is_entry:
+                            all_entradas.append(hora_para_calculo)
+                            if not entrada:
+                                entrada = hora_para_calculo
                         if is_exit:
-                            # sempre atualizar para última saída encontrada
-                            saida = reg['data_hora']
+                            all_saidas.append(hora_para_calculo)
+                            saida = hora_para_calculo
+                    
+                    # Para funcionários sem intervalo_emp: o gap entre 1ª saída e 2ª entrada É o intervalo
+                    # Requer 2+ entradas E 2+ saídas (ciclo completo: E-S-E-S)
+                    break_start_hora = all_saidas[0] if len(all_saidas) >= 2 and len(all_entradas) >= 2 else None
+                    break_end_hora = all_entradas[1] if len(all_entradas) >= 2 and len(all_saidas) >= 2 else None
                     
                     if entrada and saida:
                         try:
-                            # Converter para datetime (aceitar com e sem segundos)
                             def _try_parse_dt(value):
-                                for fmt in ('%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M'):
+                                for fmt in ('%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
                                     try:
                                         return datetime.strptime(value, fmt)
                                     except Exception:
@@ -1493,67 +1680,126 @@ def listar_registros_resumo(payload):
                             entrada_dt = _try_parse_dt(entrada)
                             saida_dt = _try_parse_dt(saida)
                             
-                            # Calcular horas trabalhadas brutas
-                            horas_brutas = saida_dt - entrada_dt
-                            horas_brutas_min = int(horas_brutas.total_seconds() / 60)
+                            # ============================================================
+                            # CÁLCULO COM TOLERÂNCIA (mesma lógica do routes_daily.py)
+                            # ============================================================
+                            # - Entrada dentro da tolerância → arredonda para horário padrão
+                            # - Entrada além da tolerância → usa horário real
+                            # - Saída dentro da tolerância → arredonda para horário padrão
+                            # - Saída além da tolerância → horas totais até horário padrão,
+                            #   excedente = hora extra
+                            # ============================================================
                             
-                            # Subtrair intervalo se configurado (usar valor do funcionário quando disponível)
-                            if intervalo_automatico:
-                                intervalo_emp = funcionario.get('intervalo_emp', duracao_intervalo)
-                                horas_brutas_min = max(0, horas_brutas_min - int(intervalo_emp or 0))
+                            horas_extras_min = 0
+                            atraso_min = 0
                             
-                                    # Se tem horários esperados, calcular extras e atrasos
                             if horario_entrada_esperado and horario_saida_esperado:
                                 try:
-                                    entrada_esperada = datetime.strptime(f"{data} {horario_entrada_esperado}", '%d-%m-%Y %H:%M')
-                                    saida_esperada = datetime.strptime(f"{data} {horario_saida_esperado}", '%d-%m-%Y %H:%M')
+                                    # Parse horários esperados para o mesmo dia
+                                    data_parte = entrada_dt.strftime('%Y-%m-%d')
+                                    entrada_esperada = datetime.strptime(f"{data_parte} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
+                                    saida_esperada = datetime.strptime(f"{data_parte} {horario_saida_esperado}", '%Y-%m-%d %H:%M')
                                     
-                                    # Atraso: minutos além da tolerância (desvio - tolerância)
-                                    atraso_real = int((entrada_dt - entrada_esperada).total_seconds() / 60)
-                                    atraso_min = atraso_real - tolerancia_atraso
-                                    if atraso_min < 0:
-                                        atraso_min = 0
-                                    print(f"[DEBUG RESUMO] Entrada esperada: {entrada_esperada.strftime('%d-%m-%Y %H:%M')}, Entrada real: {entrada_dt.strftime('%d-%m-%Y %H:%M')}, Desvio: {atraso_real}min, Tolerancia: {tolerancia_atraso}min, Atraso calculado: {atraso_min}min")
-                                    
-                                    # Horas extras após saída esperada
-                                    if saida_dt > saida_esperada:
-                                        horas_extras = saida_dt - saida_esperada
-                                        horas_extras_min_calc = int(horas_extras.total_seconds() / 60)
-                                        
-                                        # Arredondar horas extras
-                                        if arredondamento_horas_extras > 0:
-                                            # Contar apenas minutos além do bloco de arredondamento (ex: 11 -> 1 quando intervalo=10)
-                                            horas_extras_min_calc = horas_extras_min_calc % arredondamento_horas_extras
-                                        
-                                        horas_extras_min = horas_extras_min_calc
+                                    # Determinar início efetivo
+                                    diff_entrada_min = int((entrada_dt - entrada_esperada).total_seconds() / 60)
+                                    if abs(diff_entrada_min) <= tolerancia_atraso:
+                                        # Dentro da tolerância: arredondar para horário padrão
+                                        inicio_efetivo = entrada_esperada
+                                    elif diff_entrada_min > tolerancia_atraso:
+                                        # Atrasado além da tolerância: usa horário real
+                                        inicio_efetivo = entrada_dt
+                                        atraso_min = diff_entrada_min
                                     else:
-                                        horas_extras_min = 0
+                                        # Antecipado além da tolerância: usa horário real
+                                        inicio_efetivo = entrada_dt
+                                    
+                                    # Determinar fim efetivo
+                                    diff_saida_min = int((saida_dt - saida_esperada).total_seconds() / 60)
+                                    if abs(diff_saida_min) <= tolerancia_atraso:
+                                        # Dentro da tolerância: arredondar para horário padrão
+                                        fim_efetivo = saida_esperada
+                                    elif diff_saida_min > tolerancia_atraso:
+                                        # Saiu depois da tolerância: total até horário padrão, excedente = extra
+                                        fim_efetivo = saida_esperada
+                                        horas_extras_min = diff_saida_min
+                                    else:
+                                        # Saiu antes além da tolerância: usa horário real
+                                        fim_efetivo = saida_dt
                                     
                                     # Horas extras por entrada antecipada (se configurado)
                                     if hora_extra_entrada_antecipada and entrada_dt < entrada_esperada:
-                                        antecipacao = entrada_esperada - entrada_dt
-                                        antecipacao_min = int(antecipacao.total_seconds() / 60)
-                                        if arredondamento_horas_extras > 0:
-                                            antecipacao_min = antecipacao_min % arredondamento_horas_extras
-                                        horas_extras_min += antecipacao_min
+                                        antecipacao_min = int((entrada_esperada - entrada_dt).total_seconds() / 60)
+                                        if antecipacao_min > tolerancia_atraso:
+                                            horas_extras_min += antecipacao_min
                                     
-                                    # Horas trabalhadas = horário esperado (se trabalhou pelo menos isso)
-                                    jornada_esperada_min = int((saida_esperada - entrada_esperada).total_seconds() / 60)
-                                    if intervalo_automatico:
-                                        jornada_esperada_min -= int(funcionario.get('intervalo_emp', duracao_intervalo) or 0)
+                                    # Calcular horas trabalhadas
+                                    minutos_trabalhados = int((fim_efetivo - inicio_efetivo).total_seconds() / 60)
                                     
-                                    horas_trabalhadas_min = min(horas_brutas_min, jornada_esperada_min)
+                                    # Descontar intervalo
+                                    # Funcionário COM intervalo → desconta fixo
+                                    # Funcionário SEM intervalo → desconta gap real das batidas
+                                    func_tem_intervalo, func_intervalo_val = _emp_tem_intervalo(funcionario)
                                     
-                                    total_horas_trabalhadas_min += horas_trabalhadas_min
+                                    if func_tem_intervalo and func_intervalo_val > 0:
+                                        if minutos_trabalhados > func_intervalo_val:
+                                            minutos_trabalhados -= func_intervalo_val
+                                    elif not func_tem_intervalo and break_start_hora and break_end_hora:
+                                        # Sem intervalo pré-definido: gap entre 1ª saída e 2ª entrada
+                                        try:
+                                            bs_dt = _try_parse_dt(break_start_hora)
+                                            be_dt = _try_parse_dt(break_end_hora)
+                                            break_real_min = int((be_dt - bs_dt).total_seconds() / 60)
+                                            if break_real_min > 0 and break_real_min < minutos_trabalhados:
+                                                minutos_trabalhados -= break_real_min
+                                        except Exception as brk_err:
+                                            print(f"[DEBUG RESUMO] Erro ao calcular intervalo real: {brk_err}")
+                                    
+                                    if minutos_trabalhados < 0:
+                                        minutos_trabalhados = 0
+                                    
+                                    print(f"[DEBUG RESUMO] {func_nome} dia {data}: entrada={entrada_dt.strftime('%H:%M')}, saida={saida_dt.strftime('%H:%M')}, "
+                                          f"esperado={horario_entrada_esperado}-{horario_saida_esperado}, tol={tolerancia_atraso}, "
+                                          f"inicio_efetivo={inicio_efetivo.strftime('%H:%M')}, fim_efetivo={fim_efetivo.strftime('%H:%M')}, "
+                                          f"trabalhado={minutos_trabalhados}min, extras={horas_extras_min}min")
+                                    
+                                    total_horas_trabalhadas_min += minutos_trabalhados
                                     total_horas_extras_min += horas_extras_min
                                     total_atrasos_min += atraso_min
                                     
                                 except Exception as e:
                                     print(f"[DEBUG RESUMO] Erro ao processar horários esperados: {e}")
-                                    # Fallback: usar horas brutas
+                                    import traceback
+                                    traceback.print_exc()
+                                    # Fallback: calcular bruto
+                                    horas_brutas_min = int((saida_dt - entrada_dt).total_seconds() / 60)
+                                    fb_tem_intervalo, fb_intervalo_val = _emp_tem_intervalo(funcionario)
+                                    if fb_tem_intervalo and fb_intervalo_val > 0:
+                                        horas_brutas_min = max(0, horas_brutas_min - fb_intervalo_val)
+                                    elif not fb_tem_intervalo and break_start_hora and break_end_hora:
+                                        try:
+                                            bs_dt2 = _try_parse_dt(break_start_hora)
+                                            be_dt2 = _try_parse_dt(break_end_hora)
+                                            brk_min = int((be_dt2 - bs_dt2).total_seconds() / 60)
+                                            if brk_min > 0:
+                                                horas_brutas_min = max(0, horas_brutas_min - brk_min)
+                                        except Exception:
+                                            pass
                                     total_horas_trabalhadas_min += horas_brutas_min
                             else:
-                                # Sem horários esperados: todas são horas trabalhadas
+                                # Sem horários esperados: calcular bruto
+                                horas_brutas_min = int((saida_dt - entrada_dt).total_seconds() / 60)
+                                nh_tem_intervalo, nh_intervalo_val = _emp_tem_intervalo(funcionario)
+                                if nh_tem_intervalo and nh_intervalo_val > 0:
+                                    horas_brutas_min = max(0, horas_brutas_min - nh_intervalo_val)
+                                elif not nh_tem_intervalo and break_start_hora and break_end_hora:
+                                    try:
+                                        bs_dt3 = _try_parse_dt(break_start_hora)
+                                        be_dt3 = _try_parse_dt(break_end_hora)
+                                        brk_min3 = int((be_dt3 - bs_dt3).total_seconds() / 60)
+                                        if brk_min3 > 0:
+                                            horas_brutas_min = max(0, horas_brutas_min - brk_min3)
+                                    except Exception:
+                                        pass
                                 total_horas_trabalhadas_min += horas_brutas_min
                         
                         except Exception as e:
@@ -1575,6 +1821,7 @@ def listar_registros_resumo(payload):
                 'horas_extras': min_para_hhmm(total_horas_extras_min),
                 'horas_trabalhadas_minutos': total_horas_trabalhadas_min,
                 'horas_extras_minutos': total_horas_extras_min,
+                'atraso_minutos': total_atrasos_min,
                 'total_registros': total_registros
             })
             
@@ -1619,6 +1866,9 @@ def listar_funcionarios(payload):
                 'empresa_nome': f.get('empresa_nome'),
                 'empresa_id': f.get('empresa_id', f.get('company_id')),
                 'login': f.get('login'),
+                'intervalo_personalizado': f.get('intervalo_personalizado', False),
+                'intervalo_emp': f.get('intervalo_emp'),
+                'tolerancia_atraso': f.get('tolerancia_atraso'),
             }
             funcionarios_list.append(funcionario_dict)
         return jsonify({'funcionarios': funcionarios_list})
@@ -1685,6 +1935,125 @@ def enviar_email_registros():
         print(f"Erro ao enviar email: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@routes.route('/registros/<registro_id>/ajustar', methods=['POST', 'OPTIONS'])
+@token_required
+def ajustar_registro(payload, registro_id):
+    """Cria um novo registro de ajuste vinculado ao original.
+    O registro original recebe status AJUSTADO.
+    O novo registro recebe status ATIVO e referência ao original.
+    Justificativa obrigatória.
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON inválido ou ausente'}), 400
+    
+    justificativa = (data.get('justificativa') or '').strip()
+    if not justificativa:
+        return jsonify({'error': 'Justificativa é obrigatória para ajustar um registro'}), 400
+    
+    nova_data_hora = data.get('data_hora')  # Nova data/hora corrigida
+    novo_tipo = data.get('tipo')  # Tipo pode mudar (entrada/saída)
+    
+    if not nova_data_hora:
+        return jsonify({'error': 'Nova data/hora é obrigatória'}), 400
+    
+    company_id = payload.get('company_id')
+    if not company_id:
+        return jsonify({'error': 'Company ID não encontrado no token'}), 400
+    
+    try:
+        # Localizar o registro original
+        composite_key = None
+        parts = registro_id.split('_')
+        if len(parts) < 2:
+            return jsonify({'error': 'Formato de registro_id inválido'}), 400
+        extracted_company_id = parts[0]
+        remaining = '_'.join(parts[1:])
+        if '#' in remaining:
+            composite_key = remaining
+        else:
+            response = tabela_registros.query(
+                KeyConditionExpression=Key('company_id').eq(company_id) & Key('employee_id#date_time').begins_with(f"{remaining}#")
+            )
+            items = response.get('Items', [])
+            if not items:
+                return jsonify({'error': 'Registro original não encontrado'}), 404
+            composite_key = items[0].get('employee_id#date_time', None)
+        
+        if not composite_key:
+            return jsonify({'error': 'Chave do registro não encontrada'}), 400
+        
+        if extracted_company_id != company_id:
+            return jsonify({'error': 'Acesso negado'}), 403
+        
+        # Buscar registro original
+        verify_response = tabela_registros.get_item(Key={
+            'company_id': company_id,
+            'employee_id#date_time': composite_key
+        })
+        if 'Item' not in verify_response:
+            return jsonify({'error': 'Registro original não encontrado'}), 404
+        
+        registro_original = verify_response['Item']
+        employee_id = registro_original.get('employee_id')
+        tipo_final = novo_tipo or registro_original.get('type', registro_original.get('tipo', 'entrada'))
+        
+        # 1. Marcar registro original como AJUSTADO
+        tabela_registros.update_item(
+            Key={
+                'company_id': company_id,
+                'employee_id#date_time': composite_key
+            },
+            UpdateExpression='SET #status = :status, ajustado_em = :now, ajustado_por = :user, justificativa_ajuste = :justificativa',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'AJUSTADO',
+                ':now': datetime.now().isoformat(),
+                ':user': payload.get('usuario_id', payload.get('email', 'admin')),
+                ':justificativa': justificativa
+            }
+        )
+        
+        # 2. Criar novo registro vinculado ao original
+        novo_id = str(uuid.uuid4())
+        novo_sort_key = f"{employee_id}#{nova_data_hora}"
+        
+        novo_registro = {
+            'company_id': company_id,
+            'employee_id#date_time': novo_sort_key,
+            'registro_id': novo_id,
+            'employee_id': employee_id,
+            'data_hora': nova_data_hora,
+            'data_hora_calculo': nova_data_hora,
+            'type': tipo_final,
+            'method': 'AJUSTE',
+            'status': 'ATIVO',
+            'justificativa': justificativa,
+            'registro_original_id': registro_original.get('registro_id', ''),
+            'registro_original_key': composite_key,
+            'ajustado_por': payload.get('usuario_id', payload.get('email', 'admin')),
+            'criado_em': datetime.now().isoformat(),
+            'funcionario_nome': registro_original.get('funcionario_nome', ''),
+            'empresa_nome': registro_original.get('empresa_nome', '')
+        }
+        
+        tabela_registros.put_item(Item=novo_registro)
+        
+        print(f"[AJUSTE REGISTRO] ✅ Registro original {composite_key} marcado como AJUSTADO. Novo registro criado: {novo_sort_key}")
+        return jsonify({
+            'success': True,
+            'message': 'Registro ajustado com sucesso',
+            'novo_registro_id': novo_id
+        }), 200
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Erro ao ajustar registro'}), 500
+
+
 @routes.route('/registrar_ponto_manual', methods=['POST'])
 @token_required
 def registrar_ponto_manual(payload):
@@ -1696,8 +2065,13 @@ def registrar_ponto_manual(payload):
     employee_id = data.get('employee_id') or data.get('funcionario_id')
     data_hora = data.get('data_hora')  # Formato: 'YYYY-MM-DD HH:MM'
     tipo = data.get('tipo')
+    justificativa = (data.get('justificativa') or '').strip()
+    
     if not employee_id or not data_hora or not tipo:
         return jsonify({'mensagem': 'Funcionário, data/hora e tipo são obrigatórios'}), 400
+    
+    if not justificativa:
+        return jsonify({'mensagem': 'Justificativa é obrigatória para registro manual'}), 400
         
     # Verifica se o funcionário existe e se pertence à empresa do usuário
     empresa_nome = payload.get('empresa_nome')
@@ -1732,6 +2106,8 @@ def registrar_ponto_manual(payload):
     })
 
     # Ajuste de tolerância de atraso para ENTRADA
+    # IMPORTANTE: Manter horário real para exibição, mas calcular horário arredondado para cálculos
+    data_hora_calculo = data_hora  # Por padrão, o horário de cálculo é igual ao real
 
     if tipo == 'entrada':
         horario_entrada_esperado = funcionario.get('horario_entrada')
@@ -1757,12 +2133,10 @@ def registrar_ponto_manual(payload):
                 entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
             diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
             if diff_min <= tolerancia_atraso:
-                # Dentro da tolerância: arredonda para o horário esperado
-                data_hora = f"{data_str} {horario_entrada_esperado}"
-            elif diff_min <= tolerancia_atraso + 5:
-                # Até 5 minutos após a tolerância: registra o ponto real, mas não conta atraso
-                pass  # data_hora permanece, atraso será 0 no cálculo
-            # Se passar de tolerancia+5, atraso será calculado normalmente
+                # Dentro da tolerância: arredonda o horário de CÁLCULO (não o exibido)
+                data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
+                print(f"[REGISTRO MANUAL] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
+            # Se passar da tolerância, atraso será calculado normalmente
 
     # Preparar o registro base
     registro = {
@@ -1770,9 +2144,14 @@ def registrar_ponto_manual(payload):
         'employee_id#date_time': sort_key,  # Sort key
         'registro_id': id_registro,
         'employee_id': employee_id,
-        'data_hora': data_hora,
+        'data_hora': data_hora,             # Horário real exibido ao usuário
+        'data_hora_calculo': data_hora_calculo,  # Horário arredondado para cálculos
         'type': tipo,  # Padronizado para 'type'
         'method': 'MANUAL',  # Método de registro manual
+        'status': 'ATIVO',  # Status do registro
+        'justificativa': justificativa,  # Justificativa obrigatória para registro manual
+        'criado_por': payload.get('usuario_id', payload.get('email', 'admin')),
+        'funcionario_nome': funcionario.get('nome', ''),
         'empresa_nome': empresa_nome
     }
     
@@ -1806,16 +2185,54 @@ def registrar_ponto_manual(payload):
                 horario_entrada_real = registros_do_dia[0]['data_hora'].split(' ')[1][:5]  # HH:MM
                 horario_saida_real = data_hora.split(' ')[1][:5]  # HH:MM
                 
-                # Calcular
-                calculo = calculate_overtime(
-                    horario_entrada_esperado,
-                    horario_saida_esperado,
-                    horario_entrada_real,
-                    horario_saida_real,
-                    configuracoes,
-                    configuracoes.get('intervalo_automatico', False),
-                    funcionario.get('intervalo_emp', configuracoes.get('duracao_intervalo', 60))
-                )
+                # Calcular break real se manual (gap entre 1ª saída e 2ª entrada)
+                loc_break_real = None
+                loc_is_auto = configuracoes.get('intervalo_automatico', False)
+                if not loc_is_auto:
+                    manual_entradas = []
+                    manual_saidas = []
+                    for r in registros_do_dia:
+                        rt = str(r.get('type', r.get('tipo', ''))).lower()
+                        rh = r.get('data_hora', '')
+                        if rt in ('entrada', 'entry', 'in', 'check-in', 'checkin', 'e'):
+                            manual_entradas.append(rh)
+                        elif rt in ('saida', 'saída', 'exit', 'out', 'check-out', 'checkout', 's'):
+                            manual_saidas.append(rh)
+                    # Se há 2+ entradas e 1+ saída, gap = intervalo
+                    if len(manual_saidas) >= 1 and len(manual_entradas) >= 2:
+                        try:
+                            bsd = datetime.strptime(manual_saidas[0], '%Y-%m-%d %H:%M:%S')
+                            bed = datetime.strptime(manual_entradas[1], '%Y-%m-%d %H:%M:%S')
+                            loc_break_real = int((bed - bsd).total_seconds() / 60)
+                            if loc_break_real < 0:
+                                loc_break_real = None
+                        except:
+                            pass
+                
+                loc_func_ti, loc_func_val = _emp_tem_intervalo(funcionario)
+                
+                if loc_is_auto or loc_func_ti:
+                    calculo = calculate_overtime(
+                        horario_entrada_esperado,
+                        horario_saida_esperado,
+                        horario_entrada_real,
+                        horario_saida_real,
+                        configuracoes,
+                        True,
+                        loc_func_val if loc_func_ti else int(configuracoes.get('duracao_intervalo', 60)),
+                        None
+                    )
+                else:
+                    calculo = calculate_overtime(
+                        horario_entrada_esperado,
+                        horario_saida_esperado,
+                        horario_entrada_real,
+                        horario_saida_real,
+                        configuracoes,
+                        False,
+                        configuracoes.get('duracao_intervalo', 60),
+                        loc_break_real
+                    )
                 
                 # Adicionar informações ao registro (apenas horas extras e trabalhadas)
                 registro['horas_extras_minutos'] = calculo['horas_extras_minutos']
@@ -2475,28 +2892,30 @@ def configuracoes_empresa():
             if raio_permitido and (not isinstance(raio_permitido, int) or raio_permitido < 0):
                 return jsonify({'error': 'Raio permitido deve ser um número inteiro positivo'}), 400
             
-            # Preparar item para salvar
-            config_item = {
-                'company_id': empresa_id,
-                'tolerancia_atraso': tolerancia_atraso,
-                'hora_extra_entrada_antecipada': hora_extra_entrada_antecipada,
-                'arredondamento_horas_extras': arredondamento_horas_extras,
-                'intervalo_automatico': intervalo_automatico,
-                'duracao_intervalo': duracao_intervalo,
-                'compensar_saldo_horas': compensar_saldo_horas,
-                'exigir_localizacao': exigir_localizacao,
-                'raio_permitido': raio_permitido,
-                'data_atualizacao': datetime.now().isoformat(),
-                'first_configuration_completed': True  # Marca que configuração inicial foi feita
-            }
+            # Buscar configuração existente para preservar campos não enviados
+            # (ex: horarios_preset, latitude, longitude, etc.)
+            existing_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+            config_item = existing_response.get('Item', {'company_id': empresa_id})
+            
+            # Atualizar apenas os campos enviados pelo frontend
+            config_item['tolerancia_atraso'] = tolerancia_atraso
+            config_item['hora_extra_entrada_antecipada'] = hora_extra_entrada_antecipada
+            config_item['arredondamento_horas_extras'] = arredondamento_horas_extras
+            config_item['intervalo_automatico'] = intervalo_automatico
+            config_item['duracao_intervalo'] = duracao_intervalo
+            config_item['compensar_saldo_horas'] = compensar_saldo_horas
+            config_item['exigir_localizacao'] = exigir_localizacao
+            config_item['raio_permitido'] = raio_permitido
+            config_item['data_atualizacao'] = datetime.now().isoformat()
+            config_item['first_configuration_completed'] = True
             
             # Adicionar coordenadas se fornecidas
             if latitude_empresa is not None:
-                config_item['latitude_empresa'] = float(latitude_empresa)
+                config_item['latitude_empresa'] = Decimal(str(float(latitude_empresa)))
             if longitude_empresa is not None:
-                config_item['longitude_empresa'] = float(longitude_empresa)
+                config_item['longitude_empresa'] = Decimal(str(float(longitude_empresa)))
             
-            # Salvar configurações
+            # Salvar configurações (preserva campos existentes como horarios_preset)
             tabela_configuracoes.put_item(Item=config_item)
             
             response_data = {
@@ -2648,7 +3067,7 @@ def registrar_ponto_localizacao(payload):
         # Dados da localização do usuário
         user_lat = data.get('user_lat') or data.get('latitude')
         user_lng = data.get('user_lng') or data.get('longitude')
-        tipo = data.get('tipo', 'entrada')  # entrada ou saida
+        tipo_solicitado = data.get('tipo', 'entrada')  # tipo enviado pelo client (pode ser sobrescrito)
         provider = data.get('provider') or data.get('source') or data.get('is_gps')
         
         if user_lat is None or user_lng is None:
@@ -2757,6 +3176,59 @@ def registrar_ponto_localizacao(payload):
         data_hora_atual = data.get('data_hora')
         if not data_hora_atual:
             data_hora_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        hoje_str = data_hora_atual[:10]  # YYYY-MM-DD
+        
+        # Determinar tipo correto baseado nos registros do dia
+        # Simples toggle: entrada → saída → entrada → saída ...
+        try:
+            response_registros_loc = tabela_registros.scan(
+                FilterExpression=Attr('company_id').eq(company_id) & Attr('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje_str}")
+            )
+            registros_dia_loc = sorted(response_registros_loc.get('Items', []), key=lambda x: x.get('employee_id#date_time', ''))
+            # Filtrar registros INVALIDADOS/AJUSTADOS
+            registros_dia_loc = [r for r in registros_dia_loc if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
+            
+            if not registros_dia_loc:
+                tipo = 'entrada'
+            else:
+                ultimo_tipo_loc = registros_dia_loc[-1].get('type', registros_dia_loc[-1].get('tipo', 'saida'))
+                tipo = 'entrada' if ultimo_tipo_loc in ('saida', 'saída') else 'saida'
+        except Exception as e:
+            print(f"[REGISTRO LOCATION] Erro ao determinar tipo: {e}")
+            tipo = tipo_solicitado  # fallback para o tipo enviado pelo client
+
+        # Calcular horário de cálculo (arredondado se dentro da tolerância para entradas)
+        data_hora_calculo = data_hora_atual  # Por padrão igual ao real
+        
+        if tipo == 'entrada':
+            tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
+            horario_entrada_esperado = funcionario.get('horario_entrada')
+            
+            if horario_entrada_esperado:
+                try:
+                    data_str = data_hora_atual.split(' ')[0]  # YYYY-MM-DD
+                    
+                    # Parse horário atual
+                    try:
+                        entrada_real = datetime.strptime(data_hora_atual, '%Y-%m-%d %H:%M:%S')
+                    except:
+                        entrada_real = datetime.strptime(data_hora_atual, '%Y-%m-%d %H:%M')
+                    
+                    # Parse horário esperado
+                    try:
+                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
+                    except:
+                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
+                    
+                    diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
+                    
+                    if diff_min <= tolerancia_atraso:
+                        # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
+                        data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
+                        print(f"[REGISTRO LOCATION] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
+                except Exception as e:
+                    print(f"[REGISTRO LOCATION] Aviso ao calcular arredondamento: {e}")
 
         # Criar registro com schema correto da tabela TimeRecords
         # HASH: company_id, RANGE: employee_id#date_time
@@ -2765,9 +3237,11 @@ def registrar_ponto_localizacao(payload):
         registro_item = {
             'company_id': company_id,  # HASH key
             'employee_id#date_time': f"{funcionario_id}#{data_hora_atual}",  # RANGE key
-            'data_hora': data_hora_atual,  # Sempre presente e igual ao usado na chave composta
+            'data_hora': data_hora_atual,  # Horário REAL para exibição
+            'data_hora_calculo': data_hora_calculo,  # Horário arredondado para cálculos
             'employee_id': funcionario_id,
             'type': tipo,  # Padronizado para 'type'
+            'funcionario_nome': funcionario.get('nome', ''),
             'empresa_nome': funcionario.get('empresa_nome', ''),
             'method': 'LOCATION',  # Método de registro
             'user_lat': Decimal(str(user_lat)),
@@ -2789,11 +3263,20 @@ def registrar_ponto_localizacao(payload):
         
         print(f"[REGISTRO LOCATION] Ponto registrado com sucesso: {funcionario_id}#{data_hora_atual}")
         
+        # Mapeamento de tipo para label amigável
+        tipo_labels = {
+            'entrada': 'Entrada',
+            'saida': 'Saída',
+            'saída': 'Saída',
+        }
+        tipo_label = tipo_labels.get(tipo, tipo)
+        
         response_data = {
             'success': True,
-            'message': f'Ponto de {tipo} registrado com sucesso!',
+            'message': f'Ponto de {tipo_label} registrado com sucesso!',
             'data_hora': data_hora_atual,
             'tipo': tipo,
+            'tipo_label': tipo_label,
             'method': 'LOCATION',
             'location_valid': location_valid
         }

@@ -94,7 +94,7 @@ const normalizeStatusKey = (status: any): string => {
 
 const STATUS_LABEL_MAP: Record<string, string> = {
   entrada_antecipada: 'Entrada antecipada',
-  normal: 'Normal',
+  normal: 'Pontual',
   saida_antecipada: 'Saída antecipada'
 };
 
@@ -152,7 +152,7 @@ const getDetailedStatus = (record: RecentRecord): Array<{ text: string; color: s
   if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
     statuses.push({
       text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
-      color: '#3b82f6' // azul
+      color: '#93c5fd' // azul claro
     });
   }
 
@@ -175,8 +175,8 @@ const getDetailedStatus = (record: RecentRecord): Array<{ text: string; color: s
   // Se não tem nenhum status especial
   if (statuses.length === 0) {
     return [{
-      text: 'Normal',
-      color: 'rgba(255, 255, 255, 0.6)' // cinza
+      text: 'Pontual',
+      color: '#10b981' // verde
     }];
   }
 

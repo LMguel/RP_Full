@@ -28,6 +28,8 @@ import {
   AccountCircle as AccountCircleIcon,
   Logout as LogoutIcon,
   Business as BusinessIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -36,6 +38,7 @@ import { useAuth } from '../contexts/AuthContext';
 const logoUrl = new URL('../image/logo.png', import.meta.url).href;
 
 const drawerWidth = 280;
+const collapsedDrawerWidth = 72;
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -43,12 +46,19 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  const currentDrawerWidth = drawerCollapsed ? collapsedDrawerWidth : drawerWidth;
+
+  const handleDrawerCollapse = () => {
+    setDrawerCollapsed(!drawerCollapsed);
+  };
 
   // Abrir submenu automaticamente se estiver em página de registros
   const [recordsSubmenuOpen, setRecordsSubmenuOpen] = useState(
@@ -110,20 +120,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         background: 'rgba(255, 255, 255, 0.08)',
         backdropFilter: 'blur(20px)',
         borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <Box sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
+      <Box sx={{ p: drawerCollapsed ? 1.5 : 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4, justifyContent: drawerCollapsed ? 'center' : 'flex-start' }}>
             <Box
               sx={{
-                width: 48,
-                height: 48,
+                width: drawerCollapsed ? 40 : 48,
+                height: drawerCollapsed ? 40 : 48,
+                minWidth: drawerCollapsed ? 40 : 48,
                 backgroundColor: 'white',
                 borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
               }}
             >
               <img 
@@ -136,27 +150,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 }}
               />
             </Box>
-          <Box>
-            <Typography 
-              variant="h6" 
-              sx={{ 
-                fontWeight: 600, 
-                color: 'white',
-                fontSize: '16px'
-              }}
-            >
-              REGISTRA.PONTO
-            </Typography>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                color: 'rgba(255, 255, 255, 0.7)',
-                fontSize: '12px'
-              }}
-            >
-              Sistema de Ponto
-            </Typography>
-          </Box>
+          {!drawerCollapsed && (
+            <Box>
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  fontWeight: 600, 
+                  color: 'white',
+                  fontSize: '16px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                REGISTRA.PONTO
+              </Typography>
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  fontSize: '12px'
+                }}
+              >
+                Sistema de Ponto
+              </Typography>
+            </Box>
+          )}
         </Box>
         
         <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)', mb: 3 }} />
@@ -173,14 +190,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   <ListItemButton
                     onClick={() => {
                       if (hasSubmenu && item.text === 'Registros') {
-                        setRecordsSubmenuOpen(!recordsSubmenuOpen);
+                        if (drawerCollapsed) {
+                          setDrawerCollapsed(false);
+                          setRecordsSubmenuOpen(true);
+                        } else {
+                          setRecordsSubmenuOpen(!recordsSubmenuOpen);
+                        }
                       } else {
                         handleNavigation(item.path);
                       }
                     }}
                     sx={{
                       borderRadius: '8px',
-                      mx: 1,
+                      mx: drawerCollapsed ? 0 : 1,
+                      justifyContent: drawerCollapsed ? 'center' : 'flex-start',
+                      px: drawerCollapsed ? 1.5 : 2,
                       color: (isActive || (hasSubmenu && isRecordsSection)) ? 'white' : 'rgba(255, 255, 255, 0.7)',
                       background: (isActive || (hasSubmenu && isRecordsSection)) ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
                       '&:hover': {
@@ -189,29 +213,33 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       },
                       transition: 'all 0.2s ease',
                     }}
+                    title={drawerCollapsed ? item.text : undefined}
                   >
                     <ListItemIcon
                       sx={{
                         color: (isActive || (hasSubmenu && isRecordsSection)) ? 'white' : 'rgba(255, 255, 255, 0.7)',
-                        minWidth: 40,
+                        minWidth: drawerCollapsed ? 0 : 40,
+                        justifyContent: 'center',
                       }}
                     >
                       {item.icon}
                     </ListItemIcon>
-                    <ListItemText
-                      primary={item.text}
-                      sx={{
-                        '& .MuiListItemText-primary': {
-                          fontWeight: (isActive || (hasSubmenu && isRecordsSection)) ? 500 : 400,
-                          fontSize: '14px'
-                        }
-                      }}
-                    />
+                    {!drawerCollapsed && (
+                      <ListItemText
+                        primary={item.text}
+                        sx={{
+                          '& .MuiListItemText-primary': {
+                            fontWeight: (isActive || (hasSubmenu && isRecordsSection)) ? 500 : 400,
+                            fontSize: '14px'
+                          }
+                        }}
+                      />
+                    )}
                   </ListItemButton>
                 </ListItem>
                 
                 {/* Submenu de Registros */}
-                {hasSubmenu && item.text === 'Registros' && recordsSubmenuOpen && (
+                {hasSubmenu && item.text === 'Registros' && recordsSubmenuOpen && !drawerCollapsed && (
                   <Box sx={{ pl: 2, mb: 1 }}>
                     {item.submenu.map((subItem) => {
                       const isSubActive = location.pathname === subItem.path;
@@ -250,6 +278,46 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           })}
         </List>
       </Box>
+
+      {/* Botão de colapsar/expandir no rodapé da sidebar */}
+      <Box sx={{ p: 1, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+        <ListItemButton
+          onClick={handleDrawerCollapse}
+          sx={{
+            borderRadius: '8px',
+            justifyContent: drawerCollapsed ? 'center' : 'flex-start',
+            px: drawerCollapsed ? 1.5 : 2,
+            color: 'rgba(255, 255, 255, 0.7)',
+            '&:hover': {
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: 'white',
+            },
+            transition: 'all 0.2s ease',
+          }}
+          title={drawerCollapsed ? 'Expandir menu' : 'Recolher menu'}
+        >
+          <ListItemIcon
+            sx={{
+              color: 'rgba(255, 255, 255, 0.7)',
+              minWidth: drawerCollapsed ? 0 : 40,
+              justifyContent: 'center',
+            }}
+          >
+            {drawerCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+          </ListItemIcon>
+          {!drawerCollapsed && (
+            <ListItemText
+              primary="Recolher menu"
+              sx={{
+                '& .MuiListItemText-primary': {
+                  fontSize: '13px',
+                  fontWeight: 400,
+                }
+              }}
+            />
+          )}
+        </ListItemButton>
+      </Box>
     </Box>
   );
 
@@ -282,8 +350,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <AppBar
         position="fixed"
         sx={{
-          width: { md: `calc(100% - ${drawerWidth}px)` },
-          ml: { md: `${drawerWidth}px` },
+          width: { md: `calc(100% - ${currentDrawerWidth}px)` },
+          ml: { md: `${currentDrawerWidth}px` },
+          transition: 'width 0.3s ease, margin-left 0.3s ease',
           background: 'rgba(255, 255, 255, 0.08)',
           backdropFilter: 'blur(20px)',
           boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
@@ -366,7 +435,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       <Box
         component="nav"
-        sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+        sx={{ width: { md: currentDrawerWidth }, flexShrink: { md: 0 }, transition: 'width 0.3s ease' }}
       >
         <Drawer
           variant="temporary"
@@ -392,8 +461,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             display: { xs: 'none', md: 'block' },
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
-              width: drawerWidth,
+              width: currentDrawerWidth,
               background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
+              transition: 'width 0.3s ease',
+              overflowX: 'hidden',
             },
           }}
           open
@@ -407,8 +478,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         sx={{
           flexGrow: 1,
           p: 0,
-          width: { md: `calc(100% - ${drawerWidth}px)` },
+          width: { md: `calc(100% - ${currentDrawerWidth}px)` },
           mt: 8,
+          transition: 'width 0.3s ease',
         }}
       >
         <Box

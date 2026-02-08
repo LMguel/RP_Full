@@ -45,13 +45,17 @@ export interface CompanySettings {
   data_atualizacao?: string;
 }
 
+// Status possíveis de um registro de ponto
+export type RecordStatus = 'ATIVO' | 'AJUSTADO' | 'INVALIDADO';
+
 export interface TimeRecord {
   registro_id: string;
   funcionario_id: string;
   data_hora: string;
   tipo: 'entrada' | 'saída';
   type?: 'entrada' | 'saida' | 'saída';  // Novo campo padronizado
-  method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL';  // Método de registro
+  method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL' | 'AJUSTE';  // Método de registro
+  status?: RecordStatus;  // ATIVO, AJUSTADO, INVALIDADO
   empresa_id: string;   // mantém compatibilidade
   company_id?: string;  // novo schema DynamoDB
   empresa_nome: string;
@@ -67,6 +71,15 @@ export interface TimeRecord {
   horario_padrao?: string;
   horario_real?: string;
   tolerancia?: number;
+  // Campos de auditoria
+  justificativa?: string;
+  registro_original_id?: string;  // ID do registro original (se for ajuste)
+  registro_original_key?: string;
+  ajustado_por?: string;
+  invalidado_por?: string;
+  invalidado_em?: string;
+  criado_por?: string;
+  criado_em?: string;
 }
 
 export interface LoginRequest {

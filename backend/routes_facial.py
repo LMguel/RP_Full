@@ -303,17 +303,31 @@ def reconhecer_rosto(payload):
                     registros_hoje.append(reg)
             
             if registros_hoje:
-                # Verificar se já houve uma entrada hoje
-                teve_entrada = any(
-                    (reg.get('type') or reg.get('tipo') or reg.get('tipo_registro', '')).lower() == 'entrada'
-                    for reg in registros_hoje
-                )
-                proximo_tipo = 'saida' if teve_entrada else 'entrada'
-                print(f"[FACIAL] Já teve entrada hoje: {teve_entrada} -> próximo: {proximo_tipo}")
+                # Filtrar registros INVALIDADOS/AJUSTADOS
+                registros_hoje = [r for r in registros_hoje if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
+                
+                # Simples toggle: entrada/saida
+                if registros_hoje:
+                    teve_entrada = any(
+                        (reg.get('type') or reg.get('tipo') or reg.get('tipo_registro', '')).lower() == 'entrada'
+                        for reg in registros_hoje
+                    )
+                    ultimo_t = (registros_hoje[-1].get('type') or registros_hoje[-1].get('tipo') or registros_hoje[-1].get('tipo_registro', 'saida')).lower()
+                    proximo_tipo = 'entrada' if ultimo_t in ('saida', 'saída') else 'saida'
+                
+                print(f"[FACIAL] Próximo tipo determinado: {proximo_tipo}")
             else:
                 print(f"[FACIAL] Nenhum registro hoje, próximo será: entrada")
         except Exception as e:
             print(f"[FACIAL] Erro ao verificar último registro: {e}")
+        
+        # Mapear proximo_tipo para label amigável
+        proximo_tipo_labels = {
+            'entrada': 'Entrada',
+            'saida': 'Saída',
+            'saída': 'Saída',
+        }
+        proximo_tipo_label = proximo_tipo_labels.get(proximo_tipo, proximo_tipo)
         
         # Retornar dados do funcionário com próximo tipo esperado
         return jsonify({
@@ -325,8 +339,9 @@ def reconhecer_rosto(payload):
                 'cargo': funcionario.get('position') or funcionario.get('cargo', ''),
                 'foto_url': funcionario.get('photo_url') or funcionario.get('foto_url', '')
             },
-            'proximo_tipo': proximo_tipo,  # entrada ou saida
-            'confianca': 95.0  # Rekognition retorna isso, podemos adicionar depois
+            'proximo_tipo': proximo_tipo,
+            'proximo_tipo_label': proximo_tipo_label,
+            'confianca': 95.0
         }), 200
         
     except Exception as e:
@@ -421,26 +436,15 @@ def registrar_ponto_facial(payload):
             traceback.print_exc()
             registros_hoje = []
         
-        # Determinar tipo (entrada ou saída): se já houve entrada hoje, registrar saída; senão, entrada
-        tipo = 'entrada'  # Padrão: entrada se nenhum registro hoje
-        if registros_hoje:
-            # Verificar se já houve uma entrada hoje
-            teve_entrada = any(
-                (reg.get('type') or reg.get('tipo') or reg.get('tipo_registro', '')).lower() == 'entrada'
-                for reg in registros_hoje
-            )
-            tipo = 'saida' if teve_entrada else 'entrada'
-            print(f"[FACIAL] Já teve entrada hoje: {teve_entrada}, novo será '{tipo}'")
-        else:
-            print(f"[FACIAL] Nenhum registro hoje, será ENTRADA")
+        # Filtrar registros INVALIDADOS/AJUSTADOS
+        registros_hoje = [r for r in registros_hoje if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
         
-        print(f"[FACIAL] Tipo determinado: {tipo}")
-        
-        # Obter localização da empresa do DynamoDB ConfigCompany
+        # Buscar configurações da empresa
         from decimal import Decimal
         
         location_lat = Decimal('0')
         location_lon = Decimal('0')
+        config = {}
         try:
             config_response = tabela_configuracoes.get_item(Key={'company_id': company_id})
             if 'Item' in config_response:
@@ -448,7 +452,46 @@ def registrar_ponto_facial(payload):
                 location_lat = Decimal(str(config.get('latitude', 0)))
                 location_lon = Decimal(str(config.get('longitude', 0)))
         except Exception as e:
-            print(f"[FACIAL] Aviso: Não foi possível obter localização da empresa: {e}")
+            print(f"[FACIAL] Aviso: Não foi possível obter configurações da empresa: {e}")
+        
+        # Buscar dados do funcionário
+        funcionario = None
+        try:
+            func_resp = tabela_funcionarios.get_item(Key={'company_id': company_id, 'id': funcionario_id})
+            funcionario = func_resp.get('Item')
+        except Exception:
+            pass
+        if not funcionario:
+            try:
+                func_resp = tabela_funcionarios.scan(FilterExpression=Attr('id').eq(funcionario_id))
+                items = func_resp.get('Items', [])
+                if items:
+                    funcionario = items[0]
+            except Exception:
+                pass
+        
+        nome_funcionario = ''
+        if funcionario:
+            nome_funcionario = funcionario.get('nome', funcionario.get('name', funcionario_id))
+        
+        # Determinar tipo com toggle simples entrada/saída
+        tipo = 'entrada'  # Padrão: entrada se nenhum registro hoje
+        if not registros_hoje:
+            tipo = 'entrada'
+            print(f"[FACIAL] Nenhum registro hoje, será ENTRADA")
+        else:
+            # Simples toggle: entrada → saída → entrada → saída ...
+            ultimo_t = (registros_hoje[0].get('type') or registros_hoje[0].get('tipo') or registros_hoje[0].get('tipo_registro', 'saida')).lower()
+            tipo = 'entrada' if ultimo_t in ('saida', 'saída') else 'saida'
+            print(f"[FACIAL] Último registro tipo={ultimo_t}, novo será '{tipo}'")
+        
+        # Mapear tipo para label amigável
+        tipo_labels = {
+            'entrada': 'Entrada',
+            'saida': 'Saída',
+            'saída': 'Saída',
+        }
+        tipo_label = tipo_labels.get(tipo, tipo)
         
         # Criar registro
         agora = datetime.now(tz)
@@ -458,16 +501,48 @@ def registrar_ponto_facial(payload):
         date_time_str = agora.strftime('%Y-%m-%d %H:%M:%S')
         composite_key = f"{funcionario_id}#{date_time_str}"
         
+        # Calcular horário de cálculo (arredondado se dentro da tolerância)
+        data_hora_calculo = date_time_str  # Por padrão igual ao real
+        
+        if tipo == 'entrada':
+            # Obter tolerância e horário esperado do funcionário
+            tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
+            horario_entrada_esperado = funcionario.get('horario_entrada') if funcionario else None
+            
+            if horario_entrada_esperado:
+                try:
+                    data_str = agora.strftime('%Y-%m-%d')
+                    hora_str = agora.strftime('%H:%M')
+                    
+                    # Parse horário esperado
+                    try:
+                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
+                        entrada_esperada = tz.localize(entrada_esperada)
+                    except:
+                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
+                        entrada_esperada = tz.localize(entrada_esperada)
+                    
+                    diff_min = int((agora - entrada_esperada).total_seconds() // 60)
+                    
+                    if diff_min <= tolerancia_atraso:
+                        # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
+                        data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
+                        print(f"[FACIAL] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
+                except Exception as e:
+                    print(f"[FACIAL] Aviso ao calcular arredondamento: {e}")
+        
         registro = {
             'company_id': company_id,  # Chave primária
             'employee_id#date_time': composite_key,
             'employee_id': funcionario_id,
             'timestamp': timestamp_iso,
-            'data_hora': date_time_str,  # Adicionado para padronizar com TimeRecords
+            'data_hora': date_time_str,  # Horário REAL para exibição
+            'data_hora_calculo': data_hora_calculo,  # Horário arredondado para cálculos
             'date': agora.strftime('%Y-%m-%d'),
             'time': agora.strftime('%H:%M:%S'),
             'type': tipo,
             'method': 'CAMERA',  # Reconhecimento facial
+            'funcionario_nome': nome_funcionario,
             'location': {
                 'latitude': location_lat,
                 'longitude': location_lon
@@ -483,10 +558,12 @@ def registrar_ponto_facial(payload):
         return jsonify({
             'success': True,
             'tipo': tipo,
+            'tipo_label': tipo_label,
             'timestamp': timestamp_iso,
-            'mensagem': f'Ponto de {tipo} registrado com sucesso!',
+            'mensagem': f'Ponto de {tipo_label} registrado com sucesso!',
             'registro': {
                 'tipo': tipo,
+                'tipo_label': tipo_label,
                 'horario': agora.strftime('%H:%M:%S'),
                 'data': agora.strftime('%d/%m/%Y'),
                 'metodo': 'reconhecimento_facial'

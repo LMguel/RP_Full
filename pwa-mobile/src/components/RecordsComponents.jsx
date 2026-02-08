@@ -39,6 +39,12 @@ export function RecordsList({ records = [], loading = false }) {
         // Usar 'type' como padrão, com fallback para 'tipo' (registros antigos)
         const recordType = (record.type || record.tipo || '').toLowerCase();
         const isEntrada = recordType === 'entrada';
+        const tipoLabels = {
+          'entrada': 'ENTRADA', 'saida': 'SAÍDA', 'saída': 'SAÍDA',
+          'saida_antecipada': 'SAÍDA ANTECIPADA',
+        };
+        const tipoLabel = tipoLabels[recordType] || (isEntrada ? 'ENTRADA' : 'SAÍDA');
+        const isEntradaLike = isEntrada;
 
         // Tenta obter um objeto Date válido a partir de vários formatos
         function parseDateFromValue(val) {
@@ -133,14 +139,14 @@ export function RecordsList({ records = [], loading = false }) {
                 {/* Ícone de tipo */}
                 <div className={`
                   p-2 rounded-full mt-1
-                  ${isEntrada ? 'bg-green-100' : 'bg-red-100'}
+                  ${isEntradaLike ? 'bg-green-100' : (isBreakStart ? 'bg-yellow-100' : 'bg-red-100')}
                 `}>
-                  {isEntrada ? (
+                  {isEntradaLike ? (
                     <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
                     </svg>
                   ) : (
-                    <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-5 h-5 ${isBreakStart ? 'text-yellow-600' : 'text-red-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
                   )}
@@ -151,9 +157,9 @@ export function RecordsList({ records = [], loading = false }) {
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`
                       px-2 py-1 rounded text-xs font-semibold
-                      ${isEntrada ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}
+                      ${isEntradaLike ? 'bg-green-100 text-green-800' : (isBreakStart ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800')}
                     `}>
-                      {isEntrada ? 'ENTRADA' : 'SAÍDA'}
+                      {tipoLabel}
                     </span>
                   </div>
 

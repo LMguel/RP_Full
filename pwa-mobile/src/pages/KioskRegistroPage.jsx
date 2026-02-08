@@ -222,14 +222,16 @@ export default function KioskCleanUI() {
           id: recognitionResult.funcionario.funcionario_id,
           nome: recognitionResult.funcionario.nome,
           cargo: recognitionResult.funcionario.cargo,
-          sugestedType: recognitionResult.proximo_tipo
+          sugestedType: recognitionResult.proximo_tipo,
+          sugestedTypeLabel: recognitionResult.proximo_tipo_label || recognitionResult.proximo_tipo
         });
 
         console.log('[KIOSK] Recognized person set:', {
           id: recognitionResult.funcionario.funcionario_id,
           nome: recognitionResult.funcionario.nome,
           cargo: recognitionResult.funcionario.cargo,
-          sugestedType: recognitionResult.proximo_tipo
+          sugestedType: recognitionResult.proximo_tipo,
+          sugestedTypeLabel: recognitionResult.proximo_tipo_label
         });
       } else if (recognitionResult.nenhumRostoDetectado) {
         // Novo caso: nenhum rosto detectado
@@ -296,7 +298,8 @@ export default function KioskCleanUI() {
       if (pontoResult.success) {
         setShowSuccess({
           nome: recognizedPerson.nome,
-          tipo: tipo,
+          tipo: pontoResult.tipo || tipo,
+          tipo_label: pontoResult.tipo_label || tipo,
           horario: horarioFormatado
         });
 
@@ -352,7 +355,12 @@ export default function KioskCleanUI() {
           </h1>
           
           <div className="text-7xl font-black mb-6">
-            {showSuccess.tipo === 'entrada' ? '🟢 ENTRADA' : '🔴 SAÍDA'}
+            {(() => {
+              const tipo = showSuccess.tipo;
+              const tipoLabel = showSuccess.tipo_label || (tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA');
+              const emoji = tipo === 'entrada' ? '🟢' : '🔴';
+              return `${emoji} ${tipoLabel.toUpperCase()}`;
+            })()}
           </div>
           
           <div className="text-6xl font-bold opacity-90">
@@ -401,33 +409,35 @@ export default function KioskCleanUI() {
             )}
           </motion.div>
 
-          {/* Botões de registro */}
+          {/* Botões de registro - ENTRADA e SAÍDA */}
           <div className="w-full max-w-2xl space-y-6">
+            {/* Botão ENTRADA */}
             <motion.button
-              initial={{ x: -100, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.2 }}
               onClick={() => handleRegister('entrada')}
               disabled={isProcessing}
-              className="w-full bg-green-500 hover:bg-green-600 active:bg-green-700 text-white py-12 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
+              className="w-full bg-green-500 hover:bg-green-600 active:bg-green-700 text-white py-14 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
             >
               <div className="flex items-center justify-center gap-6">
                 <span className="text-7xl">🟢</span>
-                <span className="text-6xl font-black">ENTRADA</span>
+                <span className="text-5xl font-black">ENTRADA</span>
               </div>
             </motion.button>
 
+            {/* Botão SAÍDA */}
             <motion.button
-              initial={{ x: 100, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
               onClick={() => handleRegister('saida')}
               disabled={isProcessing}
-              className="w-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white py-12 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
+              className="w-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white py-14 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
             >
               <div className="flex items-center justify-center gap-6">
                 <span className="text-7xl">🔴</span>
-                <span className="text-6xl font-black">SAÍDA</span>
+                <span className="text-5xl font-black">SAÍDA</span>
               </div>
             </motion.button>
           </div>

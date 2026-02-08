@@ -182,14 +182,25 @@ class ApiService {
     employee_id: string;
     data_hora: string;
     tipo: 'entrada' | 'saída';
+    justificativa: string;
   }) {
     const response = await this.api.post('/api/registrar_ponto_manual', data);
     return response.data;
   }
 
-  async deleteTimeRecord(registroId: string) {
+  async invalidateTimeRecord(registroId: string, justificativa: string) {
     const safeId = encodeURIComponent(registroId);
-    const response = await this.api.delete(`/api/registros/${safeId}`);
+    const response = await this.api.put(`/api/registros/${safeId}/invalidar`, { justificativa });
+    return response.data;
+  }
+
+  async adjustTimeRecord(registroId: string, data: {
+    data_hora: string;
+    tipo?: 'entrada' | 'saída';
+    justificativa: string;
+  }) {
+    const safeId = encodeURIComponent(registroId);
+    const response = await this.api.post(`/api/registros/${safeId}/ajustar`, data);
     return response.data;
   }
 

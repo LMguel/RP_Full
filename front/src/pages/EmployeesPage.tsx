@@ -62,12 +62,14 @@ const EmployeesPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [employeeToResetPassword, setEmployeeToResetPassword] = useState<Employee | null>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
 
   // Extract unique cargos from existing employees
   const existingCargos = [...new Set(employees.map(emp => emp.cargo))].filter(Boolean);
 
   useEffect(() => {
     loadEmployees();
+    loadCompanySettings();
   }, []);
 
   useEffect(() => {
@@ -101,6 +103,15 @@ const EmployeesPage: React.FC = () => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCompanySettings = async () => {
+    try {
+      const response = await apiService.getCompanySettings();
+      setCompanySettings(response);
+    } catch (err) {
+      console.error('Error loading company settings:', err);
     }
   };
 
@@ -378,6 +389,9 @@ const EmployeesPage: React.FC = () => {
                       Horário Saída
                     </TableCell>
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                      Intervalo
+                    </TableCell>
+                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Data de Cadastro
                     </TableCell>
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
@@ -442,7 +456,7 @@ const EmployeesPage: React.FC = () => {
                             size="small"
                             sx={{ 
                               background: 'rgba(59, 130, 246, 0.2)',
-                              color: '#3b82f6',
+                              color: 'white',
                               border: '1px solid rgba(59, 130, 246, 0.3)'
                             }}
                           />
@@ -455,6 +469,22 @@ const EmployeesPage: React.FC = () => {
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">
                             {employee.horario_saida || '-'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                          <Typography variant="body2">
+                            {(() => {
+                              if (employee.intervalo_personalizado && employee.intervalo_emp != null) {
+                                return `${employee.intervalo_emp} min`;
+                              }
+                              if (employee.intervalo_emp != null) {
+                                return `${employee.intervalo_emp} min`;
+                              }
+                              if (companySettings?.intervalo_automatico && companySettings?.duracao_intervalo != null) {
+                                return `${companySettings.duracao_intervalo} min`;
+                              }
+                              return '-';
+                            })()}
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
@@ -481,7 +511,7 @@ const EmployeesPage: React.FC = () => {
                    : (
                     <TableRow>
                       <TableCell 
-                        colSpan={6} 
+                        colSpan={8} 
                         align="center"
                         sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                       >

@@ -177,9 +177,9 @@ const TimeTrackingSettings: React.FC = () => {
           </Box>
         </Box>
 
-        <Grid container spacing={3}>
+        <Grid container spacing={4} justifyContent="space-between">
           {/* Tolerância de Atraso */}
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <AccessTimeIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
@@ -231,7 +231,7 @@ const TimeTrackingSettings: React.FC = () => {
           </Grid>
 
           {/* Hora Extra por Entrada Antecipada */}
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <TimerIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
@@ -275,7 +275,7 @@ const TimeTrackingSettings: React.FC = () => {
           {/* Arredondamento: opção removida para evitar alteração pelo usuário */}
 
           {/* Intervalo Automático */}
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <TimerIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />

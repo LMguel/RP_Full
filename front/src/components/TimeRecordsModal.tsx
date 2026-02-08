@@ -287,6 +287,12 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                     {(() => {
                       const recordType = (record.type || record.tipo || '').toLowerCase();
                       const isEntrada = recordType === 'entrada';
+                      const tipoLabels: Record<string, string> = {
+                        'entrada': 'Entrada', 'saida': 'Saída', 'saída': 'Saída',
+                        'intervalo_inicio': 'Saída Intervalo', 'intervalo_fim': 'Volta Intervalo',
+                        'retorno': 'Volta Intervalo', 'saida_antecipada': 'Saída Antecipada',
+                      };
+                      const tipoLabel = tipoLabels[recordType] || (isEntrada ? 'Entrada' : 'Saída');
                       let metodoLabel = 'Manual';
                       if (record.metodo === 'automatico') metodoLabel = 'Automático';
                       else if (record.location) metodoLabel = 'Localização';
@@ -299,8 +305,8 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                               width: 32,
                               height: 32,
                               borderRadius: '50%',
-                              bgcolor: isEntrada ? '#dbeafe' : '#fef3c7',
-                              color: isEntrada ? '#1e40af' : '#b45309',
+                              bgcolor: isEntrada ? '#dbeafe' : (isBreakEnd ? '#dbeafe' : (isBreakStart ? '#fef3c7' : '#fef3c7')),
+                              color: isEntrada ? '#1e40af' : (isBreakEnd ? '#1e40af' : (isBreakStart ? '#b45309' : '#b45309')),
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
@@ -320,9 +326,9 @@ const TimeRecordsModal: React.FC<TimeRecordsModalProps> = ({
                                 {formatTime(record.data_hora)}
                               </Typography>
                               <Chip
-                                label={isEntrada ? 'Entrada' : 'Saída'}
+                                label={tipoLabel}
                                 size="small"
-                                color={isEntrada ? 'primary' : 'warning'}
+                                color={isEntrada || isBreakEnd ? 'primary' : 'warning'}
                                 sx={{ height: 20, fontSize: '0.75rem' }}
                               />
                             </Box>

@@ -232,7 +232,7 @@ class SummaryService:
         Logic:
         - First 'entrada' = actual_start
         - Last 'saida' = actual_end
-        - Count break_start to break_end if present
+        - If multiple entrada/saida pairs, gap between 1st saida and 2nd entrada = break
         - If interval_auto, subtract break_duration
         """
         if not records:
@@ -241,10 +241,8 @@ class SummaryService:
         # Sort records by timestamp
         sorted_records = sorted(records, key=lambda r: r.get('data_hora', ''))
         
-        entrada_records = [r for r in sorted_records if r.get('tipo') == 'entrada']
-        saida_records = [r for r in sorted_records if r.get('tipo') == 'saida']
-        break_start_records = [r for r in sorted_records if r.get('tipo') == 'break_start']
-        break_end_records = [r for r in sorted_records if r.get('tipo') == 'break_end']
+        entrada_records = [r for r in sorted_records if r.get('tipo') in ('entrada', 'entry', 'in')]
+        saida_records = [r for r in sorted_records if r.get('tipo') in ('saida', 'saída', 'exit', 'out')]
         
         # Get first entrada and last saida
         actual_start = entrada_records[0].get('data_hora') if entrada_records else None
@@ -266,15 +264,19 @@ class SummaryService:
             # Total time between start and end
             total_minutes = int((end_dt - start_dt).total_seconds() / 60)
             
-            # Calculate break time
+            # Calculate break time from gap between pairs
             break_minutes = 0
             
-            # Count explicit breaks
-            for i, break_start in enumerate(break_start_records):
-                if i < len(break_end_records):
-                    break_start_dt = datetime.fromisoformat(break_start.get('data_hora').replace('Z', '+00:00'))
-                    break_end_dt = datetime.fromisoformat(break_end_records[i].get('data_hora').replace('Z', '+00:00'))
-                    break_minutes += int((break_end_dt - break_start_dt).total_seconds() / 60)
+            # If there are 2+ entradas and 1+ saídas, the gap between 1st saída and 2nd entrada is the break
+            if len(saida_records) >= 1 and len(entrada_records) >= 2:
+                try:
+                    first_saida_dt = datetime.fromisoformat(saida_records[0].get('data_hora').replace('Z', '+00:00'))
+                    second_entrada_dt = datetime.fromisoformat(entrada_records[1].get('data_hora').replace('Z', '+00:00'))
+                    gap_minutes = int((second_entrada_dt - first_saida_dt).total_seconds() / 60)
+                    if gap_minutes > 0:
+                        break_minutes = gap_minutes
+                except Exception:
+                    pass
             
             # Apply automatic break if configured
             if interval_auto and break_duration > 0:
