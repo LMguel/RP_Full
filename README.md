@@ -1,189 +1,59 @@
-# RegistraPonto - Sistema de Controle de Ponto Eletrônico
+# RegistraPonto - Sistema de Controle de Ponto Eletronico
 
-Sistema completo de controle de ponto eletrônico com reconhecimento facial e geolocalização, desenvolvido para empresas de diversos portes.
+Plataforma completa de controle de ponto com reconhecimento facial e geolocalizacao. O projeto integra backend em Python/Flask, web app React e PWA mobile, com foco em seguranca, precisao de registros e experiencia fluida para equipes e administradores.
 
-## 🚀 Visão Geral
+## 🚀 Visao Geral
 
-O RegistraPonto é uma solução integrada que permite o registro de ponto de funcionários através de múltiplas interfaces: web, PWA mobile e portal administrativo. Utiliza tecnologias avançadas como reconhecimento facial via AWS Rekognition e geolocalização para garantir precisão e segurança nos registros.
+O RegistraPonto permite o registro de ponto por multiplas interfaces (web e PWA), centralizando operacoes administrativas em um painel unico. A solução utiliza AWS Rekognition para reconhecimento facial e DynamoDB/S3 para armazenamento escalavel.
 
-## 🏗️ Arquitetura do Projeto
+## 🖼️ Preview do Sistema
 
-O projeto é dividido em módulos independentes, cada um responsável por uma parte específica do sistema:
+### Dashboard
+<img src="landingpage/image/dashboard.png" alt="Dashboard" width="500" />
 
-### Backend (Flask + Python)
-- **Localização**: `backend/`
-- **Tecnologias**: Flask, AWS Rekognition, DynamoDB, S3
-- **Responsabilidades**:
-  - API RESTful para todas as operações
-  - Integração com AWS para reconhecimento facial
-  - Gerenciamento de dados e autenticação
-  - Cálculos de horas extras e relatórios
+### Registros
+<img src="landingpage/image/registros.png" alt="Registros" width="500" />
 
-### Frontend Web (React)
-- **Localização**: `front/`
-- **Tecnologias**: React 18, TypeScript, Vite, Material UI, TailwindCSS
-- **Funcionalidades**:
-  - Dashboard administrativo
-  - Gestão de funcionários
-  - Visualização de registros
-  - Relatórios e estatísticas
+### Registros detalhados
+<img src="landingpage/image/registros_detalhados.png" alt="Registros detalhados" width="500" />
 
-### Portal Administrativo (React)
-- **Localização**: `admin-portal/`
-- **Tecnologias**: React, TypeScript, Vite
-- **Propósito**: Interface dedicada para administradores do sistema
+### Funcionario
+<img src="landingpage/image/funcionario.png" alt="Funcionario" width="500" />
 
-### PWA Mobile (Progressive Web App)
-- **Localização**: `pwa-mobile/`
-- **Tecnologias**: React, Vite, Tailwind CSS, PWA
-- **Funcionalidades**:
-  - Registro de ponto via geolocalização
-  - Modo kiosk para reconhecimento facial
-  - Funciona offline
-  - Instalável como app nativo
+### Configurações
+<img src="landingpage/image/configuracoes.png" alt="Configuracoes" width="500" />
 
-## 🎯 Funcionalidades Principais
+### Captura (tablet em uso real)
+<img src="landingpage/image/captura.jpg" alt="Captura" width="500" />
 
-### ✅ Implementadas
-- **Autenticação JWT** - Login seguro para empresas e funcionários
-- **Reconhecimento Facial** - Integração com AWS Rekognition
-- **Geolocalização** - Registro de ponto baseado em localização
-- **Dashboard** - Visualização de estatísticas e relatórios
-- **Gestão de Funcionários** - CRUD completo com upload de fotos
-- **Registros de Ponto** - Listagem, filtros e exportação
-- **Multi-empresa** - Isolamento de dados por empresa
-- **PWA** - Experiência mobile nativa
+## 🧩 Modulos do Projeto
 
-### 🚧 Em Desenvolvimento
-- Exportação avançada (PDF/CSV)
-- Notificações push
-- Modo escuro
-- Relatórios mensais detalhados
+- **Backend (Flask + Python)**: API REST, regras de negocio, autenticação e integrações AWS.
+- **Frontend Web (React + TypeScript)**: dashboard administrativo e gestao de funcionarios e registros.
+- **Portal Administrativo (React + TypeScript)**: interface dedicada para administradores.
+- **PWA Mobile (React + Vite + PWA)**: registro de ponto com geolocalizacao e suporte offline.
 
-## 📋 Pré-requisitos
+## 🔧 Tecnologias e Servicos
 
-- **Python 3.8+** (para backend)
-- **Node.js 18+** (para frontends)
-- **AWS Account** (Rekognition, S3, DynamoDB)
-- **Expo CLI** (opcional, para desenvolvimento mobile)
+- **Backend**: Flask, JWT, boto3, AWS Rekognition, DynamoDB, S3.
+- **Frontend**: React 18, TypeScript, Vite, Material UI, TailwindCSS.
+- **Infra**: AWS Lambda, API Gateway, S3, CloudFront.
+- **Mobile**: PWA com instalacao e funcionamento offline.
 
-## 🔧 Instalação e Configuração
+## ✨ Funcionalidades Principais
 
-### 1. Clonagem do Repositório
-```bash
-git clone <url-do-repositorio>
-cd RP_Full
-```
+- Reconhecimento facial e validacao por geolocalizacao.
+- Painel administrativo com relatorios e indicadores.
+- CRUD completo de funcionarios com upload de fotos.
+- Registros de ponto com filtros e exportação para CSV.
+- Isolamento de dados por empresa e controle de permissões.
 
-### 2. Backend
-```bash
-cd backend
-pip install -r requirements.txt
-# Configure as variáveis de ambiente (AWS credentials, etc.)
-python app.py
-```
+## 📌 Destaques de Arquitetura
 
-### 3. Frontend Web
-```bash
-cd front
-npm install
-npm run dev
-```
-
-### 4. Portal Administrativo
-```bash
-cd admin-portal
-npm install
-npm run dev
-```
-
-### 5. PWA Mobile
-```bash
-cd pwa-mobile
-npm install
-npm run dev
-```
-
-## 🌐 Configurações de Ambiente
-
-### Backend (.env)
-```env
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
-DYNAMODB_TABLE=registraponto-table
-S3_BUCKET=registraponto-bucket
-JWT_SECRET=your_jwt_secret
-```
-
-### Frontend (.env)
-```env
-VITE_API_URL=http://localhost:5000
-VITE_APP_NAME=REGISTRA.PONTO
-VITE_APP_VERSION=1.0.0
-```
-
-## 🔒 Segurança
-
-- **Autenticação JWT** com expiração automática
-- **HTTPS obrigatório** para funcionalidades de câmera e geolocalização
-- **Isolamento de dados** por empresa
-- **Validação de permissões** em todas as rotas
-- **Armazenamento seguro** de tokens e credenciais
-
-## 📊 Banco de Dados
-
-- **DynamoDB** - Dados principais (funcionários, registros)
-- **S3** - Armazenamento de fotos para reconhecimento facial
-- **Estrutura**: Chaves compostas por empresa para isolamento
-
-## 🚀 Deploy
-
-### Backend (AWS)
-- **Lambda** - Funções serverless
-- **API Gateway** - Exposição da API
-- **CloudFormation** - Infraestrutura como código
-
-### Frontend (AWS)
-- **S3 + CloudFront** - Hospedagem estática
-- **Route 53** - DNS
-- **Certificate Manager** - SSL/TLS
-
-## 📝 Scripts Disponíveis
-
-### Backend
-```bash
-python app.py              # Executar servidor de desenvolvimento
-python testar_sistema.py   # Testes do sistema
-```
-
-### Frontend
-```bash
-npm run dev     # Desenvolvimento
-npm run build   # Build para produção
-npm run preview # Preview do build
-```
-
-## 🤝 Contribuição
-
-1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Commit suas mudanças (`git commit -m 'Adiciona nova feature'`)
-4. Push para a branch (`git push origin feature/nova-feature`)
-5. Abra um Pull Request
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT.
-
-## 👨‍💻 Suporte
-
-Para dúvidas ou problemas:
-1. Consulte a documentação específica de cada módulo
-2. Verifique os logs de erro
-3. Entre em contato com o suporte técnico
+- Separação clara por módulos (API, web, portal, PWA).
+- Uso de servços gerenciados AWS para escala e resiliencia.
+- Pipeline de autenticação JWT e autorizacao por perfis.
 
 ---
 
-**Desenvolvido para controle de ponto eletrônico moderno**  
-Versão 1.0.0
+**Projeto de portfolio**
