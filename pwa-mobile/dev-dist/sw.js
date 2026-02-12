@@ -95,7 +95,7 @@ define(['./workbox-b6866b34'], (function (workbox) { 'use strict';
       maxAgeSeconds: 2592000
     })]
   }), 'GET');
-  workbox.registerRoute(/^https?:\/\/(192\.168\.\d+\.\d+:5000|registra-ponto\.duckdns\.org)\/api\/.*/, new workbox.NetworkFirst({
+  workbox.registerRoute(/^https?:\/\/[^/]+\/api\/.*/, new workbox.NetworkFirst({
     "cacheName": "api-cache",
     "networkTimeoutSeconds": 10,
     plugins: [new workbox.ExpirationPlugin({

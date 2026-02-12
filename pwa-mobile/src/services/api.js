@@ -1,9 +1,8 @@
 import axios from 'axios';
 
-// Forçar uso da API pública do projeto para o PWA dist.
-// Sempre retornar a URL fixa de produção.
+// Usa a URL definida em variavel de ambiente para evitar hardcode.
 const getApiUrl = () => {
-  return 'https://registra-ponto.duckdns.org';
+  return import.meta.env?.VITE_API_URL || '';
 };
 
 const API_URL = getApiUrl();

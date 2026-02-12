@@ -67,7 +67,7 @@ export default defineConfig({
             }
           },
           {
-            urlPattern: /^https?:\/\/(192\.168\.\d+\.\d+:5000|registra-ponto\.duckdns\.org)\/api\/.*/,
+            urlPattern: /^https?:\/\/[^/]+\/api\/.*/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

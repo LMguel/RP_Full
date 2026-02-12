@@ -87,7 +87,7 @@ sudo systemctl reload nginx
 
 ```bash
 # Obter certificado Let's Encrypt
-sudo certbot --nginx -d registra-ponto.duckdns.org
+sudo certbot --nginx -d $DOMAIN
 
 # Renovação automática já está configurada
 ```
@@ -99,7 +99,7 @@ sudo certbot --nginx -d registra-ponto.duckdns.org
 curl http://localhost:5000/health
 
 # Verificar Nginx
-curl https://registra-ponto.duckdns.org/health
+curl https://api.$DOMAIN/health
 ```
 
 ## 🔄 Atualizar Código
