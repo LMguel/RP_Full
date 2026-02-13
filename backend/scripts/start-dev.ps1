@@ -38,10 +38,24 @@ try {
     $backendJob = Start-Job -ScriptBlock ${function:Start-Backend}
     $frontendJob = Start-Job -ScriptBlock ${function:Start-Frontend}
     
+    # Carregar variáveis de ambiente
+    if (Test-Path ".\.env") {
+        Get-Content ".\.env" | ForEach-Object {
+            if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+                $name = $matches[1].Trim()
+                $value = $matches[2].Trim()
+                [Environment]::SetEnvironmentVariable($name, $value, "Process")
+            }
+        }
+    }
+    
+    $backendPort = if ($env:FLASK_PORT) { $env:FLASK_PORT } else { "5000" }
+    $frontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "5173" }
+    
     Write-Host ""
     Write-Host "✅ Aplicação iniciada com sucesso!" -ForegroundColor Green
-    Write-Host "🔗 Backend: http://localhost:5000" -ForegroundColor Cyan
-    Write-Host "🎨 Frontend: http://localhost:5173" -ForegroundColor Cyan
+    Write-Host "🔗 Backend: http://localhost:$backendPort" -ForegroundColor Cyan
+    Write-Host "🎨 Frontend: http://localhost:$frontendPort" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "⚠️  Pressione Ctrl+C para parar ambos os serviços" -ForegroundColor Yellow
     Write-Host ""

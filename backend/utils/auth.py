@@ -38,10 +38,13 @@ def get_secret_key():
         except:
             pass
     
-    # 4. Fallback hardcoded (para desenvolvimento)
+    # 4. Não usar fallback hardcoded por segurança
+    # SECRET_KEY deve estar sempre configurada via variável de ambiente
     if not secret_key:
-        secret_key = "frichimibu"  # Seu valor padrão
-        print("[DEBUG] Usando SECRET_KEY hardcoded")
+        raise ValueError(
+            "SECRET_KEY não encontrada! "
+            "Configure a variável de ambiente SECRET_KEY ou crie um arquivo .env com SECRET_KEY"
+        )
     
     # Garantir que é string
     if secret_key is not None:

@@ -80,11 +80,13 @@ npm run preview
 
 ## 🌐 API
 
-Configure o endpoint da API em `src/services/api.js`:
+Configure a URL da API no arquivo **`.env`** na raiz do projeto (copie de `.env.example`):
 
-```javascript
-const API_URL = 'http://192.168.1.5:5000';
+```env
+VITE_API_URL=http://localhost:5000
 ```
+
+Em produção, use a URL do seu backend. O arquivo `.env` não é commitado (está no `.gitignore`).
 
 ## 📝 Estrutura
 

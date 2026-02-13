@@ -1,12 +1,15 @@
 import axios from 'axios';
 
-// Forçar uso da API pública do projeto para o PWA dist.
-// Sempre retornar a URL fixa de produção.
-const getApiUrl = () => {
-  return 'https://registra-ponto.duckdns.org';
-};
+// API URL deve estar configurada no arquivo .env
+// Variável de ambiente: VITE_API_URL
+const API_URL = import.meta.env.VITE_API_URL;
 
-const API_URL = getApiUrl();
+if (!API_URL) {
+  throw new Error(
+    "VITE_API_URL não está configurada! " +
+    "Crie um arquivo .env na raiz do projeto com a variável VITE_API_URL apontando para a URL da API."
+  );
+}
 
 // Log para debug - remover em produção
 console.log('[API] URL configurada:', API_URL);

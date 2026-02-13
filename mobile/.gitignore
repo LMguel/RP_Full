@@ -58,3 +58,9 @@ logs
 # Testing
 coverage/
 .jest/
+
+# Backup / temp
+*.backup
+*.bak
+*.tmp
+dev-dist

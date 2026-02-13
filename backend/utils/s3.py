@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Optional
 import os
 
-s3 = boto3.client('s3', region_name='us-east-1')
+# Região AWS configurável via variável de ambiente
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+s3 = boto3.client('s3', region_name=AWS_REGION)
 BUCKET = os.environ.get('S3_BUCKET', 'registraponto-prod-fotos')
 
 def generate_s3_key(company_id: str, employee_id: str, timestamp: datetime = None) -> str:

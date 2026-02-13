@@ -3,9 +3,9 @@ from datetime import datetime, timedelta, date
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from boto3.dynamodb.conditions import Key, Attr
-from auth import verify_token
+from utils.auth import verify_token
 from functools import wraps
-from aws_utils import dynamodb
+from utils.aws import dynamodb
 import boto3
 
 # Tabelas DynamoDB

@@ -1,12 +1,14 @@
 from flask import Flask, jsonify, make_response, request
 from flask_cors import CORS
-from routes import routes
-from routes_v2 import routes_v2
-from routes_daily import daily_routes
-from routes_dashboard import dashboard_routes
-from routes_admin_auth import auth_admin_routes
-from routes_admin import admin_routes
-from routes_facial import routes_facial
+from routes import (
+    routes,
+    routes_v2,
+    daily_routes,
+    dashboard_routes,
+    auth_admin_routes,
+    admin_routes,
+    routes_facial
+)
 import os
 import json
 from dotenv import load_dotenv
@@ -15,10 +17,20 @@ load_dotenv()
 
 if 'AWS_LAMBDA_STAGE_VARIABLES' in os.environ:
     stage_vars = json.loads(os.environ['AWS_LAMBDA_STAGE_VARIABLES'])
-    os.environ['SECRET_KEY'] = stage_vars.get('SECRET_KEY', 'frichimibu')
+    if 'SECRET_KEY' in stage_vars:
+        os.environ['SECRET_KEY'] = stage_vars.get('SECRET_KEY')
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback-secret-key-for-development')
+# SECRET_KEY deve estar definida em variável de ambiente
+# Em desenvolvimento, use .env file
+# Em produção, configure via variável de ambiente ou AWS Lambda stage variables
+secret_key = os.getenv('SECRET_KEY')
+if not secret_key:
+    raise ValueError(
+        "SECRET_KEY não encontrada! "
+        "Configure a variável de ambiente SECRET_KEY ou crie um arquivo .env"
+    )
+app.config['SECRET_KEY'] = secret_key
 
 CORS(
     app,
@@ -55,7 +67,13 @@ if __name__ == '__main__':
     cert_file = 'cert.pem'
     key_file = 'key.pem'
     disable_ssl = os.getenv('DISABLE_SSL_DEV', '0') == '1'
+    
+    # Configurações do servidor via variáveis de ambiente
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    port = int(os.getenv('FLASK_PORT', '5000'))
+    debug = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    
     if not disable_ssl and os.path.exists(cert_file) and os.path.exists(key_file):
-        app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=(cert_file, key_file))
+        app.run(host=host, port=port, debug=debug, ssl_context=(cert_file, key_file))
     else:
-        app.run(host='0.0.0.0', port=5000, debug=True)
+        app.run(host=host, port=port, debug=debug)

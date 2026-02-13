@@ -43,6 +43,19 @@ node_modules/
 npm-debug.log
 yarn-error.log
 
+# Build / deploy artifacts
+dev-dist/
+dist/
+dist-ssr/
+*.backup
+*.bak
+*.tmp
+# Front deploy artifacts (Cloudflare / build)
+front/cf_*.html
+front/index_deployed.html
+front/index_asset_deployed.js
+front/sw_deployed.js
+
 # Local logs
 *.log
 

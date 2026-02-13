@@ -7,10 +7,10 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Key
-from auth import verify_token
+from utils.auth import verify_token
 from functools import wraps
 from models import DailySummary, MonthlySummary, TimeRecord
-from summary_calculator import (
+from services.summary import (
     calculate_daily_summary,
     save_daily_summary,
     calculate_monthly_summary,
@@ -18,8 +18,8 @@ from summary_calculator import (
     rebuild_daily_summary,
     rebuild_monthly_summary
 )
-from s3_manager import upload_photo_to_s3, generate_s3_key, get_photo_url
-from aws_utils import (
+from utils.s3 import upload_photo_to_s3, generate_s3_key, get_photo_url
+from utils.aws import (
     tabela_funcionarios as table_employees,
     tabela_registros as table_records,
     tabela_configuracoes as table_config,

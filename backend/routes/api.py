@@ -6,20 +6,20 @@ import uuid
 import tempfile
 import os
 import boto3
-from aws_utils import (
+from utils.aws import (
     tabela_funcionarios, tabela_registros, enviar_s3, reconhecer_funcionario, rekognition, BUCKET, COLLECTION, REGIAO, tabela_usuarioempresa, tabela_configuracoes
 )
 from functools import wraps
-from auth import verify_token
+from utils.auth import verify_token
 from werkzeug.security import check_password_hash
 import jwt
 from flask import current_app
 from boto3.dynamodb.conditions import Attr, Key
-from overtime_calculator import calculate_overtime, format_minutes_to_time
-from geolocation_utils import validar_localizacao, formatar_distancia
+from services.overtime import calculate_overtime, format_minutes_to_time
+from utils.geolocation import validar_localizacao, formatar_distancia
 import unicodedata
 import re
-from logger import setup_logger
+from utils.logger import setup_logger
 
 s3 = boto3.client('s3', region_name=REGIAO)
 

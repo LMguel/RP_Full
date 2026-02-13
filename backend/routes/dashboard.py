@@ -6,14 +6,14 @@ from flask import Blueprint, jsonify, request
 from datetime import datetime, date, timedelta
 from boto3.dynamodb.conditions import Key, Attr
 import boto3
-from auth import verify_token
+from utils.auth import verify_token
 from decimal import Decimal, InvalidOperation
 import calendar
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
-from aws_utils import tabela_configuracoes as table_config
-from overtime_calculator import calculate_overtime
+from utils.aws import tabela_configuracoes as table_config
+from services.overtime import calculate_overtime
 
 dashboard_routes = Blueprint('dashboard_routes', __name__)
 

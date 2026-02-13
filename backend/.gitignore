@@ -8,6 +8,9 @@
 *.key
 aws-credentials.json
 
+# Dependências compiladas (não devem estar no repositório)
+lambda_dependencies/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -56,3 +59,6 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Deploy files with sensitive information
+deploy/nginx.conf

@@ -10,7 +10,7 @@ WorkingDirectory=/home/ubuntu/RP_Full/backend
 Environment="PATH=/home/ubuntu/RP_Full/backend/venv/bin"
 Environment="PYTHONPATH=/home/ubuntu/RP_Full/backend"
 EnvironmentFile=/home/ubuntu/RP_Full/backend/.env
-ExecStart=/home/ubuntu/RP_Full/backend/venv/bin/gunicorn --config gunicorn.conf.py wsgi:app
+ExecStart=/home/ubuntu/RP_Full/backend/venv/bin/gunicorn --config config/gunicorn.py wsgi:app
 ExecReload=/bin/kill -s HUP $MAINPID
 KillMode=mixed
 TimeoutStopSec=5

@@ -92,7 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Call backend API for authentication
-    const apiUrl = import.meta.env.VITE_API_URL || "https://registra-ponto.duckdns.org";
+    const apiUrl = import.meta.env.VITE_API_URL;
+    
+    if (!apiUrl) {
+      throw new Error(
+        "VITE_API_URL não está configurada! " +
+        "Crie um arquivo .env na raiz do projeto com a variável VITE_API_URL."
+      );
+    }
     
     const response = await fetch(`${apiUrl}/api/auth/admin-login`, {
       method: "POST",

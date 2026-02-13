@@ -78,11 +78,14 @@ def reconhecer_funcionario(caminho_foto):
             image_bytes = image_file.read()
             print(f"[REKOGNITION] Tamanho da imagem: {len(image_bytes)} bytes")
         
+        # Threshold configurável via variável de ambiente (padrão: 85)
+        threshold = int(os.environ.get('REKOGNITION_THRESHOLD', '85'))
+        
         response = rekognition.search_faces_by_image(
             CollectionId=COLLECTION,
             Image={'Bytes': image_bytes},
             MaxFaces=1,
-            FaceMatchThreshold=85
+            FaceMatchThreshold=threshold
         )
         
         print(f"[REKOGNITION] Resposta recebida: {response}")

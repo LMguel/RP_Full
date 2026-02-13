@@ -1,8 +1,11 @@
 """Gunicorn configuration file for production"""
 import multiprocessing
+import os
 
-# Server socket
-bind = "0.0.0.0:5000"
+# Server socket - configurável via variáveis de ambiente
+gunicorn_host = os.getenv('GUNICORN_HOST', '0.0.0.0')
+gunicorn_port = os.getenv('GUNICORN_PORT', '8000')
+bind = f"{gunicorn_host}:{gunicorn_port}"
 backlog = 2048
 
 # Worker processes

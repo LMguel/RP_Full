@@ -9,9 +9,9 @@ import os
 import uuid
 import tempfile
 from werkzeug.utils import secure_filename
-from auth import verify_token
+from utils.auth import verify_token
 from functools import wraps
-from aws_utils import reconhecer_funcionario, tabela_funcionarios, tabela_registros, enviar_s3, tabela_configuracoes
+from utils.aws import reconhecer_funcionario, tabela_funcionarios, tabela_registros, enviar_s3, tabela_configuracoes
 
 routes_facial = Blueprint('routes_facial', __name__)
 

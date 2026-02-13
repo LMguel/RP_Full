@@ -58,9 +58,16 @@ def main():
         # Inicia o frontend após uma pequena pausa
         frontend_thread.start()
         
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        backend_port = os.getenv('FLASK_PORT', '5000')
+        frontend_port = os.getenv('FRONTEND_PORT', '5173')
+        
         print("\n✅ Aplicação iniciada com sucesso!")
-        print("🔗 Backend: http://localhost:5000")
-        print("🎨 Frontend: http://localhost:5173")
+        print(f"🔗 Backend: http://localhost:{backend_port}")
+        print(f"🎨 Frontend: http://localhost:{frontend_port}")
         print("\n⚠️  Pressione Ctrl+C para parar ambos os serviços\n")
         
         # Mantém o script rodando
