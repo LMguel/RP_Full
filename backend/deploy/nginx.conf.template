@@ -1,6 +1,10 @@
 server {
     listen 80;
+<<<<<<< HEAD:backend/deploy/nginx.conf.template
     server_name SEU_DOMINIO_AQUI;
+=======
+    server_name ${SERVER_NAME};
+>>>>>>> 00f317441bf5cad651f90046ca77fbb1254f8c5a:backend/nginx-registraponto.conf
 
     # Redirect HTTP to HTTPS
     return 301 https://$server_name$request_uri;
@@ -8,11 +12,19 @@ server {
 
 server {
     listen 443 ssl http2;
+<<<<<<< HEAD:backend/deploy/nginx.conf.template
     server_name SEU_DOMINIO_AQUI;
 
     # SSL certificates (substitua pelo caminho real)
     ssl_certificate /etc/letsencrypt/live/SEU_DOMINIO_AQUI/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/SEU_DOMINIO_AQUI/privkey.pem;
+=======
+    server_name ${SERVER_NAME};
+
+    # SSL Certificates (altere os caminhos conforme necessário)
+    ssl_certificate /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
+>>>>>>> 00f317441bf5cad651f90046ca77fbb1254f8c5a:backend/nginx-registraponto.conf
 
     # SSL configuration
     ssl_protocols TLSv1.2 TLSv1.3;
