@@ -1,48 +1,31 @@
-import React, { useEffect } from 'react'
-import { motion } from 'framer-motion'
+import React from 'react'
 
-export default function ImageModal({open, images = [], index = 0, onClose, onPrev, onNext}){
-  if(!open) return null
-  const img = images?.[index]
+export default function ImageModal({ src, alt, onClose }) {
+    if (!src) return null
 
-  useEffect(()=>{
-    function onKey(e){
-      if(e.key === 'Escape') onClose && onClose()
-      if(e.key === 'ArrowLeft') onPrev && onPrev()
-      if(e.key === 'ArrowRight') onNext && onNext()
-    }
-    window.addEventListener('keydown', onKey)
-    return ()=> window.removeEventListener('keydown', onKey)
-  }, [onClose, onPrev, onNext])
+    return (
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.85)' }}
+            onClick={onClose}
+        >
+            {/* Close button */}
+            <button
+                onClick={onClose}
+                className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
+                aria-label="Fechar"
+            >
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+            </button>
 
-  return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/65" onClick={onClose} />
-      <div className="relative max-w-5xl w-full mx-4">
-        <button onClick={onClose} aria-label="Fechar" className="absolute right-3 top-3 z-50 bg-white/10 text-white rounded-full p-3 shadow-md">✕</button>
-
-        <button onClick={(e)=>{ e.stopPropagation(); onPrev && onPrev() }} aria-label="Anterior" className="hidden sm:flex items-center justify-center absolute left-3 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 text-white z-50">‹</button>
-        <button onClick={(e)=>{ e.stopPropagation(); onNext && onNext() }} aria-label="Próximo" className="hidden sm:flex items-center justify-center absolute right-3 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 text-white z-50">›</button>
-
-        <div className="glass rounded overflow-hidden">
-          <motion.img
-            key={img?.src}
-            src={img?.src}
-            alt={img?.alt}
-            className="w-full h-[80vh] object-contain rounded touch-action-pan-y"
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.25}
-            onDragEnd={(e, info)=>{
-              const x = info.offset.x
-              if(x > 60) onPrev && onPrev()
-              else if(x < -60) onNext && onNext()
-            }}
-          />
+            <img
+                src={src}
+                alt={alt || ''}
+                className="max-w-full max-h-[90vh] object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+            />
         </div>
-
-        <div className="mt-2 text-center text-sm text-white/70">{img?.label}</div>
-      </div>
-    </div>
-  )
+    )
 }

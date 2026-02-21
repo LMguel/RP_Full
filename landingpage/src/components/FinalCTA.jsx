@@ -1,21 +1,25 @@
 import React from 'react'
-import { motion } from 'framer-motion'
+import LeadFormFull from './LeadFormFull'
 
-export default function FinalCTA({onRequestDemo}){
-  return (
-    <motion.section initial={{opacity:0, y:10}} whileInView={{opacity:1, y:0}} viewport={{once:true}} transition={{duration:0.6}} className="mt-12 mb-12 py-12 text-center">
-      <div className="max-w-3xl mx-auto px-6">
-        <div className="p-6 rounded-xl glass hover-glow">
-          <h2 className="text-2xl md:text-3xl font-bold text-white">Pronto para modernizar o controle de ponto da sua empresa?</h2>
-          <p className="mt-3 text-white/80">Agende uma demonstração e veja o REGISTRA.PONTO em ação.</p>
+export default function FinalCTA() {
+    return (
+        <section id="contato" className="section" style={{ background: '#0d1a3a' }}>
+            <div className="max-w-2xl mx-auto px-4 md:px-8">
+                <h2 className="text-2xl md:text-3xl font-bold text-white text-center mb-3">
+                    Quer ver funcionando na sua empresa?
+                </h2>
+                <p className="text-center text-slate-400 mb-8">
+                    Preencha o formulário e receba o link da demo com os valores.
+                </p>
 
-          <div className="mt-6">
-            <motion.button whileHover={{scale:1.03}} whileTap={{scale:0.98}} onClick={onRequestDemo} className="inline-block gradient-btn text-white px-8 py-3 rounded-md text-lg font-semibold shadow">
-              Agendar demonstração
-            </motion.button>
-          </div>
-        </div>
-      </div>
-    </motion.section>
-  )
+                <div className="rounded-2xl shadow-lg p-6 md:p-8" style={{ background: '#fff' }}>
+                    <LeadFormFull />
+                </div>
+
+                <p className="text-center text-slate-500 text-sm mt-6">
+                    Vou responder por e-mail ainda hoje com o link da demo e os valores.
+                </p>
+            </div>
+        </section>
+    )
 }

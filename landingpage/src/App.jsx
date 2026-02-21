@@ -1,59 +1,40 @@
 import React, { useState } from 'react'
+import Header from './components/Header'
 import Hero from './components/Hero'
-import Trust from './components/Trust'
-import Benefits from './components/Benefits'
-import Problems from './components/Problems'
-import Solution from './components/Solution'
 import HowItWorks from './components/HowItWorks'
-import Screens from './components/Screens'
-import Testimonials from './components/Testimonials'
-import Differentials from './components/Differentials'
-import Audience from './components/Audience'
+import ProofGallery from './components/ProofGallery'
 import Pricing from './components/Pricing'
-import Security from './components/Security'
+import Benefits from './components/Benefits'
 import FAQ from './components/FAQ'
 import FinalCTA from './components/FinalCTA'
 import Footer from './components/Footer'
-import ContactForm from './components/ContactForm'
-import DemoModal from './components/DemoModal'
-import StickyCTA from './components/StickyCTA'
-import CookieConsent from './components/CookieConsent'
-import FloatingLogo from './components/FloatingLogo'
-import Reveal from './components/Reveal'
+import ImageModal from './components/ImageModal'
 
-// App layout composing the sections - textos em Português conforme solicitado
-export default function App(){
-  const [demoOpen, setDemoOpen] = useState(false)
-  const openDemo = () => setDemoOpen(true)
-  const closeDemo = () => setDemoOpen(false)
+export default function App() {
+  const [modalImg, setModalImg] = useState(null)
+
+  function openImage(src, alt) {
+    setModalImg({ src, alt })
+  }
+
+  function closeImage() {
+    setModalImg(null)
+  }
 
   return (
-    <div className="site-bg min-h-screen text-gray-100">
-      <div className="site-content">
-      <Hero onRequestDemo={openDemo} />
-      <main className="max-w-6xl mx-auto px-4 md:px-8">
-        <Reveal><Benefits onRequestDemo={openDemo} /></Reveal>
-        <Reveal><Trust /></Reveal>
-        <Reveal delay={0.06}><Problems /></Reveal>
-        <Reveal delay={0.08}><Solution /></Reveal>
-        <Reveal delay={0.10}><HowItWorks /></Reveal>
-        <Reveal delay={0.12}><Screens /></Reveal>
-        <Reveal delay={0.14}><Testimonials /></Reveal>
-        <Reveal delay={0.16}><Differentials /></Reveal>
-        <Reveal delay={0.18}><Audience /></Reveal>
-        <Reveal delay={0.20}><Pricing onRequestDemo={openDemo} /></Reveal>
-        <Reveal delay={0.22}><Security /></Reveal>
-        <Reveal delay={0.24}><FAQ /></Reveal>
-        <Reveal delay={0.26}><FinalCTA onRequestDemo={openDemo} /></Reveal>
-        <Reveal delay={0.28}><ContactForm /></Reveal>
+    <div className="min-h-screen" style={{ background: '#F8FAFC' }}>
+      <Header />
+      <Hero onImageClick={openImage} />
+      <main>
+        <HowItWorks onImageClick={openImage} />
+        <ProofGallery onImageClick={openImage} />
+        <Pricing />
+        <Benefits />
+        <FAQ />
+        <FinalCTA />
       </main>
       <Footer />
-      <FloatingLogo />
-      
-      <StickyCTA onRequestDemo={openDemo} />
-      <DemoModal open={demoOpen} onClose={closeDemo} />
-      <CookieConsent />
-      </div>
+      <ImageModal src={modalImg?.src} alt={modalImg?.alt} onClose={closeImage} />
     </div>
   )
 }
