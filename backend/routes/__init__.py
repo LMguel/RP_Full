@@ -8,6 +8,7 @@ from .dashboard import dashboard_routes
 from .facial import routes_facial
 from .admin import admin_routes
 from .admin_auth import auth_admin_routes
+from .feriados import feriados_routes
 
 __all__ = [
     'routes',
@@ -16,6 +17,7 @@ __all__ = [
     'dashboard_routes',
     'routes_facial',
     'admin_routes',
-    'auth_admin_routes'
+    'auth_admin_routes',
+    'feriados_routes',
 ]
 

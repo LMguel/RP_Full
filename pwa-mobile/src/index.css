@@ -17,6 +17,20 @@ body {
   overscroll-behavior: none;
 }
 
+/* Esconder scrollbar mas manter funcionalidade */
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  display: none;
+}
+
+body,
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
 #root {
   min-height: 100vh;
   min-height: -webkit-fill-available;

@@ -44,7 +44,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 import { Employee } from '../types';
 import EmployeeForm from '../components/EmployeeForm';
-import ResetPasswordModal from '../components/ResetPasswordModal';
 
 const EmployeesPage: React.FC = () => {
   const { user } = useAuth();
@@ -60,8 +59,6 @@ const EmployeesPage: React.FC = () => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
-  const [employeeToResetPassword, setEmployeeToResetPassword] = useState<Employee | null>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
 
   // Extract unique cargos from existing employees
@@ -251,12 +248,6 @@ const EmployeesPage: React.FC = () => {
   const handleDelete = () => {
     setEmployeeToDelete(selectedEmployee);
     setDeleteDialogOpen(true);
-    handleMenuClose();
-  };
-
-  const handleResetPassword = () => {
-    setEmployeeToResetPassword(selectedEmployee);
-    setResetPasswordOpen(true);
     handleMenuClose();
   };
 
@@ -571,12 +562,7 @@ const EmployeesPage: React.FC = () => {
           </ListItemIcon>
           <ListItemText>Editar</ListItemText>
         </MenuItem>
-        <MenuItem onClick={handleResetPassword} sx={{ color: '#f59e0b' }}>
-          <ListItemIcon>
-            <VpnKeyIcon fontSize="small" sx={{ color: '#f59e0b' }} />
-          </ListItemIcon>
-          <ListItemText>Redefinir Senha</ListItemText>
-        </MenuItem>
+
         <MenuItem onClick={handleDelete} sx={{ color: '#ef4444' }}>
           <ListItemIcon>
             <DeleteIcon fontSize="small" sx={{ color: '#ef4444' }} />
@@ -630,16 +616,6 @@ const EmployeesPage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-        {/* Reset Password Modal */}
-        <ResetPasswordModal
-          open={resetPasswordOpen}
-          onClose={() => {
-            setResetPasswordOpen(false);
-            setEmployeeToResetPassword(null);
-          }}
-          userId={employeeToResetPassword?.id}
-        />
       </div>
     </PageLayout>
   );

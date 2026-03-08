@@ -586,7 +586,7 @@ def atualizar_funcionario(payload, funcionario_id):
         
         # Hash da senha se fornecida
         if senha and senha.strip():
-            from auth import hash_password
+            from utils.auth import hash_password
             senha_hash = hash_password(senha)
             funcionario['senha_hash'] = senha_hash
             # Armazenar senha original para exibição (AVISO: não é seguro, apenas para conveniência)
@@ -918,7 +918,7 @@ def cadastrar_funcionario(payload):
         # Hash da senha se fornecida
         senha_hash = None
         if senha:
-            from auth import hash_password
+            from utils.auth import hash_password
             senha_hash = hash_password(senha)
         
         # Criar ID único para o funcionário: primeiro nome (sem acentos, minúsculo) + número aleatório
@@ -2278,7 +2278,7 @@ def login():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
 
-    from auth import verify_password, get_secret_key
+    from utils.auth import verify_password, get_secret_key
     import datetime
     import jwt
 
@@ -2360,7 +2360,7 @@ def cadastrar_usuario_empresa():
     if request.method == 'OPTIONS':
         return '', 200
     
-    from auth import hash_password
+    from utils.auth import hash_password
     import re
     
     try:
@@ -2453,7 +2453,7 @@ def login_funcionario():
     if request.method == 'OPTIONS':
         return '', 200
     
-    from auth import verify_password, get_secret_key
+    from utils.auth import verify_password, get_secret_key
     import datetime
     import jwt
     

@@ -50,6 +50,7 @@ interface UnifiedRecordsFilterProps {
   // Controles de exibição
   showExportButton?: boolean;
   exportDisabled?: boolean;
+  exportLabel?: string;
   
   // Funcionários (opcional - se não fornecido, busca internamente)
   employees?: EmployeeOption[];
@@ -93,6 +94,7 @@ const UnifiedRecordsFilter: React.FC<UnifiedRecordsFilterProps> = ({
   onExportExcel,
   showExportButton = true,
   exportDisabled = false,
+  exportLabel = 'Exportar Excel',
   employees: externalEmployees,
 }) => {
   const [employees, setEmployees] = useState<EmployeeOption[]>(externalEmployees || []);
@@ -354,7 +356,7 @@ const UnifiedRecordsFilter: React.FC<UnifiedRecordsFilterProps> = ({
               }
             }}
           >
-            Exportar Excel
+            {exportLabel}
           </Button>
         )}
       </Box>

@@ -7,7 +7,8 @@ from routes import (
     dashboard_routes,
     auth_admin_routes,
     admin_routes,
-    routes_facial
+    routes_facial,
+    feriados_routes,
 )
 import os
 import json
@@ -46,6 +47,7 @@ app.register_blueprint(dashboard_routes)
 app.register_blueprint(auth_admin_routes)
 app.register_blueprint(admin_routes)
 app.register_blueprint(routes_facial)
+app.register_blueprint(feriados_routes)
 
 @app.route('/health', methods=['GET'])
 def health_check():

@@ -38,6 +38,7 @@ import { apiService } from '../services/api';
 import { CompanySettings } from '../types';
 import LocationSettings from '../components/LocationSettings';
 import HorarioEmpresaSettings from '../components/HorarioEmpresaSettings';
+import HolidayCalendarSettings from '../components/HolidayCalendarSettings';
 
 // Componente para configurações de ponto e horas extras
 const TimeTrackingSettings: React.FC = () => {
@@ -494,6 +495,17 @@ const SettingsPage: React.FC = () => {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <TimeTrackingSettings />
+          </motion.div>
+        </Grid>
+
+        {/* Calendário de Feriados */}
+        <Grid size={{ xs: 12 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.12 }}
+          >
+            <HolidayCalendarSettings />
           </motion.div>
         </Grid>
 

@@ -19,7 +19,7 @@ import {
 import UnifiedRecordsFilter from '../components/UnifiedRecordsFilter';
 import TimeRecordForm from '../components/TimeRecordForm';
 import { motion } from 'framer-motion';
-import * as XLSX from 'xlsx';
+import XLSXStyle from 'xlsx-js-style';
 import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 import { Employee } from '../types';
@@ -409,66 +409,179 @@ const RecordsSummaryPage: React.FC = () => {
   };
 
   // Exportar para Excel
-  const exportToExcel = () => {
-    const formatDate = (dateValue?: string) => {
-      if (!dateValue) return '';
-      const trimmed = dateValue.trim();
-      const isoCandidate = trimmed.slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
-        const [year, month, day] = isoCandidate.split('-');
-        return `${day}/${month}/${year}`;
+  const exportToExcel = async () => {
+    if (employeeSummaries.length === 0) return;
+    showSnackbar('Gerando Excel, aguarde...', 'info');
+
+    try {
+      // ── Estilos preto e branco idênticos ao EmployeeRecordsPage ──
+      const bThin  = { style: 'thin',   color: { rgb: '000000' } };
+      const bThick = { style: 'medium', color: { rgb: '000000' } };
+      const bAll   = { top: bThin, bottom: bThin, left: bThin, right: bThin };
+      const bBox   = { top: bThick, bottom: bThick, left: bThick, right: bThick };
+      const W      = { fgColor: { rgb: 'FFFFFF' } };
+      const GRAY   = { fgColor: { rgb: 'D9D9D9' } };
+      const sTitle = { font: { bold: true, sz: 13, color: { rgb: '000000' } }, fill: GRAY, alignment: { horizontal: 'left', vertical: 'center', wrapText: true }, border: bBox };
+      const sMeta  = { font: { sz: 11, color: { rgb: '000000' } }, fill: W, alignment: { horizontal: 'left', vertical: 'center' }, border: bAll };
+      const sHdr   = (left = false) => ({ font: { bold: true, sz: 11, color: { rgb: '000000' } }, fill: GRAY, alignment: { horizontal: left ? 'left' : 'center', vertical: 'center', wrapText: true }, border: bAll });
+      const sCell  = (bold = false, left = false) => ({ font: { bold, sz: 11, color: { rgb: '000000' } }, fill: W, alignment: { horizontal: left ? 'left' : 'center', vertical: 'center', wrapText: true }, border: bAll });
+      const sSaldo = (pos: boolean) => ({ font: { bold: true, sz: 11, color: { rgb: '000000' } }, fill: pos ? { fgColor: { rgb: 'D9EAD3' } } : { fgColor: { rgb: 'FCE5CD' } }, alignment: { horizontal: 'center', vertical: 'center' }, border: bAll });
+      const sEmpty = { font: { sz: 10 }, fill: W, border: bAll };
+
+      const COLS8 = ['A','B','C','D','E','F','G','H'];
+      const styleRow = (ws: any, r: number, fn: (ci: number) => any) =>
+        COLS8.forEach((c, ci) => { const ref = c + r; if (ws[ref]) ws[ref].s = fn(ci); });
+
+      // ── Helpers ──────────────────────────────────────────────
+      const parseDataHora = (s: string): Date => {
+        if (!s) return new Date(0);
+        const [datePart, timePart = ''] = s.includes('T') ? s.split('T') : s.split(' ');
+        const segs = datePart.split('-');
+        const iso = segs[0].length === 4 ? `${datePart}T${timePart}` : `${segs[2]}-${segs[1]}-${segs[0]}T${timePart}`;
+        return new Date(iso);
+      };
+      const toHHMM = (min: number) => { const s = min < 0 ? '-' : ''; const a = Math.abs(min); return `${s}${String(Math.floor(a/60)).padStart(2,'0')}:${String(a%60).padStart(2,'0')}`; };
+      const fmtTime = (s: string) => { if (!s) return '-'; const t = s.includes('T') ? s.split('T')[1] : s.split(' ')[1]; return t ? t.substring(0,5) : '-'; };
+
+      const calcMinutos = (records: any[]): number => {
+        let total = 0; let entrada: Date | null = null;
+        [...records].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime()).forEach(r => {
+          const tipo = (r.type||r.tipo||'').toLowerCase();
+          const dt = parseDataHora(r.data_hora||'');
+          if (tipo === 'entrada') { entrada = dt; }
+          else if (['saida','saída','saida_final','saída_final','checkout'].includes(tipo) && entrada) {
+            total += (dt.getTime() - (entrada as Date).getTime()) / 60000;
+            entrada = null;
+          }
+        });
+        return Math.round(total);
+      };
+
+      const buildDays = (records: any[], inicio: string, fim: string) => {
+        const DEFAULT_INT = 60;
+        const todayISO = new Date().toISOString().slice(0, 10);
+        const DAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+        const grouped: Record<string, any[]> = {};
+        records.forEach((r: any) => {
+          if (!r.data_hora) return;
+          const raw = r.data_hora.includes('T') ? r.data_hora.split('T')[0] : r.data_hora.split(' ')[0];
+          const segs = raw.split('-');
+          const key = segs[0].length === 4 ? raw : `${segs[2]}-${segs[1]}-${segs[0]}`;
+          grouped[key] = grouped[key] || [];
+          grouped[key].push(r);
+        });
+        const result: any[] = [];
+        const start = new Date(inicio + 'T12:00:00');
+        const end   = new Date(fim   + 'T12:00:00');
+        for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const iso = d.toISOString().slice(0, 10);
+          const dayRecs = grouped[iso] || [];
+          const dow = d.getDay();
+          const entRec    = dayRecs.find((r: any) => (r.type||r.tipo||'').toLowerCase() === 'entrada');
+          const saiRec    = [...dayRecs].reverse().find((r: any) => ['saida','saída','saida_final','saída_final','checkout'].includes((r.type||r.tipo||'').toLowerCase()));
+          const saiIntRec = dayRecs.find((r: any) => ['intervalo_inicio','saida_intervalo','intervalo_saida'].includes((r.type||r.tipo||'').toLowerCase()));
+          const voltaRec  = dayRecs.find((r: any) => ['intervalo_fim','volta_intervalo','retorno','intervalo_volta'].includes((r.type||r.tipo||'').toLowerCase()));
+          let horasTrab = '-', horasPrev = '-';
+          if (dayRecs.length) {
+            const rawMin = calcMinutos(dayRecs);
+            const hasInt = !!(saiIntRec || voltaRec);
+            horasTrab = toHHMM(hasInt ? rawMin : Math.max(0, rawMin - DEFAULT_INT));
+          }
+          if (dow >= 1 && dow <= 5) {
+            if (entRec && saiRec) {
+              const diffMin = (parseDataHora(saiRec.data_hora||'').getTime() - parseDataHora(entRec.data_hora||'').getTime()) / 60000;
+              horasPrev = toHHMM(Math.max(0, diffMin - DEFAULT_INT));
+            } else {
+              horasPrev = '08:00';
+            }
+          }
+          result.push({ iso, dia: DAYS[dow], dow, entrada: entRec ? fmtTime(entRec.data_hora||'') : '-', saida_int: saiIntRec ? fmtTime(saiIntRec.data_hora||'') : '-', volta_int: voltaRec ? fmtTime(voltaRec.data_hora||'') : '-', saida: saiRec ? fmtTime(saiRec.data_hora||'') : '-', horasTrab, horasPrev, hasRecs: dayRecs.length > 0, isPast: iso <= todayISO });
+        }
+        return result;
+      };
+
+      // ── Workbook ──────────────────────────────────────────────
+      const wb = XLSXStyle.utils.book_new();
+      const periodo = `${dateRange.start_date || '—'} a ${dateRange.end_date || '—'}`;
+
+      // Aba 1: Resumo Geral
+      const COLS4 = ['A','B','C','D'];
+      const resumoAoa: any[][] = [
+        ['RESUMO GERAL DE PONTO', '', '', ''],
+        ['Período: ' + periodo, '', '', ''],
+        ['Funcionário', 'H. Trabalhadas', 'H. Extras', ''],
+        ...employeeSummaries.map(s => [
+          s.funcionario_nome || s.funcionario,
+          formatMinutesToHHMM(s.horas_trabalhadas || 0),
+          formatMinutesToHHMM(s.horas_extras || 0),
+          '',
+        ]),
+      ];
+      const wsG = XLSXStyle.utils.aoa_to_sheet(resumoAoa);
+      const styleRow4 = (ws: any, r: number, fn: (ci: number) => any) =>
+        COLS4.forEach((c, ci) => { const ref = c + r; if (ws[ref]) ws[ref].s = fn(ci); });
+      styleRow4(wsG, 1, () => sTitle);
+      styleRow4(wsG, 2, () => sMeta);
+      styleRow4(wsG, 3, (ci) => ci < 3 ? sHdr(ci === 0) : sEmpty);
+      employeeSummaries.forEach((_, ri) => styleRow4(wsG, 4 + ri, (ci) => ci < 3 ? sCell(false, ci === 0) : sEmpty));
+      wsG['!cols'] = [{ wch: 32 }, { wch: 17 }, { wch: 14 }, { wch: 4 }];
+      wsG['!merges'] = [{ s:{ r:0,c:0 }, e:{ r:0,c:3 } }, { s:{ r:1,c:0 }, e:{ r:1,c:3 } }];
+      XLSXStyle.utils.book_append_sheet(wb, wsG, 'Resumo Geral');
+
+      // Uma aba por funcionário
+      for (const summary of employeeSummaries) {
+        let records: any[] = [];
+        try {
+          const resp = await apiService.getTimeRecords({ funcionario_id: summary.employee_id, inicio: dateRange.start_date, fim: dateRange.end_date } as any);
+          records = Array.isArray(resp) ? resp : [];
+        } catch { records = []; }
+
+        const days = buildDays(records, dateRange.start_date, dateRange.end_date);
+        const daysWithRecs = days.filter(d => d.hasRecs);
+        const todayISO = new Date().toISOString().slice(0, 10);
+        const totalMin = daysWithRecs.reduce((acc, d) => { if (d.horasTrab === '-') return acc; const [h,m] = d.horasTrab.split(':').map(Number); return acc + h*60+(m||0); }, 0);
+        const weekdaysPast = days.filter(d => d.dow >= 1 && d.dow <= 5 && d.isPast).length;
+        const totalPrevMin = weekdaysPast * 8 * 60;
+        const saldoMin = totalMin - totalPrevMin;
+        const pct = Math.round((totalMin / (totalPrevMin || 1)) * 100);
+        const presentes = daysWithRecs.length;
+        const faltas = days.filter(d => d.dow >= 1 && d.dow <= 5 && !d.hasRecs && d.isPast).length;
+        const nome = summary.funcionario_nome || summary.funcionario;
+
+        const aoa: any[][] = [
+          ['ESPELHO DE PONTO — ' + nome.toUpperCase(), '','','','','','',''],
+          ['Período: ' + periodo, '','','','','','',''],
+          ['Dias Trabalhados','Faltas','H. Trabalhadas','H. Previstas','Saldo de Horas','% de Cumprimento','',''],
+          [presentes, faltas, toHHMM(totalMin), toHHMM(totalPrevMin), (saldoMin>=0?'+':'')+toHHMM(saldoMin), pct+'%','',''],
+          ['','','','','','','',''],
+          ['Data','Dia','Entrada','Saída Int.','Volta Int.','Saída','H. Trabalhadas','H. Previstas'],
+          ...daysWithRecs.map(d => [d.iso.split('-').reverse().join('-'), d.dia, d.entrada, d.saida_int, d.volta_int, d.saida, d.horasTrab, d.horasPrev]),
+        ];
+
+        const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
+        styleRow(ws, 1, () => sTitle);
+        styleRow(ws, 2, () => sMeta);
+        styleRow(ws, 3, (ci) => ci < 6 ? sHdr() : sEmpty);
+        styleRow(ws, 4, (ci) => { if (ci===4) return sSaldo(saldoMin>=0); if (ci===5) return sCell(true); if (ci>=6) return sEmpty; return sCell(); });
+        styleRow(ws, 5, () => sEmpty);
+        styleRow(ws, 6, (ci) => sHdr(ci===0||ci===1));
+        daysWithRecs.forEach((_, ri) => styleRow(ws, 7+ri, (ci) => { if (ci===0||ci===1) return sCell(false,true); if (ci===6) return sCell(true); return sCell(); }));
+        ws['!cols'] = [{wch:14},{wch:6},{wch:10},{wch:13},{wch:13},{wch:12},{wch:16},{wch:16}];
+        ws['!merges'] = [{ s:{r:0,c:0},e:{r:0,c:7} },{ s:{r:1,c:0},e:{r:1,c:7} },{ s:{r:4,c:0},e:{r:4,c:7} }];
+        (ws as any)['!pageSetup'] = { paperSize:9, orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0 };
+        (ws as any)['!margins'] = { left:0.5, right:0.5, top:0.75, bottom:0.75, header:0.3, footer:0.3 };
+
+        const sheetName = nome.replace(/[:\\/\[\]*?]/g, '').slice(0, 31);
+        XLSXStyle.utils.book_append_sheet(wb, ws, sheetName);
       }
-      const parsed = new Date(trimmed);
-      return Number.isNaN(parsed.getTime())
-        ? trimmed
-        : parsed.toLocaleDateString('pt-BR');
-    };
 
-    const formatDateForFilename = (dateValue?: string) => {
-      if (!dateValue) return '';
-      const trimmed = dateValue.trim();
-      const isoCandidate = trimmed.slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
-        const [year, month, day] = isoCandidate.split('-');
-        return `${day}-${month}-${year}`;
-      }
-      const parsed = new Date(trimmed);
-      if (Number.isNaN(parsed.getTime())) {
-        return trimmed.replace(/[\\/:*?"<>|\s]+/g, '-');
-      }
-      const day = String(parsed.getDate()).padStart(2, '0');
-      const month = String(parsed.getMonth() + 1).padStart(2, '0');
-      const year = parsed.getFullYear();
-      return `${day}-${month}-${year}`;
-    };
-
-    const headerInfo = [
-      ['Período do relatório', `${formatDate(dateRange.start_date) || 'Início'} até ${formatDate(dateRange.end_date) || 'Fim'}`],
-      []
-    ];
-
-    const dataToExport = employeeSummaries.map(summary => ({
-      'Nome Funcionário': summary.funcionario_nome || summary.funcionario,
-      'Horas Trabalhadas': formatMinutesToHHMM(summary.horas_trabalhadas || 0),
-      'Horas Extras': formatMinutesToHHMM(summary.horas_extras || 0),
-    }));
-
-    const ws = XLSX.utils.aoa_to_sheet(headerInfo);
-    XLSX.utils.sheet_add_json(ws, dataToExport, {
-      origin: 'A3',
-      header: ['Nome Funcionário', 'Horas Trabalhadas', 'Horas Extras']
-    });
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Resumo Funcionarios');
-    const fileName = (() => {
-      const startLabel = formatDateForFilename(dateRange.start_date) || 'inicio';
-      const endLabel = formatDateForFilename(dateRange.end_date) || 'fim';
-      return `Relatorio-(${startLabel}_a_${endLabel}).xlsx`;
-    })();
-
-    XLSX.writeFile(wb, fileName);
-    showSnackbar('Resumo de funcionários exportado para Excel com sucesso!', 'success');
+      const period = dateRange.start_date ? dateRange.start_date.slice(0, 7) : 'periodo';
+      XLSXStyle.writeFile(wb, `Espelho-Geral-${period}.xlsx`);
+      showSnackbar('Excel exportado com sucesso!', 'success');
+    } catch (err) {
+      console.error('Erro ao exportar:', err);
+      showSnackbar('Erro ao gerar Excel', 'error');
+    }
   };
 
   // Renderização
@@ -481,7 +594,7 @@ const RecordsSummaryPage: React.FC = () => {
           transition={{ duration: 0.5 }}
         >
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <h1 className="text-3xl font-bold text-white">Registros de Ponto</h1>
+            <h1 className="text-3xl font-bold text-white">Espelho De Ponto</h1>
             <button
               onClick={handleAddRecord}
               className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
@@ -510,6 +623,7 @@ const RecordsSummaryPage: React.FC = () => {
             onExportExcel={exportToExcel}
             showExportButton={true}
             exportDisabled={employeeSummaries.length === 0}
+            exportLabel="EXPORTAR GERAL"
             employees={employees}
           />
 
@@ -522,7 +636,7 @@ const RecordsSummaryPage: React.FC = () => {
 
           {/* Seção da Tabela */}
           <Box sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography 
                 variant="h6" 
                 sx={{ 
@@ -534,6 +648,23 @@ const RecordsSummaryPage: React.FC = () => {
                 Resumo por Funcionário ({employeeSummaries.length})
               </Typography>
             </Box>
+            <Alert
+              severity="info"
+              variant="outlined"
+              sx={{
+                mb: 3,
+                background: 'linear-gradient(90deg, rgba(2,136,209,0.06), rgba(14,165,233,0.02))',
+                borderColor: 'rgba(14,165,233,0.3)',
+                color: 'rgba(255,255,255,0.95)',
+                fontWeight: 700,
+                py: 1.5,
+                px: 2,
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              Clique no nome do funcionário para ver seu <strong>espelho de ponto individual</strong>
+            </Alert>
 
             {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>

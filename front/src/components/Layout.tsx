@@ -73,9 +73,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       icon: <AccessTimeIcon />, 
       path: '/records',
       submenu: [
-        { text: 'Resumo por Funcionário', path: '/records' },
+        { text: 'Espelho de Ponto', path: '/records' },
         { text: 'Registros Diários', path: '/records/daily' },
-        { text: 'Registros Detalhados', path: '/records/detailed' },
+        { text: 'Registros Gerais', path: '/records/detailed' },
       ]
     },
     { text: 'Configurações', icon: <SettingsIcon />, path: '/settings' },
@@ -384,7 +384,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               fontWeight: 500
             }}
           >
-            {menuItems.find(item => item.path === location.pathname)?.text || 'Dashboard'}
+            {menuItems.find(item => item.path === location.pathname || (item.path === '/records' && location.pathname.startsWith('/records')))?.text || 'Dashboard'}
           </Typography>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

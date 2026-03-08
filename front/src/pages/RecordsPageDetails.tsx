@@ -836,7 +836,7 @@ const RecordsDetailedPage: React.FC = () => {
         transition={{ duration: 0.5 }}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-          <Typography variant="h4" component="h1" sx={{ color: 'white' }}>Registros de Ponto Detalhados</Typography>
+          <Typography variant="h4" component="h1" sx={{ color: 'white' }}>Registros Gerais</Typography>
           <button
             onClick={handleAddRecord}
             className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"

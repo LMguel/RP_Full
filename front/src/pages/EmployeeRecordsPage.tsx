@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+﻿import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageLayout from '../sections/PageLayout';
-import RecordsFilters from '../components/RecordsFilters';
 import {
   Box,
   Typography,
@@ -25,10 +24,11 @@ import {
   TextField,
   Snackbar,
   Alert,
+  TableSortLabel,
+  Collapse,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  Delete as DeleteIcon,
   Edit as EditIcon,
   Block as BlockIcon,
   Email as EmailIcon,
@@ -36,12 +36,18 @@ import {
   AccessTime as AccessTimeIcon,
   Close as CloseIcon,
   Clear as ClearIcon,
-  FilterList as FilterIcon,
   CalendarMonth as CalendarIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  KeyboardArrowDown as ExpandMoreIcon,
+  KeyboardArrowRight as ExpandLessIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
-import { InputAdornment, Tooltip, Popover } from '@mui/material';
+import { Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
-import * as XLSX from 'xlsx';
+import XLSXStyle from 'xlsx-js-style';
 import { apiService } from '../services/api';
 import { TimeRecord, Employee } from '../types';
 
@@ -51,1223 +57,754 @@ interface EmployeeWithRecords extends Employee {
   ultimoRegistro?: TimeRecord;
 }
 
+interface RegistroDia {
+  data: string;
+  dia_numero: number;
+  dia_semana: string;
+  horas_previstas?: string;
+  entrada?: string;
+  saida_intervalo?: string;
+  volta_intervalo?: string;
+  saida?: string;
+  horas_trabalhadas?: string;
+  status: 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO';
+  cor: 'verde' | 'vermelho' | 'laranja' | 'azul' | 'cinza';
+  registros: TimeRecord[];
+}
+
+const dialogFieldSx = {
+  '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255,255,255,0.25)' }, '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.45)' } },
+  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.6)' },
+  '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.45)' },
+  '& option': { color: 'black' },
+};
+
 const EmployeeRecordsPage: React.FC = () => {
   const navigate = useNavigate();
   const { employeeId, employeeName } = useParams<{ employeeId: string; employeeName: string }>();
-  
-  // Estados principais
+
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithRecords | null>(null);
   const [selectedEmployeeRecords, setSelectedEmployeeRecords] = useState<TimeRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Estados para filtros
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
-  
-  // Funções utilitárias para filtro de mês
-  const getFirstDayOfMonth = (yearMonth: string): string => {
-    const [year, month] = yearMonth.split('-').map(Number);
-    return `${year}-${month.toString().padStart(2, '0')}-01`;
-  };
-
-  const getLastDayOfMonth = (yearMonth: string): string => {
-    const [year, month] = yearMonth.split('-').map(Number);
-    const lastDay = new Date(year, month, 0).getDate();
-    return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
-  };
-
-  const getCurrentMonth = (): string => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    return `${year}-${month.toString().padStart(2, '0')}`;
-  };
-
-  const getMonthFromDate = (dateString: string): string => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    return `${year}-${month.toString().padStart(2, '0')}`;
-  };
-  
-  // Estados para dialogs
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState<TimeRecord | null>(null);
   const [invalidateJustificativa, setInvalidateJustificativa] = useState('');
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
   const [recordToAdjust, setRecordToAdjust] = useState<TimeRecord | null>(null);
-  const [adjustData, setAdjustData] = useState({ date: '', time: '', tipo: 'entrada' as 'entrada' | 'saída', justificativa: '' });
-  
-  // Popover para exibir justificativa ao clicar no status
+  const [adjustData, setAdjustData] = useState({ date: '', time: '', tipo: 'entrada' as 'entrada' | 'saida', justificativa: '' });
   const [justificativaAnchorEl, setJustificativaAnchorEl] = useState<HTMLElement | null>(null);
   const [justificativaTexto, setJustificativaTexto] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [emailDestino, setEmailDestino] = useState('');
   const [emailEnviando, setEmailEnviando] = useState(false);
-  
-  // Estados para snackbar
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'warning' | 'info'>('success');
 
-  // Função para buscar registros de um funcionário específico
+  // Horário do funcionário (buscado da API)
+  const [funcionarioSchedule, setFuncionarioSchedule] = useState<{
+    horario_entrada: string;
+    horario_saida: string;
+    intervalo_min: number;
+  }>({ horario_entrada: '08:00', horario_saida: '17:00', intervalo_min: 60 });
+
+  const getFirstDayOfMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); return `${y}-${String(m).padStart(2,'0')}-01`; };
+  const getLastDayOfMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); const l = new Date(y,m,0).getDate(); return `${y}-${String(m).padStart(2,'0')}-${String(l).padStart(2,'0')}`; };
+  const getCurrentMonth = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; };
+  const getMonthFromDate = (ds: string) => { if (!ds) return ''; const d = new Date(ds); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
+
+  const shiftMonth = (delta: number) => {
+    const [y, m] = (selectedMonth || getCurrentMonth()).split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    setSelectedMonth(ym); setDateFrom(getFirstDayOfMonth(ym)); setDateTo(getLastDayOfMonth(ym));
+  };
+
+  const monthLabel = () => {
+    const [y, m] = (selectedMonth || getCurrentMonth()).split('-');
+    return new Date(Number(y), Number(m)-1, 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const showSnackbar = (msg: string, sev: 'success' | 'error' | 'warning' | 'info') => { setSnackbarMessage(msg); setSnackbarSeverity(sev); setSnackbarOpen(true); };
+
+  const toHHMM = (totalMin: number) => {
+    const sign = totalMin < 0 ? '-' : '';
+    const abs = Math.abs(totalMin);
+    return `${sign}${String(Math.floor(abs/60)).padStart(2,'0')}:${String(abs%60).padStart(2,'0')}`;
+  };
+
+  // Calcula os minutos previstos por dia com base no horário do funcionário
+  const minutosPrevistosDia = (schedule: typeof funcionarioSchedule): number => {
+    const parseHHMM = (s: string) => { const [h,m] = s.split(':').map(Number); return h*60+(m||0); };
+    const entrada = parseHHMM(schedule.horario_entrada);
+    const saida = parseHHMM(schedule.horario_saida);
+    return Math.max(0, saida - entrada - schedule.intervalo_min);
+  };
+
+  // Converte data_hora (DD-MM-YYYY HH:MM:SS  ou  YYYY-MM-DDTHH:MM:SS) para Date
+  const parseDataHora = (s: string): Date => {
+    if (!s) return new Date(0);
+    const [datePart, timePart = ''] = s.includes('T') ? s.split('T') : s.split(' ');
+    const segs = datePart.split('-');
+    const iso = segs[0].length === 4
+      ? `${datePart}T${timePart}`          // já YYYY-MM-DD
+      : `${segs[2]}-${segs[1]}-${segs[0]}T${timePart}`; // DD-MM-YYYY → YYYY-MM-DD
+    return new Date(iso);
+  };
+
+  const calcularTotalHoras = (registros: TimeRecord[]): string => {
+    let total = 0; let entrada: Date | null = null;
+    [...registros].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime()).forEach(r => {
+      const tipo = (r.type||r.tipo||'').toLowerCase(); const dt = parseDataHora(r.data_hora||'');
+      if (tipo==='entrada') { entrada=dt; }
+      else if ((['saida','saída','saida_final'].includes(tipo)) && entrada) { total += (dt.getTime()-entrada.getTime())/1000; entrada=null; }
+    });
+    const h = Math.floor(total/3600); const min = Math.floor((total%3600)/60);
+    return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+  };
+
+  const formatDateTime = (s: string) => {
+    if (!s) return { date: '-', time: '-' };
+    let date='', time='';
+    if (s.includes(' ')) { [date, time]=s.split(' '); }
+    else if (s.includes('T')) { [date, time]=s.split('T'); time=time.split('.')[0]; }
+    else return { date: s, time: '' };
+    if (date.includes('-')) { const parts=date.split('-'); if (parts[0].length===4) { const [y,m,d]=parts; date=`${d}/${m}/${y}`; } else { const [d,m,y]=parts; date=`${d}/${m}/${y}`; } }
+    return { date, time: (time||'').substring(0,5) };
+  };
+
+  const getStatusText = (tipo: string) => {
+    const labels: Record<string,string> = { entrada:'Entrada', saida:'Saida', 'saida':'Saida', intervalo_inicio:'Saida Intervalo', intervalo_fim:'Volta Intervalo', retorno:'Volta Intervalo', saida_antecipada:'Saida Antecipada' };
+    return labels[tipo.toLowerCase()] || tipo;
+  };
+
+  const chipColor = (status: string) => {
+    if (status==='PRESENTE') return { bg:'rgba(16,185,129,0.15)', border:'#10b981', color:'#10b981' };
+    if (status==='ATRASO') return { bg:'rgba(245,158,11,0.15)', border:'#f59e0b', color:'#f59e0b' };
+    if (status==='FALTA') return { bg:'rgba(239,68,68,0.15)', border:'#ef4444', color:'#ef4444' };
+    return { bg:'rgba(255,255,255,0.05)', border:'rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.5)' };
+  };
+
   const buscarRegistrosFuncionario = useCallback(async () => {
     if (!employeeId) return;
-    
     try {
       setLoading(true);
-      const params: any = { employee_id: employeeId };
-      
+      const params: any = { funcionario_id: employeeId };
       if (dateFrom) params.inicio = dateFrom;
       if (dateTo) params.fim = dateTo;
-
       const response = await apiService.getTimeRecords(params);
-      const records = Array.isArray(response) ? response : [];
-      
-      // Ordenar registros por data mais recente primeiro
-      const sortedRecords = records.sort((a, b) => 
-        new Date(b.data_hora || '').getTime() - new Date(a.data_hora || '').getTime()
-      );
-      
-      setSelectedEmployeeRecords(sortedRecords);
-      setSelectedEmployee({
-        id: employeeId,
-        nome: employeeName || 'Funcionário',
-        cargo: '',
-        foto_url: '',
-        face_id: '',
-        empresa_nome: '',
-        empresa_id: '',
-        data_cadastro: new Date().toISOString(),
-        registros: sortedRecords,
-        totalHoras: calcularTotalHoras(sortedRecords),
-        ultimoRegistro: sortedRecords[0]
-      });
-      
-    } catch (err: any) {
-      console.error('Erro ao buscar registros do funcionário:', err);
-      showSnackbar('Erro ao carregar histórico do funcionário', 'error');
-    } finally {
-      setLoading(false);
-    }
+      const records: TimeRecord[] = Array.isArray(response) ? response : [];
+      const sorted = [...records].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime());
+      setSelectedEmployeeRecords(sorted);
+      setSelectedEmployee({ id: employeeId, nome: employeeName||'Funcionario', cargo:'', foto_url:'', face_id:'', empresa_nome:'', empresa_id:'', data_cadastro: new Date().toISOString(), registros: sorted, totalHoras: calcularTotalHoras(sorted), ultimoRegistro: sorted[sorted.length-1] });
+    } catch { showSnackbar('Erro ao carregar historico', 'error'); }
+    finally { setLoading(false); }
   }, [employeeId, employeeName, dateFrom, dateTo]);
 
-  // Função para calcular total de horas trabalhadas
-  const calcularTotalHoras = (registros: TimeRecord[]): string => {
-    if (registros.length === 0) return '00:00';
-    
-    let totalSegundos = 0;
-    let entrada: Date | null = null;
-    
-    // Ordenar por data/hora para calcular corretamente
-    const registrosOrdenados = [...registros].sort((a, b) => 
-      new Date(a.data_hora || '').getTime() - new Date(b.data_hora || '').getTime()
-    );
-    
-    registrosOrdenados.forEach(reg => {
-      try {
-        const dataHora = new Date(reg.data_hora || '');
-        // Usar 'type' com fallback para 'tipo' (compatibilidade)
-        const recordType = (reg.type || reg.tipo || '').toLowerCase();
-        
-        if (recordType === 'entrada') {
-          entrada = dataHora;
-        } else if ((recordType === 'saída' || recordType === 'saida') && entrada) {
-          totalSegundos += (dataHora.getTime() - entrada.getTime()) / 1000;
-          entrada = null;
-        }
-      } catch (error) {
-        console.error('Erro ao processar registro:', error);
-      }
+  const buildCalendar = (): RegistroDia[] => {
+    if (!selectedMonth) return [];
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    const todayISO = new Date().toISOString().slice(0,10);
+    const minPrevistos = minutosPrevistosDia(funcionarioSchedule);
+    const grouped: Record<string,TimeRecord[]> = {};
+    selectedEmployeeRecords.forEach(r => {
+      if (!r.data_hora) return;
+      const raw = r.data_hora.includes('T') ? r.data_hora.split('T')[0] : r.data_hora.split(' ')[0];
+      if (!raw) return;
+      // Backend retorna DD-MM-YYYY; normalizar para YYYY-MM-DD
+      const segs = raw.split('-');
+      const key = segs[0].length === 4 ? raw : `${segs[2]}-${segs[1]}-${segs[0]}`;
+      grouped[key] = grouped[key] || [];
+      grouped[key].push(r);
     });
-    
-    const horas = Math.floor(totalSegundos / 3600);
-    const minutos = Math.floor((totalSegundos % 3600) / 60);
-    return `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}`;
-  };
-
-  // Função para exportar histórico do funcionário específico
-  const exportEmployeeHistory = () => {
-    if (!selectedEmployee) return;
-
-    try {
-      const wb = XLSX.utils.book_new();
-      
-      // Dados para o worksheet
-      const wsData = [
-        [`Histórico de Registros - ${selectedEmployee.nome}`],
-        ["Período:", `${dateFrom || 'Não informado'} a ${dateTo || 'Não informado'}`],
-        ["Total de Registros:", selectedEmployeeRecords.length],
-        ["Total de Horas Trabalhadas:", selectedEmployee.totalHoras || '00:00'],
-        [],
-        ["Data", "Hora", "Tipo", "ID Registro"]
-      ];
-      
-      selectedEmployeeRecords.forEach(record => {
-        const { date, time } = formatDateTime(record.data_hora || '');
-        // Usar 'type' com fallback para 'tipo' (compatibilidade)
-        const recordType = record.type || record.tipo || 'entrada';
-        wsData.push([
-          date,
-          time,
-          getStatusText(recordType),
-          record.registro_id || 'N/A'
-        ]);
+    const days: RegistroDia[] = [];
+    for (let d=1; d<=lastDay; d++) {
+      const dateObj = new Date(year, month-1, d);
+      const iso = dateObj.toISOString().slice(0,10);
+      const records = grouped[iso] || [];
+      const dow = dateObj.getDay(); // 0=Dom, 6=Sab
+      const isWeekday = dow >= 1 && dow <= 5;
+      const isPast = iso <= todayISO;
+      let status: RegistroDia['status'] = 'SEM_REGISTRO';
+      let cor: RegistroDia['cor'] = 'cinza';
+      if (records.length > 0) {
+        const hasAtraso = records.some(r => (r.atraso_minutos||0) > 0);
+        if (hasAtraso) { status='ATRASO'; cor='laranja'; } else { status='PRESENTE'; cor='verde'; }
+      } else if (isWeekday && isPast) {
+        status='FALTA'; cor='vermelho';
+      }
+      const entRec = records.find(r => (r.type||r.tipo||'').toLowerCase()==='entrada');
+      const saiIntRec = records.find(r => ['intervalo_inicio','saida_intervalo','intervalo_saida'].includes((r.type||r.tipo||'').toLowerCase()));
+      const voltaIntRec = records.find(r => ['intervalo_fim','volta_intervalo','retorno','intervalo_volta'].includes((r.type||r.tipo||'').toLowerCase()));
+      const saiRec = [...records].reverse().find(r => ['saida','saída','saida_final','saída_final','checkout'].includes((r.type||r.tipo||'').toLowerCase()));
+      const horasPrevisvasStr = (() => {
+        if (!isWeekday) return undefined;
+        // Se temos entrada e saída reais, calcula previsto a partir delas menos o intervalo
+        if (entRec && saiRec) {
+          const entTime = parseDataHora(entRec.data_hora || '');
+          const saiTime = parseDataHora(saiRec.data_hora || '');
+          const diffMin = (saiTime.getTime() - entTime.getTime()) / 60000;
+          return toHHMM(Math.max(0, diffMin - funcionarioSchedule.intervalo_min));
+        }
+        // Fallback: usa o horário cadastrado do funcionário
+        return toHHMM(minPrevistos);
+      })();
+      // Calcula horas trabalhadas descontando intervalo quando não há registros explícitos de intervalo
+      let horasTrabalhadasStr: string | undefined = undefined;
+      if (records.length) {
+        const rawStr = calcularTotalHoras(records);
+        const [rh, rm] = rawStr.split(':').map(Number);
+        const rawMin = rh * 60 + (rm || 0);
+        const hasIntervalRecords = !!(saiIntRec || voltaIntRec);
+        const finalMin = hasIntervalRecords ? rawMin : Math.max(0, rawMin - funcionarioSchedule.intervalo_min);
+        horasTrabalhadasStr = toHHMM(finalMin);
+      }
+      days.push({
+        data: iso,
+        dia_numero: d,
+        dia_semana: ['dom','seg','ter','qua','qui','sex','sab'][dow],
+        horas_previstas: horasPrevisvasStr,
+        entrada: entRec ? formatDateTime(entRec.data_hora||'').time : undefined,
+        saida_intervalo: saiIntRec ? formatDateTime(saiIntRec.data_hora||'').time : undefined,
+        volta_intervalo: voltaIntRec ? formatDateTime(voltaIntRec.data_hora||'').time : undefined,
+        saida: saiRec ? formatDateTime(saiRec.data_hora||'').time : undefined,
+        horas_trabalhadas: horasTrabalhadasStr,
+        status, cor, registros: records
       });
-      
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!cols'] = [
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 20 }
-      ];
-      XLSX.utils.book_append_sheet(wb, ws, "Histórico");
-      
-      const formatDateForFilename = (value?: string) => {
-        if (!value) return '';
-        const trimmed = value.trim();
-        const isoCandidate = trimmed.slice(0, 10);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(isoCandidate)) {
-          const [year, month, day] = isoCandidate.split('-');
-          return `${day}-${month}-${year}`;
-        }
-        const parsed = new Date(trimmed);
-        if (Number.isNaN(parsed.getTime())) {
-          return trimmed.replace(/[\\/:*?"<>|\s]+/g, '-');
-        }
-        const day = String(parsed.getDate()).padStart(2, '0');
-        const month = String(parsed.getMonth() + 1).padStart(2, '0');
-        const year = parsed.getFullYear();
-        return `${day}-${month}-${year}`;
-      };
-
-      const startLabel = formatDateForFilename(dateFrom) || 'inicio';
-      const endLabel = formatDateForFilename(dateTo) || 'fim';
-      const fileName = `Relatorio-(${startLabel}_a_${endLabel}).xlsx`;
-      XLSX.writeFile(wb, fileName);
-      showSnackbar(`Histórico de ${selectedEmployee.nome} exportado com sucesso!`, 'success');
-    } catch (err) {
-      console.error('Erro ao exportar:', err);
-      showSnackbar('Erro ao gerar relatório', 'error');
     }
+    return days;
   };
 
-  // Função para enviar por email
-  const enviarPorEmail = async () => {
-    if (!emailDestino || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDestino)) {
-      showSnackbar('Por favor, insira um email válido', 'error');
-      return;
-    }
+  const calendarDays = buildCalendar();
+  const diasTrabalhados = calendarDays.filter(d => d.registros.length > 0);
+  const diasSorted = [...diasTrabalhados].sort((a,b) => { const c=a.data.localeCompare(b.data); return sortDir==='asc'?c:-c; });
 
-    if (!selectedEmployee) return;
+  const resumo = (() => {
+    const todayISO = new Date().toISOString().slice(0,10);
+    const presentes = calendarDays.filter(d => d.status==='PRESENTE'||d.status==='ATRASO').length;
+    const faltas = calendarDays.filter(d => d.status==='FALTA').length;
+    const atrasos = calendarDays.filter(d => d.status==='ATRASO').length;
+    const minutosExtras = selectedEmployeeRecords.reduce((a,r) => a+(r.horas_extras_minutos||0), 0);
+    // Dias úteis passados ou hoje no mês = dias previstos
+    const diasUteisPrevistosAteHoje = calendarDays.filter(d => {
+      const dow = new Date(d.data+'T12:00:00').getDay();
+      return dow >= 1 && dow <= 5 && d.data <= todayISO;
+    }).length;
+    const minPrevistos = minutosPrevistosDia(funcionarioSchedule);
+    const totalMinPrevistos = diasUteisPrevistosAteHoje * minPrevistos;
+    // Horas trabalhadas reais: soma das horas de cada dia
+    const totalMinTrabalhados = diasTrabalhados.reduce((acc, day) => {
+      if (!day.horas_trabalhadas) return acc;
+      const [h,m] = day.horas_trabalhadas.split(':').map(Number);
+      return acc + h*60 + (m||0);
+    }, 0);
+    const saldoMin = totalMinTrabalhados - totalMinPrevistos;
+    return {
+      presentes, faltas, atrasos,
+      horas_extras: toHHMM(minutosExtras),
+      totalHoras: selectedEmployee?.totalHoras||'00:00',
+      percent: Math.round((presentes/(diasUteisPrevistosAteHoje||1))*100),
+      totalMinPrevistos,
+      totalMinTrabalhados,
+      saldoMin,
+      previsto: toHHMM(totalMinPrevistos),
+      trabalhado: toHHMM(totalMinTrabalhados),
+      saldo: toHHMM(saldoMin),
+    };
+  })();
 
-    setEmailEnviando(true);
-    try {
-      console.log(`Enviando relatório de ${selectedEmployee.nome} para ${emailDestino}`);
-      
-      // Aqui você pode implementar a chamada real da API quando necessário
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simular delay
-      
-      showSnackbar('Relatório enviado com sucesso!', 'success');
-      setEmailDialogOpen(false);
-      setEmailDestino('');
-    } catch (err) {
-      console.error('Erro ao enviar email:', err);
-      showSnackbar('Erro ao enviar relatório', 'error');
-    } finally {
-      setEmailEnviando(false);
-    }
-  };
-
-  // Função para invalidar registro (soft delete)
   const handleDeleteRecord = async () => {
-    if (!recordToDelete) return;
-    if (!invalidateJustificativa.trim()) return;
-
-    try {
-      setSubmitting(true);
-      await apiService.invalidateTimeRecord(recordToDelete.registro_id, invalidateJustificativa.trim());
-      showSnackbar('Registro invalidado com sucesso!', 'success');
-      setDeleteDialogOpen(false);
-      setRecordToDelete(null);
-      setInvalidateJustificativa('');
-      buscarRegistrosFuncionario();
-    } catch (err: any) {
-      console.error('Error invalidating record:', err);
-      showSnackbar('Erro ao invalidar registro', 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    if (!recordToDelete||!invalidateJustificativa.trim()) return;
+    setSubmitting(true);
+    try { await apiService.invalidateTimeRecord(recordToDelete.registro_id, invalidateJustificativa.trim()); showSnackbar('Registro invalidado!', 'success'); setDeleteDialogOpen(false); setRecordToDelete(null); setInvalidateJustificativa(''); buscarRegistrosFuncionario(); }
+    catch { showSnackbar('Erro ao invalidar', 'error'); } finally { setSubmitting(false); }
   };
 
-  // Função para ajustar registro
   const handleAdjustClick = (record: TimeRecord) => {
-    const recordType = (record.type || record.tipo || 'entrada').toLowerCase();
-    let date = '';
-    let time = '';
-    if (record.data_hora) {
-      const parts = record.data_hora.includes('T') ? record.data_hora.split('T') : record.data_hora.split(' ');
-      date = parts[0] || '';
-      time = (parts[1] || '').substring(0, 5);
-      if (date.length === 10 && date[2] === '-') {
-        const [d, m, y] = date.split('-');
-        date = `${y}-${m}-${d}`;
-      }
-    }
+    const tipo = (record.type||record.tipo||'entrada').toLowerCase();
+    let date='', time='';
+    if (record.data_hora) { const parts=record.data_hora.includes('T')?record.data_hora.split('T'):record.data_hora.split(' '); date=parts[0]||''; time=(parts[1]||'').substring(0,5); if (date.length===10&&date[2]==='-') { const [d,m,y]=date.split('-'); date=`${y}-${m}-${d}`; } }
     setRecordToAdjust(record);
-    setAdjustData({
-      date,
-      time,
-      tipo: (recordType === 'saída' || recordType === 'saida') ? 'saída' : 'entrada',
-      justificativa: '',
-    });
+    setAdjustData({ date, time, tipo: (tipo==='saida'||tipo==='saida')?'saida':'entrada', justificativa:'' });
     setAdjustDialogOpen(true);
   };
 
   const handleAdjustConfirm = async () => {
-    if (!recordToAdjust || !recordToAdjust.registro_id) return;
-    if (!adjustData.justificativa.trim() || !adjustData.date || !adjustData.time) return;
+    if (!recordToAdjust?.registro_id||!adjustData.justificativa.trim()||!adjustData.date||!adjustData.time) return;
     setSubmitting(true);
-    try {
-      const formattedDateTime = `${adjustData.date} ${adjustData.time}:00`;
-      await apiService.adjustTimeRecord(recordToAdjust.registro_id, {
-        data_hora: formattedDateTime,
-        tipo: adjustData.tipo,
-        justificativa: adjustData.justificativa.trim(),
-      });
-      showSnackbar('Registro ajustado com sucesso!', 'success');
-      setAdjustDialogOpen(false);
-      setRecordToAdjust(null);
-      buscarRegistrosFuncionario();
-    } catch (err: any) {
-      console.error('Error adjusting record:', err);
-      const msg = err?.response?.data?.error || 'Erro ao ajustar registro';
-      showSnackbar(msg, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    try { await apiService.adjustTimeRecord(recordToAdjust.registro_id, { data_hora:`${adjustData.date} ${adjustData.time}:00`, tipo: adjustData.tipo as any, justificativa: adjustData.justificativa.trim() }); showSnackbar('Registro ajustado!', 'success'); setAdjustDialogOpen(false); setRecordToAdjust(null); buscarRegistrosFuncionario(); }
+    catch (err: any) { showSnackbar(err?.response?.data?.error||'Erro ao ajustar', 'error'); } finally { setSubmitting(false); }
   };
 
-  // Funções auxiliares
-  const showSnackbar = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
-    setSnackbarMessage(message);
-    setSnackbarSeverity(severity);
-    setSnackbarOpen(true);
-  };
+  const exportEmployeeHistory = () => {
+    if (!selectedEmployee) return;
+    const wb = XLSXStyle.utils.book_new();
 
-  const handleCloseSnackbar = (event?: React.SyntheticEvent | Event, reason?: string) => {
-    if (reason === 'clickaway') return;
-    setSnackbarOpen(false);
-  };
+    const COLS = ['A','B','C','D','E','F','G','H'];
+    const pct = Math.round((resumo.totalMinTrabalhados / (resumo.totalMinPrevistos || 1)) * 100);
 
-  const formatDateTime = (dateTimeString: string) => {
-    try {
-      if (!dateTimeString) {
-        return { date: 'N/A', time: 'N/A' };
-      }
-      
-      let date, time;
-      
-      if (dateTimeString.includes(' ')) {
-        [date, time] = dateTimeString.split(' ');
-      } else if (dateTimeString.includes('T')) {
-        [date, time] = dateTimeString.split('T');
-        time = time.split('.')[0];
-      } else {
-        return { date: dateTimeString, time: '' };
-      }
-      
-      if (date.includes('-')) {
-        const parts = date.split('-');
-        if (parts[0].length === 4) {
-          const [year, month, day] = parts;
-          date = `${day}/${month}/${year}`;
-        } else {
-          const [day, month, year] = parts;
-          date = `${day}/${month}/${year}`;
-        }
-      }
-      
-      return { date, time: time || '' };
-    } catch (error) {
-      console.error('Error formatting date:', error, dateTimeString);
-      return { date: dateTimeString, time: '' };
-    }
-  };
+    // ── Estilos preto e branco ──────────────────────────────────
+    const bThin  = { style:'thin', color:{ rgb:'000000' } };
+    const bThick = { style:'medium', color:{ rgb:'000000' } };
+    const bAll   = { top: bThin, bottom: bThin, left: bThin, right: bThin };
+    const bBox   = { top: bThick, bottom: bThick, left: bThick, right: bThick };
+    const W      = { fgColor:{ rgb:'FFFFFF' } };
+    const GRAY   = { fgColor:{ rgb:'D9D9D9' } };
 
-  const getStatusColor = (tipo: string) => {
-    if (tipo === 'entrada') return 'success';
-    return 'error';
-  };
-
-  const getStatusText = (tipo: string) => {
-    const labels: Record<string, string> = {
-      'entrada': 'Entrada',
-      'saida': 'Saída',
-      'saída': 'Saída',
-      'intervalo_inicio': 'Saída Intervalo',
-      'intervalo_fim': 'Volta Intervalo',
-      'retorno': 'Volta Intervalo',
-      'saida_antecipada': 'Saída Antecipada',
+    const sTitle = {
+      font:{ bold:true, sz:14, color:{ rgb:'000000' } },
+      fill: GRAY,
+      alignment:{ horizontal:'left', vertical:'center', wrapText: true },
+      border: bBox,
     };
-    return labels[tipo.toLowerCase()] || (tipo === 'entrada' ? 'Entrada' : 'Saída');
+    const sMeta = {
+      font:{ sz:11, color:{ rgb:'000000' } },
+      fill: W,
+      alignment:{ horizontal:'left', vertical:'center' },
+      border: bAll,
+    };
+    const sHdr = (left = false) => ({
+      font:{ bold:true, sz:11, color:{ rgb:'000000' } },
+      fill: GRAY,
+      alignment:{ horizontal: left ? 'left' : 'center', vertical:'center', wrapText: true },
+      border: bAll,
+    });
+    const sCell = (bold = false, left = false) => ({
+      font:{ bold, sz:11, color:{ rgb:'000000' } },
+      fill: W,
+      alignment:{ horizontal: left ? 'left' : 'center', vertical:'center', wrapText: true },
+      border: bAll,
+    });
+    const sSaldo = (positive: boolean) => ({
+      font:{ bold:true, sz:11, color:{ rgb:'000000' } },
+      fill: positive ? { fgColor:{ rgb:'D9EAD3' } } : { fgColor:{ rgb:'FCE5CD' } },
+      alignment:{ horizontal:'center', vertical:'center' },
+      border: bAll,
+    });
+    const sEmpty = { font:{ sz:10 }, fill: W, border: bAll };
+
+    // ── Dados ──────────────────────────────────────────────────
+    const aoa: any[][] = [
+      ['ESPELHO DE PONTO — ' + selectedEmployee.nome.toUpperCase(), '', '', '', '', '', '', ''],
+      ['Período: ' + (dateFrom || '—') + ' a ' + (dateTo || '—'), '', '', '', '', '', '', ''],
+      ['Dias Trabalhados', 'Faltas', 'H. Trabalhadas', 'H. Previstas', 'Saldo de Horas', '% de Cumprimento', '', ''],
+      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, (resumo.saldoMin >= 0 ? '+' : '') + resumo.saldo, pct + '%', '', ''],
+      ['', '', '', '', '', '', '', ''],
+      ['Data', 'Dia', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas'],
+    ];
+    diasSorted.forEach(day => aoa.push([
+      day.data.split('-').reverse().join('-'),
+      day.dia_semana.toUpperCase(),
+      day.entrada || '-',
+      day.saida_intervalo || '-',
+      day.volta_intervalo || '-',
+      day.saida || '-',
+      day.horas_trabalhadas || '-',
+      day.horas_previstas || '-',
+    ]));
+
+    const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
+
+    const styleRow = (r: number, fn: (ci: number) => any) =>
+      COLS.forEach((c, ci) => { const ref = c + r; if (ws[ref]) ws[ref].s = fn(ci); });
+
+    styleRow(1, () => sTitle);
+    styleRow(2, () => sMeta);
+    styleRow(3, (ci) => ci < 6 ? sHdr() : sEmpty);
+    styleRow(4, (ci) => {
+      if (ci === 4) return sSaldo(resumo.saldoMin >= 0);
+      if (ci === 5) return sCell(true);
+      if (ci >= 6)  return sEmpty;
+      return sCell();
+    });
+    styleRow(5, () => sEmpty);
+    styleRow(6, (ci) => sHdr(ci === 0 || ci === 1));
+    diasSorted.forEach((_, ri) => {
+      styleRow(7 + ri, (ci) => {
+        if (ci === 0 || ci === 1) return sCell(false, true);
+        if (ci === 6)             return sCell(true);
+        return sCell();
+      });
+    });
+
+    // Largura das colunas — todas generosas para impressão
+    ws['!cols'] = [
+      {wch:14}, // Data
+      {wch:10}, // Dia
+      {wch:12}, // Entrada
+      {wch:13}, // Saída Int.
+      {wch:13}, // Volta Int.
+      {wch:12}, // Saída
+      {wch:16}, // H. Trabalhadas
+      {wch:16}, // H. Previstas
+    ];
+    ws['!merges'] = [
+      { s:{ r:0, c:0 }, e:{ r:0, c:7 } },
+      { s:{ r:1, c:0 }, e:{ r:1, c:7 } },
+      { s:{ r:4, c:0 }, e:{ r:4, c:7 } },
+    ];
+    // Configuração de impressão: paisagem, ajustar à largura da página
+    (ws as any)['!pageSetup'] = {
+      paperSize: 9,          // A4
+      orientation: 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      printGridLines: false,
+    };
+    (ws as any)['!margins'] = { left:0.5, right:0.5, top:0.75, bottom:0.75, header:0.3, footer:0.3 };
+
+    XLSXStyle.utils.book_append_sheet(wb, ws, 'Espelho');
+    XLSXStyle.writeFile(wb, `Espelho-${selectedEmployee.nome}-${selectedMonth}.xlsx`);
+    showSnackbar('Exportado!', 'success');
   };
 
-  // Função para determinar o status detalhado do registro
-  const getDetailedStatus = (record: TimeRecord) => {
-    const statuses: Array<{ text: string; color: string }> = [];
-
-    // Entrada antecipada
-    if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
-      statuses.push({
-        text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
-        color: '#93c5fd' // azul claro
-      });
-    }
-
-    // Atraso
-    if (record.atraso_minutos && record.atraso_minutos > 0) {
-      statuses.push({
-        text: `Atraso ${record.atraso_minutos} min`,
-        color: '#ef4444' // vermelho
-      });
-    }
-
-    // Hora extra
-    if (record.horas_extras_minutos && record.horas_extras_minutos > 0) {
-      statuses.push({
-        text: `+${record.horas_extras_minutos} min extra`,
-        color: '#10b981' // verde
-      });
-    }
-
-    // Saída antecipada
-    if (record.saida_antecipada_minutos && record.saida_antecipada_minutos > 0) {
-      statuses.push({
-        text: `Saiu ${record.saida_antecipada_minutos} min antes`,
-        color: '#f59e0b' // laranja
-      });
-    }
-
-    // Se não tem nenhum status especial
-    if (statuses.length === 0) {
-      return [{
-        text: 'Pontual',
-        color: '#10b981' // verde
-      }];
-    }
-
-    return statuses;
+  const enviarPorEmail = async () => {
+    if (!emailDestino||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDestino)) { showSnackbar('Email invalido','error'); return; }
+    setEmailEnviando(true);
+    try { await new Promise(r=>setTimeout(r,1500)); showSnackbar('Enviado!','success'); setEmailDialogOpen(false); setEmailDestino(''); }
+    catch { showSnackbar('Erro ao enviar','error'); } finally { setEmailEnviando(false); }
   };
 
-  const clearFilters = () => {
-    setDateFrom('');
-    setDateTo('');
-    setSelectedMonth('');
+  const scrollToDate = (iso: string) => {
+    setExpandedDate(iso);
+    const el = document.getElementById(`row-${iso}`);
+    if (el) el.scrollIntoView({ behavior:'smooth', block:'center' });
   };
 
-  const handleBack = () => {
-    navigate('/records');
-  };
+  useEffect(() => { const c=getCurrentMonth(); setSelectedMonth(c); setDateFrom(getFirstDayOfMonth(c)); setDateTo(getLastDayOfMonth(c)); }, []);
+  useEffect(() => { if (employeeId) buscarRegistrosFuncionario(); }, [buscarRegistrosFuncionario]);
 
-  // Effects
-  // Inicializar mês atual
+  // Buscar horário do funcionário
   useEffect(() => {
-    const currentMonth = getCurrentMonth();
-    setSelectedMonth(currentMonth);
-  }, []);
+    if (!employeeId) return;
+    apiService.getEmployee(employeeId).then((emp: any) => {
+      const entrada = emp?.horario_entrada || '08:00';
+      const saida   = emp?.horario_saida   || '17:00';
+      const intervalo = Number(emp?.intervalo_emp ?? emp?.duracao_intervalo ?? 60);
+      setFuncionarioSchedule({ horario_entrada: entrada, horario_saida: saida, intervalo_min: intervalo });
+    }).catch(() => {});
+  }, [employeeId]);
 
-  useEffect(() => {
-    if (employeeId) {
-      buscarRegistrosFuncionario();
-    }
-  }, [buscarRegistrosFuncionario]);
-
-  if (loading) {
-    return (
-      <PageLayout>
-        <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-          <CircularProgress sx={{ color: 'white' }} />
-        </Box>
-      </PageLayout>
-    );
-  }
+  if (loading) return (<PageLayout><Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh"><CircularProgress sx={{ color:'white' }} /></Box></PageLayout>);
 
   return (
     <PageLayout>
-      {/* Header */}
-      <Box sx={{ 
-        display: 'flex', 
-        flexDirection: { xs: 'column', sm: 'row' },
-        alignItems: { sm: 'center' },
-        justifyContent: 'space-between',
-        gap: 2,
-        mb: 4
-      }}>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <IconButton
-              onClick={handleBack}
-              sx={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                }
-              }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <Box>
-              <Typography 
-                variant="h4" 
-                sx={{ 
-                  fontWeight: 600, 
-                  color: 'white', 
-                  mb: 1,
-                  fontSize: '28px'
-                }}
-              >
-                Registros de {selectedEmployee?.nome}
-              </Typography>
-              <Typography 
-                variant="body1" 
-                sx={{ 
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  fontSize: '16px'
-                }}
-              >
-                Total de horas: {selectedEmployee?.totalHoras || '00:00'}
-              </Typography>
+      {/* HEADER */}
+      <Box sx={{ mb: 4 }}>
+        <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5 }}>
+          <Box sx={{ display:'flex', flexDirection:{ xs:'column', sm:'row' }, alignItems:{ sm:'center' }, justifyContent:'space-between', gap:2 }}>
+            <Box sx={{ display:'flex', alignItems:'center', gap:2 }}>
+              <IconButton onClick={() => navigate('/records')} sx={{ backgroundColor:'rgba(255,255,255,0.1)', color:'white', '&:hover':{ backgroundColor:'rgba(255,255,255,0.2)' } }}><ArrowBackIcon /></IconButton>
+              <Box>
+                <Typography variant="h4" sx={{ fontWeight:700, color:'white', fontSize:'28px' }}>{selectedEmployee?.nome || employeeName}</Typography>
+                <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mt:0.5, textTransform:'capitalize' }}>Espelho de ponto</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+              <IconButton onClick={() => shiftMonth(-1)} sx={{ color:'white', backgroundColor:'rgba(255,255,255,0.08)', '&:hover':{ backgroundColor:'rgba(255,255,255,0.15)' } }}><ChevronLeftIcon /></IconButton>
+              <Typography sx={{ color:'white', fontWeight:700, minWidth:160, textAlign:'center', textTransform:'capitalize' }}>{monthLabel()}</Typography>
+              <IconButton onClick={() => shiftMonth(1)} sx={{ color:'white', backgroundColor:'rgba(255,255,255,0.08)', '&:hover':{ backgroundColor:'rgba(255,255,255,0.15)' } }}><ChevronRightIcon /></IconButton>
+            </Box>
+            <Box sx={{ display:'flex', gap:1.5 }}>
+              <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportEmployeeHistory} disabled={diasTrabalhados.length===0} sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.8)', '&:hover':{ borderColor:'rgba(255,255,255,0.6)', background:'rgba(255,255,255,0.05)' } }}>Excel</Button>
+              <Button variant="outlined" size="small" startIcon={<EmailIcon />} onClick={() => setEmailDialogOpen(true)} disabled={diasTrabalhados.length===0} sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.8)', '&:hover':{ borderColor:'rgba(255,255,255,0.6)', background:'rgba(255,255,255,0.05)' } }}>Enviar</Button>
             </Box>
           </Box>
         </motion.div>
-        
       </Box>
 
-      {/* Paper Unificado: Filtros + Tabela */}
-      <Paper sx={{
-        borderRadius: 2,
-        background: 'rgba(255, 255, 255, 0.08)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        overflow: 'hidden'
-      }}>
-        {/* Seção de Filtros */}
-        <Box sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-            <FilterIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
-            <Typography variant="subtitle1" fontWeight={600} sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-              Filtros
-            </Typography>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3 }}>
-            {/* Mês */}
-            <TextField
-              label="Mês"
-              type="month"
-              value={selectedMonth || ''}
-              onChange={(e) => {
-                const month = e.target.value;
-                setSelectedMonth(month);
-                if (month) {
-                  setDateFrom(getFirstDayOfMonth(month));
-                  setDateTo(getLastDayOfMonth(month));
-                } else {
-                  setDateFrom('');
-                  setDateTo('');
+      {/* CARDS RESUMO */}
+      <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5, delay:0.05 }}>
+        <Box sx={{ display:'grid', gridTemplateColumns:{ xs:'1fr 1fr', sm:'repeat(4,1fr)' }, gap:2, mb:4 }}>
+          {[
+            { icon:<CheckCircleIcon sx={{ color:'#10b981', fontSize:28 }} />, label:'Presentes', value:`${resumo.presentes} dias`, sub:`${resumo.percent}% dos dias úteis` },
+            { icon:<CancelIcon sx={{ color:'#ef4444', fontSize:28 }} />, label:'Faltas', value:`${resumo.faltas} dias`, sub: resumo.atrasos>0?`${resumo.atrasos} atraso(s)`:'Sem atrasos' },
+            {
+              icon:<AccessTimeIcon sx={{ color:'#3b82f6', fontSize:28 }} />,
+              label:'Horas Trabalhadas',
+              value: (
+                <Box>
+                  <Typography variant="h5" sx={{ color:'white', fontWeight:800 }}>{resumo.trabalhado}</Typography>
+                  <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)', fontSize:11 }}>
+                    de {resumo.previsto} previsto
+                  </Typography>
+                </Box>
+              ),
+              sub: `${Math.round((resumo.totalMinTrabalhados/(resumo.totalMinPrevistos||1))*100)}% de cumprimento`,
+            },
+            {
+              icon: <WarningIcon sx={{ color: resumo.saldoMin >= 0 ? '#10b981' : '#ef4444', fontSize:28 }} />,
+              label: 'Saldo de Horas',
+              value: (
+                <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
+                  <Typography variant="h5" sx={{ fontWeight:800, color: resumo.saldoMin >= 0 ? '#10b981' : '#ef4444' }}>
+                    {resumo.saldoMin >= 0 ? '+' : ''}{resumo.saldo}
+                  </Typography>
+                  {resumo.saldoMin < 0 && <Typography sx={{ fontSize:16 }}>⚠️</Typography>}
+                </Box>
+              ),
+              sub: resumo.saldoMin >= 0 ? 'Banco positivo' : 'Débito | Banco negativo',
+            },
+          ].map((card,i) => (
+            <Card key={i} sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2 }}>
+              <CardContent sx={{ p:'20px !important' }}>
+                <Box sx={{ display:'flex', alignItems:'center', gap:1.5, mb:1 }}>{card.icon}<Typography sx={{ color:'rgba(255,255,255,0.7)', fontSize:13, fontWeight:600 }}>{card.label}</Typography></Box>
+                {typeof card.value === 'string'
+                  ? <Typography variant="h5" sx={{ color:'white', fontWeight:800 }}>{card.value}</Typography>
+                  : card.value
                 }
-              }}
-              size="small"
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <CalendarIcon sx={{ fontSize: 18 }} />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                  '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                  '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                },
-                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-              }}
-            />
-
-            {/* Data Início */}
-            <TextField
-              label="Data Início"
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                // Atualizar mês se mudou manualmente
-                if (e.target.value && dateTo) {
-                  const monthFromDate = getMonthFromDate(e.target.value);
-                  const monthToDate = getMonthFromDate(dateTo);
-                  if (monthFromDate === monthToDate) {
-                    setSelectedMonth(monthFromDate);
-                  } else {
-                    setSelectedMonth('');
-                  }
-                }
-              }}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                  '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                  '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                },
-                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-              }}
-            />
-
-            {/* Data Fim */}
-            <TextField
-              label="Data Fim"
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                // Atualizar mês se mudou manualmente
-                if (dateFrom && e.target.value) {
-                  const monthFromDate = getMonthFromDate(dateFrom);
-                  const monthToDate = getMonthFromDate(e.target.value);
-                  if (monthFromDate === monthToDate) {
-                    setSelectedMonth(monthFromDate);
-                  } else {
-                    setSelectedMonth('');
-                  }
-                }
-              }}
-              size="small"
-              InputLabelProps={{ shrink: true }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                  '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                  '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                },
-                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-              }}
-            />
-          </Box>
-
-          <Box sx={{ display: 'flex', gap: 1.5, mt: 3, alignItems: 'center' }}>
-            <Button
-              variant="outlined"
-              size="medium"
-              onClick={clearFilters}
-              startIcon={<ClearIcon />}
-              sx={{
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                color: 'rgba(255, 255, 255, 0.8)',
-                '&:hover': {
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                }
-              }}
-            >
-              Limpar Filtros
-            </Button>
-            <Button
-              variant="outlined"
-              size="medium"
-              startIcon={<EmailIcon />}
-              onClick={() => setEmailDialogOpen(true)}
-              disabled={selectedEmployeeRecords.length === 0}
-              sx={{
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                color: 'rgba(255, 255, 255, 0.8)',
-                '&:hover': {
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                },
-                '&.Mui-disabled': {
-                  borderColor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.3)',
-                }
-              }}
-            >
-              Enviar Email
-            </Button>
-            <Button
-              variant="outlined"
-              size="medium"
-              startIcon={<FileDownloadIcon />}
-              onClick={exportEmployeeHistory}
-              disabled={selectedEmployeeRecords.length === 0}
-              sx={{
-                ml: 'auto',
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                color: 'rgba(255, 255, 255, 0.8)',
-                '&:hover': {
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                },
-                '&.Mui-disabled': {
-                  borderColor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.3)',
-                }
-              }}
-            >
-              Exportar Excel
-            </Button>
-          </Box>
+                <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.45)' }}>{card.sub}</Typography>
+              </CardContent>
+            </Card>
+          ))}
         </Box>
+      </motion.div>
 
-        {/* Linha divisória */}
-        <Box sx={{ 
-          height: '1px', 
-          background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent)',
-          my: 0
-        }} />
-
-        {/* Seção da Tabela */}
-        <Box sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-            <Typography 
-              variant="h6" 
-              sx={{ 
-                fontWeight: 600, 
-                color: 'rgba(255, 255, 255, 0.9)',
-                fontSize: '18px'
-              }}
-            >
-              Histórico de Registros ({selectedEmployeeRecords.length})
-            </Typography>
+      {/* CALENDARIO */}
+      <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5, delay:0.1 }}>
+        <Paper sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2, p:3, mb:3 }}>
+          <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between', mb:2 }}>
+            <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+              <CalendarIcon sx={{ color:'rgba(255,255,255,0.7)', fontSize:20 }} />
+              <Typography sx={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>Calendário do Mês</Typography>
+            </Box>
+            <Tooltip title={`Horário: ${funcionarioSchedule.horario_entrada} – ${funcionarioSchedule.horario_saida} (intervalo ${funcionarioSchedule.intervalo_min}min)`}>
+              <Typography sx={{ color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'default' }}>
+                Jornada diária: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{toHHMM(minutosPrevistosDia(funcionarioSchedule))}h</strong>
+                &nbsp;|&nbsp;
+                {funcionarioSchedule.horario_entrada} → {funcionarioSchedule.horario_saida} (-{funcionarioSchedule.intervalo_min}min intervalo)
+              </Typography>
+            </Tooltip>
           </Box>
+          <Box sx={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:0.5, mb:1 }}>
+            {['Dom','Seg','Ter','Qua','Qui','Sex','Sab'].map(d => (<Typography key={d} sx={{ textAlign:'center', color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, py:0.5 }}>{d}</Typography>))}
+          </Box>
+          {(() => {
+            if (!selectedMonth) return null;
+            const [y,m] = selectedMonth.split('-').map(Number);
+            const offset = new Date(y, m-1, 1).getDay();
+            const cells: React.ReactNode[] = [];
+            for (let i=0; i<offset; i++) cells.push(<Box key={`off-${i}`} />);
+            calendarDays.forEach(day => {
+              const { bg, border, color } = chipColor(day.status);
+              cells.push(
+                <Tooltip key={day.data} title={
+                  day.registros.length > 0
+                    ? `${formatDateTime(day.data).date}: ${day.horas_trabalhadas||'-'} trabalhado / ${day.horas_previstas||'-'} previsto (${day.status})`
+                    : day.status==='FALTA'
+                      ? `${formatDateTime(day.data).date}: FALTA`
+                      : day.dia_semana
+                }>
+                  <Box onClick={() => day.registros.length > 0 ? scrollToDate(day.data) : undefined} sx={{ py:1, px:0.5, borderRadius:1.5, textAlign:'center', minHeight:52, cursor:day.registros.length>0?'pointer':'default', background:day.registros.length>0?bg:day.status==='FALTA'?'rgba(239,68,68,0.08)':'transparent', border:`1px solid ${day.registros.length>0?border:day.status==='FALTA'?'rgba(239,68,68,0.3)':'rgba(255,255,255,0.05)'}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', transition:'all 0.15s', '&:hover': day.registros.length>0?{ opacity:0.85, transform:'scale(1.04)' }:{} }}>
+                    <Typography sx={{ fontWeight:700, color:day.registros.length>0?'white':day.status==='FALTA'?'rgba(239,68,68,0.7)':'rgba(255,255,255,0.3)', fontSize:13 }}>{day.dia_numero}</Typography>
+                    {day.registros.length > 0 && <Typography sx={{ fontSize:10, color }}>{day.status==='PRESENTE'?'✓':day.status==='ATRASO'?'!':''}</Typography>}
+                    {day.status==='FALTA' && <Typography sx={{ fontSize:10, color:'rgba(239,68,68,0.7)' }}>✗</Typography>}
+                  </Box>
+                </Tooltip>
+              );
+            });
+            return (
+              <Box>
+                <Box sx={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:0.5 }}>{cells}</Box>
+                {/* Legenda */}
+                <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mt:2, pt:2, borderTop:'1px solid rgba(255,255,255,0.07)' }}>
+                  {[
+                    { symbol:'✓', color:'#10b981', label:'Presente' },
+                    { symbol:'!', color:'#f59e0b', label:'Atraso' },
+                    { symbol:'✗', color:'#ef4444', label:'Falta' },
+                    { symbol:'○', color:'rgba(255,255,255,0.3)', label:'Sem registro' },
+                    { symbol:'Dom', color:'rgba(255,255,255,0.25)', label:'Domingo / Sábado' },
+                  ].map(l => (
+                    <Box key={l.label} sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
+                      <Typography sx={{ fontSize:11, color:l.color, fontWeight:700 }}>{l.symbol}</Typography>
+                      <Typography sx={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>{l.label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            );
+          })()}
+        </Paper>
+      </motion.div>
 
-          <TableContainer sx={{ background: 'transparent' }}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                      Data
+      {/* TABELA ESPELHO */}
+      <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5, delay:0.15 }}>
+        <Paper sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2, overflow:'hidden' }}>
+          <Box sx={{ p:3, pb:2 }}>
+            <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between', mb:2, flexWrap:'wrap', gap:2 }}>
+              <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+                <AccessTimeIcon sx={{ color:'rgba(255,255,255,0.7)', fontSize:20 }} />
+                <Typography sx={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>
+                  Registros do Mes
+                  <Typography component="span" sx={{ color:'rgba(255,255,255,0.45)', fontSize:13, ml:1 }}>({diasTrabalhados.length} dias com registro)</Typography>
+                </Typography>
+              </Box>
+              <Box sx={{ display:'flex', gap:1, alignItems:'center' }}>
+                <TextField label="De" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value&&dateTo) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:140, ...dialogFieldSx }} />
+                <TextField label="Ate" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (dateFrom&&e.target.value) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:140, ...dialogFieldSx }} />
+                <IconButton onClick={() => { const c=getCurrentMonth(); setSelectedMonth(c); setDateFrom(getFirstDayOfMonth(c)); setDateTo(getLastDayOfMonth(c)); }} size="small" sx={{ color:'rgba(255,255,255,0.6)' }}><ClearIcon fontSize="small" /></IconButton>
+              </Box>
+            </Box>
+          </Box>
+          <Box sx={{ height:1, background:'linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)' }} />
+          <TableContainer sx={{ background:'transparent' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  {['Data','Entrada','Saída Int.','Volta Int.','Saída','Trabalhado','Previsto',''].map((h,i) => (
+                    <TableCell key={i} align={i===0?'left':'center'} sx={{ fontWeight:700, color:'rgba(255,255,255,0.7)', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, borderBottom:'1px solid rgba(255,255,255,0.1)', py:1.5, px:i===0?2:1, whiteSpace:'nowrap' }}>
+                      {i===0 ? <TableSortLabel active direction={sortDir} onClick={() => setSortDir(p => p==='asc'?'desc':'asc')} sx={{ color:'rgba(255,255,255,0.7) !important', '& .MuiTableSortLabel-icon':{ color:'rgba(255,255,255,0.4) !important' } }}>{h}</TableSortLabel> : h}
                     </TableCell>
-                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                      Hora
-                    </TableCell>
-                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                      Tipo
-                    </TableCell>
-                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                      Status
-                    </TableCell>
-                    <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                      Ações
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {selectedEmployeeRecords.length > 0 ? (
-                    selectedEmployeeRecords.map((record, index) => {
-                      const { date, time } = formatDateTime(record.data_hora || '');
-                      // Usar 'type' com fallback para 'tipo' (compatibilidade)
-                      const recordType = record.type || record.tipo || 'entrada';
-                      return (
-                        <TableRow key={record.registro_id || `record-${index}`} hover>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                              {date}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                              {time}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={getStatusText(recordType)}
-                              color={getStatusColor(recordType) as any}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                              {/* Status do registro */}
-                              {(() => {
-                                const recordStatus = (record as any).status || 'ATIVO';
-                                let statusColor = '#10b981';
-                                let statusBg = 'rgba(16, 185, 129, 0.15)';
-                                if (recordStatus === 'AJUSTADO') {
-                                  statusColor = '#f59e0b';
-                                  statusBg = 'rgba(245, 158, 11, 0.15)';
-                                } else if (recordStatus === 'INVALIDADO') {
-                                  statusColor = '#ef4444';
-                                  statusBg = 'rgba(239, 68, 68, 0.15)';
-                                }
-                                const hasJustificativa = !!(record as any).justificativa;
-                                const isClickable = hasJustificativa && (recordStatus === 'INVALIDADO' || recordStatus === 'AJUSTADO');
-                                return (
-                                  <Chip
-                                    label={recordStatus}
-                                    size="small"
-                                    onClick={isClickable ? (e) => {
-                                      setJustificativaTexto((record as any).justificativa);
-                                      setJustificativaAnchorEl(e.currentTarget);
-                                    } : undefined}
-                                    sx={{
-                                      backgroundColor: statusBg,
-                                      border: `1px solid ${statusColor}`,
-                                      color: statusColor,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 600,
-                                      cursor: isClickable ? 'pointer' : 'default',
-                                    }}
-                                  />
-                                );
-                              })()}
-                              {getDetailedStatus(record).map((status, idx) => (
-                                <Chip
-                                  key={idx}
-                                  label={status.text}
-                                  size="small"
-                                  sx={{
-                                    backgroundColor: 'transparent',
-                                    border: `1px solid ${status.color}`,
-                                    color: status.color,
-                                    fontSize: '0.75rem',
-                                  }}
-                                />
-                              ))}
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {diasSorted.length===0 ? (
+                  <TableRow><TableCell colSpan={8} align="center" sx={{ py:8, border:'none' }}>
+                    <AccessTimeIcon sx={{ color:'rgba(255,255,255,0.3)', fontSize:48, mb:2, display:'block', mx:'auto' }} />
+                    <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:16, fontWeight:600 }}>Nenhum registro neste periodo</Typography>
+                    <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.35)', mt:0.5 }}>Ajuste o mes ou o intervalo de datas</Typography>
+                  </TableCell></TableRow>
+                ) : diasSorted.map(day => {
+                  const { date } = formatDateTime(day.data);
+                  const { bg, border, color } = chipColor(day.status);
+                  const isOpen = expandedDate===day.data;
+                  return (
+                    <React.Fragment key={day.data}>
+                      <TableRow id={`row-${day.data}`} hover onClick={() => setExpandedDate(isOpen?null:day.data)} sx={{ cursor:'pointer', borderLeft:`3px solid ${border}`, '& td':{ borderBottom: isOpen?'none':'1px solid rgba(255,255,255,0.06)' }, background:isOpen?'rgba(255,255,255,0.04)':'transparent' }}>
+                        {/* Data + Dia */}
+                        <TableCell sx={{ py:1, px:2 }}>
+                          <Typography sx={{ fontWeight:700, color:'white', fontSize:12, whiteSpace:'nowrap' }}>{day.data.split('-').reverse().join('-')}</Typography>
+                          <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.4)', textTransform:'uppercase', fontSize:10 }}>{day.dia_semana}</Typography>
+                        </TableCell>
+                        {/* Entrada */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ color:'rgba(255,255,255,0.85)', fontSize:12, fontFamily:'monospace' }}>{day.entrada||'—'}</Typography></TableCell>
+                        {/* Saída Int. */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ color:day.saida_intervalo?'rgba(255,255,255,0.85)':'rgba(255,255,255,0.3)', fontSize:12, fontFamily:'monospace' }}>{day.saida_intervalo||'—'}</Typography></TableCell>
+                        {/* Volta Int. */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ color:day.volta_intervalo?'rgba(255,255,255,0.85)':'rgba(255,255,255,0.3)', fontSize:12, fontFamily:'monospace' }}>{day.volta_intervalo||'—'}</Typography></TableCell>
+                        {/* Saída */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ color:'rgba(255,255,255,0.85)', fontSize:12, fontFamily:'monospace' }}>{day.saida||'—'}</Typography></TableCell>
+                        {/* Trabalhado */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ fontWeight:700, fontSize:12, fontFamily:'monospace', color:'white' }}>{day.horas_trabalhadas||'—'}</Typography></TableCell>
+                        {/* Previsto */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.5)' }}>{day.horas_previstas||'—'}</Typography></TableCell>
+                        {/* Expand */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><IconButton size="small" sx={{ color:'rgba(255,255,255,0.5)', p:0.5 }}>{isOpen?<ExpandMoreIcon sx={{ fontSize:18 }} />:<ExpandLessIcon sx={{ fontSize:18 }} />}</IconButton></TableCell>
+                      </TableRow>
+                      <TableRow>
+                          <TableCell colSpan={8} sx={{ p:0, borderBottom:isOpen?'1px solid rgba(255,255,255,0.06)':'none' }}>
+                          <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                            <Box sx={{ background:'rgba(0,0,0,0.15)', px:4, py:2 }}>
+                              <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, mb:1, textTransform:'uppercase', letterSpacing:1 }}>Marcacoes — {day.registros.length} registro(s)</Typography>
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow>{['Hora','Tipo','Status','Justificativa','Acoes'].map(h => (<TableCell key={h} sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, borderBottom:'1px solid rgba(255,255,255,0.08)', py:0.5 }}>{h}</TableCell>))}</TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {day.registros.map((r,idx) => {
+                                    const { time }=formatDateTime(r.data_hora||'');
+                                    const recStatus=(r as any).status||'ATIVO';
+                                    const isInactive=recStatus==='INVALIDADO'||recStatus==='AJUSTADO';
+                                    const sCol=recStatus==='INVALIDADO'?'#ef4444':recStatus==='AJUSTADO'?'#f59e0b':'#10b981';
+                                    return (
+                                      <TableRow key={r.registro_id||idx} sx={{ '& td':{ borderBottom:'none' } }}>
+                                        <TableCell sx={{ color:'white', fontFamily:'monospace', fontSize:13 }}>{time}</TableCell>
+                                        <TableCell><Chip label={getStatusText(r.type||r.tipo||'entrada')} size="small" color={(r.type||r.tipo||'')==='entrada'?'success':'error'} /></TableCell>
+                                        <TableCell><Chip label={recStatus} size="small" onClick={e => { if ((r as any).justificativa&&isInactive) { setJustificativaTexto((r as any).justificativa); setJustificativaAnchorEl(e.currentTarget); } }} sx={{ background:`${sCol}22`, border:`1px solid ${sCol}`, color:sCol, fontWeight:700, fontSize:11, cursor:isInactive?'pointer':'default' }} /></TableCell>
+                                        <TableCell sx={{ color:'rgba(255,255,255,0.5)', fontSize:12 }}>{(r as any).justificativa||'—'}</TableCell>
+                                        <TableCell>
+                                          <Box sx={{ display:'flex', gap:0.5 }}>
+                                            <Tooltip title="Ajustar"><span><IconButton size="small" disabled={isInactive||!r.registro_id} onClick={() => handleAdjustClick(r)} sx={{ color:isInactive?'rgba(255,255,255,0.15)':'#3b82f6' }}><EditIcon sx={{ fontSize:16 }} /></IconButton></span></Tooltip>
+                                            <Tooltip title="Invalidar"><span><IconButton size="small" disabled={isInactive||!r.registro_id} onClick={() => { setRecordToDelete(r); setInvalidateJustificativa(''); setDeleteDialogOpen(true); }} sx={{ color:isInactive?'rgba(255,255,255,0.15)':'#ef4444' }}><BlockIcon sx={{ fontSize:16 }} /></IconButton></span></Tooltip>
+                                          </Box>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
                             </Box>
-                          </TableCell>
-                          <TableCell align="center">
-                            {(() => {
-                              const recordStatus = (record as any).status || 'ATIVO';
-                              const isInactive = recordStatus === 'INVALIDADO' || recordStatus === 'AJUSTADO';
-                              return (
-                                <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                                  <Tooltip title="Ajustar registro">
-                                    <span>
-                                      <IconButton
-                                        onClick={() => handleAdjustClick(record)}
-                                        size="small"
-                                        disabled={isInactive || !record.registro_id}
-                                        sx={{ 
-                                          color: isInactive ? 'rgba(255,255,255,0.2)' : '#3b82f6',
-                                          '&:hover': {
-                                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                                          }
-                                        }}
-                                      >
-                                        <EditIcon fontSize="small" />
-                                      </IconButton>
-                                    </span>
-                                  </Tooltip>
-                                  <Tooltip title="Invalidar registro">
-                                    <span>
-                                      <IconButton
-                                        onClick={() => {
-                                          if (record.registro_id) {
-                                            setRecordToDelete(record);
-                                            setInvalidateJustificativa('');
-                                            setDeleteDialogOpen(true);
-                                          }
-                                        }}
-                                        size="small"
-                                        disabled={isInactive || !record.registro_id}
-                                        sx={{
-                                          color: isInactive ? 'rgba(255,255,255,0.2)' : '#ef4444',
-                                          '&:hover': {
-                                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                                          }
-                                        }}
-                                      >
-                                        <BlockIcon fontSize="small" />
-                                      </IconButton>
-                                    </span>
-                                  </Tooltip>
-                                </Box>
-                              );
-                            })()}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={5} align="center">
-                        <Box sx={{ py: 8 }}>
-                          <AccessTimeIcon sx={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: '4rem', mb: 2 }} />
-                          <Typography variant="h6" sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 1 }}>
-                            Nenhum registro encontrado
-                          </Typography>
-                          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                            Este funcionário ainda não possui registros de ponto no período selecionado
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-        </Box>
-      </Paper>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </React.Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </motion.div>
 
-      {/* Popover para justificativa */}
-      <Popover
-        open={Boolean(justificativaAnchorEl)}
-        anchorEl={justificativaAnchorEl}
-        onClose={() => setJustificativaAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        PaperProps={{
-          sx: {
-            p: 2,
-            maxWidth: 350,
-            background: 'rgba(30, 41, 59, 0.97)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-          }
-        }}
-      >
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
-          Justificativa
-        </Typography>
-        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
-          {justificativaTexto}
-        </Typography>
+      {/* POPOVER */}
+      <Popover open={Boolean(justificativaAnchorEl)} anchorEl={justificativaAnchorEl} onClose={() => setJustificativaAnchorEl(null)} anchorOrigin={{ vertical:'bottom', horizontal:'left' }} transformOrigin={{ vertical:'top', horizontal:'left' }} PaperProps={{ sx:{ p:2, maxWidth:320, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:2 } }}>
+        <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)', fontWeight:700, textTransform:'uppercase', letterSpacing:1 }}>Justificativa</Typography>
+        <Typography variant="body2" sx={{ color:'white', mt:0.5 }}>{justificativaTexto}</Typography>
       </Popover>
 
-      {/* Invalidate Confirmation Dialog */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }}
-        PaperProps={{
-          sx: { 
-            borderRadius: 2,
-            background: 'rgba(30, 41, 138, 0.95)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            color: 'white'
-          }
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
-          Invalidar Registro
-        </DialogTitle>
+      {/* DIALOG INVALIDAR */}
+      <Dialog open={deleteDialogOpen} onClose={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }} PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white' }}>Invalidar Registro</DialogTitle>
         <DialogContent>
-          <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 1 }}>
-            Tem certeza que deseja invalidar este registro de ponto?
-          </Typography>
-          <Typography variant="body2" sx={{ color: '#f59e0b', mb: 2 }}>
-            O registro não será excluído, mas marcado como INVALIDADO.
-          </Typography>
-          <TextField
-            fullWidth
-            label="Justificativa *"
-            placeholder="Informe o motivo da invalidação"
-            value={invalidateJustificativa}
-            onChange={(e) => setInvalidateJustificativa(e.target.value)}
-            multiline
-            rows={3}
-            helperText="Obrigatório: informe por que este registro está sendo invalidado"
-            sx={{
-              mt: 1,
-              '& .MuiOutlinedInput-root': {
-                color: 'white',
-                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-              },
-              '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-              '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.5)' },
-            }}
-          />
+          <Typography sx={{ color:'rgba(255,255,255,0.7)', mb:2 }}>O registro sera marcado como <strong>INVALIDADO</strong>, nao excluido.</Typography>
+          <TextField fullWidth label="Justificativa *" placeholder="Motivo da invalidacao" value={invalidateJustificativa} onChange={e => setInvalidateJustificativa(e.target.value)} multiline rows={3} sx={dialogFieldSx} />
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }}
-            disabled={submitting}
-            sx={{ 
-              color: 'rgba(255, 255, 255, 0.7)',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              }
-            }}
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleDeleteRecord}
-            color="error"
-            variant="contained"
-            disabled={submitting || !invalidateJustificativa.trim()}
-            startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <BlockIcon />}
-            sx={{
-              backgroundColor: '#ef4444',
-              '&:hover': {
-                backgroundColor: '#dc2626',
-              }
-            }}
-          >
-            {submitting ? 'Invalidando...' : 'Invalidar'}
-          </Button>
+          <Button onClick={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }} disabled={submitting} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleDeleteRecord} color="error" variant="contained" disabled={submitting||!invalidateJustificativa.trim()} startIcon={submitting?<CircularProgress size={18} color="inherit" />:<BlockIcon />}>{submitting?'Invalidando...':'Invalidar'}</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Adjust Record Dialog */}
-      <Dialog
-        open={adjustDialogOpen}
-        onClose={() => !submitting && setAdjustDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{
-          sx: { 
-            borderRadius: 2,
-            background: 'rgba(30, 41, 138, 0.95)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            color: 'white'
-          }
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
-          Ajustar Registro
-        </DialogTitle>
+      {/* DIALOG AJUSTAR */}
+      <Dialog open={adjustDialogOpen} onClose={() => !submitting&&setAdjustDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white' }}>Ajustar Registro</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 2 }}>
-            O registro original será marcado como AJUSTADO e um novo registro será criado com os dados corrigidos.
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField
-                label="Nova Data"
-                type="date"
-                value={adjustData.date}
-                onChange={(e) => setAdjustData(prev => ({ ...prev, date: e.target.value }))}
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  flex: 1,
-                  '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
-              <TextField
-                label="Novo Horário"
-                type="time"
-                value={adjustData.time}
-                onChange={(e) => setAdjustData(prev => ({ ...prev, time: e.target.value }))}
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  flex: 1,
-                  '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
-                  '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                }}
-              />
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mb:2 }}>O original ficara marcado como AJUSTADO e sera criado um novo registro.</Typography>
+          <Box sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
+            <Box sx={{ display:'flex', gap:2 }}>
+              <TextField label="Nova Data" type="date" value={adjustData.date} onChange={e => setAdjustData(p => ({...p,date:e.target.value}))} InputLabelProps={{ shrink:true }} sx={{ flex:1,...dialogFieldSx }} />
+              <TextField label="Horario" type="time" value={adjustData.time} onChange={e => setAdjustData(p => ({...p,time:e.target.value}))} InputLabelProps={{ shrink:true }} sx={{ flex:1,...dialogFieldSx }} />
             </Box>
-            <TextField
-              select
-              label="Tipo"
-              value={adjustData.tipo}
-              onChange={(e) => setAdjustData(prev => ({ ...prev, tipo: e.target.value as 'entrada' | 'saída' }))}
-              SelectProps={{ native: true }}
-              sx={{
-                '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
-                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                '& option': { color: 'black' },
-              }}
-            >
-              <option value="entrada">Entrada</option>
-              <option value="saída">Saída</option>
-            </TextField>
-            <TextField
-              fullWidth
-              label="Justificativa *"
-              placeholder="Informe o motivo do ajuste"
-              value={adjustData.justificativa}
-              onChange={(e) => setAdjustData(prev => ({ ...prev, justificativa: e.target.value }))}
-              multiline
-              rows={3}
-              helperText="Obrigatório: informe por que este registro está sendo ajustado"
-              sx={{
-                '& .MuiOutlinedInput-root': { color: 'white', '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' } },
-                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
-                '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.5)' },
-              }}
-            />
+            <TextField select label="Tipo" value={adjustData.tipo} onChange={e => setAdjustData(p => ({...p,tipo:e.target.value as any}))} SelectProps={{ native:true }} sx={dialogFieldSx}><option value="entrada">Entrada</option><option value="saida">Saida</option></TextField>
+            <TextField fullWidth label="Justificativa *" placeholder="Motivo do ajuste" value={adjustData.justificativa} onChange={e => setAdjustData(p => ({...p,justificativa:e.target.value}))} multiline rows={3} sx={dialogFieldSx} />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => setAdjustDialogOpen(false)}
-            disabled={submitting}
-            sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={handleAdjustConfirm}
-            variant="contained"
-            disabled={submitting || !adjustData.justificativa.trim() || !adjustData.date || !adjustData.time}
-            sx={{ background: '#2563eb', '&:hover': { background: '#1d4ed8' } }}
-          >
-            {submitting ? 'Ajustando...' : 'Confirmar Ajuste'}
-          </Button>
+          <Button onClick={() => setAdjustDialogOpen(false)} disabled={submitting} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleAdjustConfirm} variant="contained" disabled={submitting||!adjustData.justificativa.trim()||!adjustData.date||!adjustData.time} sx={{ background:'#2563eb','&:hover':{ background:'#1d4ed8' } }}>{submitting?'Ajustando...':'Confirmar'}</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Email Dialog */}
-      <Dialog 
-        open={emailDialogOpen} 
-        onClose={() => !emailEnviando && setEmailDialogOpen(false)}
-        PaperProps={{
-          sx: { 
-            borderRadius: 2,
-            background: 'rgba(30, 41, 138, 0.95)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            color: 'white'
-          }
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 600, color: 'white' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box component="span">
-              Enviar Relatório por Email
-            </Box>
-            <IconButton
-              onClick={() => !emailEnviando && setEmailDialogOpen(false)}
-              disabled={emailEnviando}
-              sx={{
-                color: 'rgba(255, 255, 255, 0.7)',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                }
-              }}
-            >
-              <CloseIcon />
-            </IconButton>
-          </Box>
+      {/* DIALOG EMAIL */}
+      <Dialog open={emailDialogOpen} onClose={() => !emailEnviando&&setEmailDialogOpen(false)} PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white' }}>
+          Enviar Relatorio por Email
+          <IconButton onClick={() => !emailEnviando&&setEmailDialogOpen(false)} sx={{ position:'absolute', right:12, top:12, color:'rgba(255,255,255,0.6)' }}><CloseIcon /></IconButton>
         </DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Email Destinatário"
-            type="email"
-            fullWidth
-            variant="outlined"
-            value={emailDestino}
-            onChange={(e) => setEmailDestino(e.target.value)}
-            disabled={emailEnviando}
-            sx={{ 
-              mt: 2,
-              '& .MuiInputLabel-root': {
-                color: 'rgba(255, 255, 255, 0.7)',
-                '&.Mui-focused': {
-                  color: 'rgba(255, 255, 255, 0.9)'
-                }
-              },
-              '& .MuiOutlinedInput-root': {
-                color: 'white',
-                '& fieldset': {
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                },
-                '&:hover fieldset': {
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                },
-                '&.Mui-focused fieldset': {
-                  borderColor: 'rgba(255, 255, 255, 0.7)',
-                },
-                background: 'rgba(255, 255, 255, 0.05)',
-              }
-            }}
-          />
-          {selectedEmployee && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                Relatório de: {selectedEmployee.nome}
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                Registros: {selectedEmployeeRecords.length}
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                Período: {dateFrom || 'Não informado'} a {dateTo || 'Não informado'}
-              </Typography>
-            </Box>
-          )}
+          <TextField autoFocus margin="dense" label="Email destinatario" type="email" fullWidth value={emailDestino} onChange={e => setEmailDestino(e.target.value)} disabled={emailEnviando} sx={{ mt:1,...dialogFieldSx }} />
+          <Box sx={{ mt:2, p:1.5, background:'rgba(255,255,255,0.04)', borderRadius:1 }}>
+            <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)' }}>Funcionario: <strong style={{ color:'rgba(255,255,255,0.8)' }}>{selectedEmployee?.nome}</strong> - {diasTrabalhados.length} dias - {selectedMonth}</Typography>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button 
-            onClick={() => setEmailDialogOpen(false)}
-            disabled={emailEnviando}
-            sx={{
-              color: 'rgba(255, 255, 255, 0.7)',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              }
-            }}
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={enviarPorEmail}
-            disabled={emailEnviando || !emailDestino}
-            color="primary"
-            variant="contained"
-            sx={{
-              backgroundColor: '#2196f3',
-              '&:hover': {
-                backgroundColor: '#1976d2',
-              }
-            }}
-          >
-            {emailEnviando ? (
-              <>
-                <CircularProgress size={24} sx={{ mr: 1 }} color="inherit" />
-                Enviando...
-              </>
-            ) : (
-              <>
-                <EmailIcon sx={{ mr: 1 }} />
-                Enviar
-              </>
-            )}
-          </Button>
+          <Button onClick={() => setEmailDialogOpen(false)} disabled={emailEnviando} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={enviarPorEmail} disabled={emailEnviando||!emailDestino} variant="contained" startIcon={emailEnviando?<CircularProgress size={18} color="inherit" />:<EmailIcon />}>{emailEnviando?'Enviando...':'Enviar'}</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar for notifications */}
-      <Snackbar
-        open={snackbarOpen}
-        autoHideDuration={6000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        sx={{
-          marginLeft: '240px', // Espaço para o sidebar
-          marginBottom: '20px',
-          zIndex: 9999
-        }}
-      >
-        <Alert 
-          onClose={handleCloseSnackbar} 
-          severity={snackbarSeverity}
-          sx={{ width: '100%' }}
-        >
-          {snackbarMessage}
-        </Alert>
+      {/* SNACKBAR */}
+      <Snackbar open={snackbarOpen} autoHideDuration={5000} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical:'bottom', horizontal:'right' }} sx={{ zIndex:9999 }}>
+        <Alert onClose={() => setSnackbarOpen(false)} severity={snackbarSeverity} sx={{ width:'100%' }}>{snackbarMessage}</Alert>
       </Snackbar>
     </PageLayout>
   );
