@@ -1,6 +1,6 @@
 """
 Rotas de Feriados — armazena o calendário customizado no DynamoDB (tabela_configuracoes).
-Chave: empresa_id  |  campo: feriados_<ano>_<uf>
+Chave: company_id  |  campo: feriados_<ano>_<uf>
 """
 from flask import Blueprint, request, jsonify
 from utils.aws import tabela_configuracoes
@@ -52,15 +52,15 @@ def get_feriados():
         if not ano:
             return jsonify([]), 200
 
-        # Tenta obter empresa_id do token; se não tiver, usa chave genérica
-        empresa_id = 'global'
+        # Tenta obter company_id do token; se não tiver, usa chave genérica
+        company_id = 'global'
         if token:
             payload = verify_token(token)
             if payload:
-                empresa_id = payload.get('empresa_id') or payload.get('sub') or 'global'
+                company_id = payload.get('company_id') or payload.get('sub') or 'global'
 
         try:
-            resp = tabela_configuracoes.get_item(Key={'empresa_id': empresa_id})
+            resp = tabela_configuracoes.get_item(Key={'company_id': company_id})
             item = resp.get('Item', {})
             campo = _feriados_key(ano, uf)
             raw = item.get(campo)
@@ -87,28 +87,39 @@ def salvar_feriados():
         data = request.get_json(force=True) or {}
         ano  = str(data.get('ano', ''))
         uf   = data.get('uf', '')
+        cidade = data.get('cidade', '')
         feriados = data.get('feriados', [])
 
         if not ano:
             return jsonify({'error': 'ano obrigatório'}), 400
 
-        # Obtém empresa_id do token
-        empresa_id = 'global'
+        # Obtém company_id do token
+        company_id = 'global'
         auth_header = request.headers.get('Authorization', '')
         if auth_header.startswith('Bearer '):
             token = auth_header.split(' ')[1]
             payload = verify_token(token)
             if payload:
-                empresa_id = payload.get('empresa_id') or payload.get('sub') or 'global'
+                company_id = payload.get('company_id') or payload.get('sub') or 'global'
 
         campo = _feriados_key(ano, uf)
 
         try:
+            update_expr = 'SET #campo = :val'
+            expr_names  = {'#campo': campo}
+            expr_values = {':val': json.dumps(feriados, ensure_ascii=False)}
+            # Persistir cidade e UF no config da empresa para reuso futuro
+            if uf:
+                update_expr += ', empresa_uf = :uf'
+                expr_values[':uf'] = uf
+            if cidade:
+                update_expr += ', empresa_cidade = :cidade'
+                expr_values[':cidade'] = cidade
             tabela_configuracoes.update_item(
-                Key={'empresa_id': empresa_id},
-                UpdateExpression='SET #campo = :val',
-                ExpressionAttributeNames={'#campo': campo},
-                ExpressionAttributeValues={':val': json.dumps(feriados, ensure_ascii=False)},
+                Key={'company_id': company_id},
+                UpdateExpression=update_expr,
+                ExpressionAttributeNames=expr_names,
+                ExpressionAttributeValues=expr_values,
             )
         except Exception:
             pass  # tabela pode não existir em dev; front usa localStorage como fallback

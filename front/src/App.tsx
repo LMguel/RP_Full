@@ -16,6 +16,7 @@ import RecordsPageDetails from './pages/RecordsPageDetails';
 import EmployeeRecordsPage from './pages/EmployeeRecordsPage';
 import DailyRecordsPage from './pages/DailyRecordsPage';
 import SettingsPage from './pages/SettingsPage';
+import ChatBotRHPage from './pages/ChatBotRHPage';
 
 // Components
 import FirstAccessModal from './components/FirstAccessModal';
@@ -225,6 +226,16 @@ const AppRoutes: React.FC = () => {
           <ProtectedRoute>
             <Layout>
               <SettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chatbot-rh"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ChatBotRHPage />
             </Layout>
           </ProtectedRoute>
         }

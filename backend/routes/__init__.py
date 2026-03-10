@@ -9,6 +9,7 @@ from .facial import routes_facial
 from .admin import admin_routes
 from .admin_auth import auth_admin_routes
 from .feriados import feriados_routes
+from .chatbot_rh import chatbot_rh_routes
 
 __all__ = [
     'routes',
@@ -19,5 +20,6 @@ __all__ = [
     'admin_routes',
     'auth_admin_routes',
     'feriados_routes',
+    'chatbot_rh_routes',
 ]
 

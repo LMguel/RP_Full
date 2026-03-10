@@ -192,6 +192,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         } else if (existingRecords && existingRecords.registros) {
           recordsToCheck = existingRecords.registros;
         }
+        // Ignorar registros invalidados ou ajustados nas verificações de conflito
+        const INVALID_STATUSES = ['INVALIDADO', 'AJUSTADO', 'invalidado', 'ajustado'];
+        recordsToCheck = recordsToCheck.filter((r: any) => !INVALID_STATUSES.includes(r.status));
         // Verificar se já existe um registro do mesmo tipo no mesmo dia
         const sameTypeRecords = recordsToCheck.filter((record: any) => 
           (record.type || record.tipo) === formData.tipo && 

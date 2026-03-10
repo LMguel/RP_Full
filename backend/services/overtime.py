@@ -88,53 +88,50 @@ def calculate_overtime(
     if not entrada_esperado or not saida_esperado:
         return resultado
     
-    # Calcula horas trabalhadas ESPERADAS (jornada normal)
-    if entrada_esperado and saida_esperado:
-        horas_brutas = time_diff_minutes(entrada_esperado, saida_esperado)
-        
-        # Se intervalo automático estiver ativado, desconta o tempo de intervalo fixo
-        # Se intervalo manual e temos break_real_minutes, desconta o tempo real
-        if intervalo_automatico and duracao_intervalo > 0:
-            resultado['horas_trabalhadas_minutos'] = max(0, horas_brutas - duracao_intervalo)
-            print(f"[DEBUG] Intervalo automático: {duracao_intervalo}min descontados. Horas brutas: {horas_brutas}, Líquidas: {resultado['horas_trabalhadas_minutos']}")
-        elif not intervalo_automatico and break_real_minutes is not None and break_real_minutes > 0:
-            resultado['horas_trabalhadas_minutos'] = max(0, horas_brutas - break_real_minutes)
-            print(f"[DEBUG] Intervalo manual: {break_real_minutes}min reais descontados. Horas brutas: {horas_brutas}, Líquidas: {resultado['horas_trabalhadas_minutos']}")
-        else:
-            resultado['horas_trabalhadas_minutos'] = horas_brutas
-    
-    # Análise da ENTRADA: não registrar atrasos, apenas contar entrada antecipada como hora extra se configurado
-    if entrada_real and entrada_esperado:
-        diff_entrada = time_diff_minutes(entrada_esperado, entrada_real)
-        # Se chegou muito adiantado e empresa conta entrada antecipada como extra, converter em horas extras
-        if diff_entrada < -tolerancia_atraso and conta_entrada_antecipada:
-            entrada_antecipada = abs(diff_entrada)
-            extra_da_entrada = max(0, entrada_antecipada - tolerancia_atraso)
-            resultado['horas_extras_minutos'] += extra_da_entrada
-    
-    # Análise da SAÍDA
-    if saida_real and saida_esperado:
-        diff_saida = time_diff_minutes(saida_esperado, saida_real)
+    # Jornada PREVISTA: duração total programada descontando intervalo
+    horas_brutas_previstas = time_diff_minutes(entrada_esperado, saida_esperado)
+    if intervalo_automatico and duracao_intervalo > 0:
+        horas_previstas = max(0, horas_brutas_previstas - duracao_intervalo)
+    else:
+        horas_previstas = horas_brutas_previstas
 
-        # Se saiu depois do horário esperado além da tolerância, registra hora extra
-        # (aqui registramos o tempo total além do horário de saída; a tolerância apenas define o limiar de normalidade)
-        if diff_saida > tolerancia_atraso:
-            resultado['horas_extras_minutos'] += diff_saida
+    # Inicializa horas trabalhadas como o previsto (caso não haja horários reais)
+    resultado['horas_trabalhadas_minutos'] = horas_previstas
 
-        elif diff_saida < -tolerancia_atraso:
-            # Saída antecipada: não registrar minutos de penalização, apenas ignorar
-            pass
-        # Se diff_saida está entre -tolerancia e +tolerancia: saída NORMAL (não faz nada)
-    
+    # Se não temos ambos os horários reais, não calcula hora extra
+    if not entrada_real or not saida_real:
+        return resultado
+
+    # Entrada efetiva para cálculo:
+    # - Se empresa conta entrada antecipada como extra → usa horário real de chegada
+    # - Caso contrário → clampeia chegada antecipada ao horário previsto (não bonifica chegada cedo)
+    if conta_entrada_antecipada:
+        entrada_efetiva = entrada_real
+    else:
+        entrada_efetiva = entrada_real if entrada_real >= entrada_esperado else entrada_esperado
+
+    # Horas REAIS trabalhadas (de entrada_efetiva até saida_real, descontando intervalo)
+    horas_brutas_reais = time_diff_minutes(entrada_efetiva, saida_real)
+    if intervalo_automatico and duracao_intervalo > 0:
+        horas_reais = max(0, horas_brutas_reais - duracao_intervalo)
+        print(f"[DEBUG] Horas reais: brutas={horas_brutas_reais}min, desconto_intervalo={duracao_intervalo}min, líquidas={horas_reais}min")
+    elif not intervalo_automatico and break_real_minutes is not None and break_real_minutes > 0:
+        horas_reais = max(0, horas_brutas_reais - break_real_minutes)
+        print(f"[DEBUG] Horas reais: brutas={horas_brutas_reais}min, intervalo_real={break_real_minutes}min, líquidas={horas_reais}min")
+    else:
+        horas_reais = horas_brutas_reais
+
+    resultado['horas_trabalhadas_minutos'] = horas_reais
+
+    # Hora extra = somente se trabalhou ALÉM do total previsto (ex.: 9h30 reais vs 9h previstas = 30min extra)
+    extra = max(0, horas_reais - horas_previstas)
+
     # Aplica arredondamento nas horas extras
-    if resultado['horas_extras_minutos'] > 0:
-        resultado['horas_extras_minutos'] = round_minutes(
-            resultado['horas_extras_minutos'],
-            arredondamento
-        )
-    
-    # Não aplicar compensação de atraso
-    
+    if extra > 0:
+        extra = round_minutes(extra, arredondamento)
+
+    resultado['horas_extras_minutos'] = extra
+
     return resultado
 
 def format_minutes_to_time(minutes):

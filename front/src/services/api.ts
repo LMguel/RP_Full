@@ -311,6 +311,19 @@ class ApiService {
     const response = await this.api.delete(endpoint);
     return response.data;
   }
+
+  // ========== CHATBOT RH ==========
+
+  async chatRH(question: string): Promise<{
+    type: 'answer' | 'clarification';
+    message: string;
+    intent?: string;
+    data?: any;
+    employee_link?: { employee_id: string; employee_name: string | null } | null;
+  }> {
+    const response = await this.api.post('/api/chat/rh', { question });
+    return response.data;
+  }
 }
 
 export const apiService = new ApiService();

@@ -542,12 +542,11 @@ const DashboardPage = () => {
   if (loading) {
     return (
       <Box sx={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        flexDirection: 'column'
+        flexDirection: 'column',
+        minHeight: 300,
       }}>
         <CircularProgress size={60} sx={{ color: 'white', mb: 2 }} />
         <Typography variant="h6" sx={{ color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
@@ -560,8 +559,6 @@ const DashboardPage = () => {
   if (error) {
     return (
       <Box sx={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
         p: 3,
         display: 'flex',
         justifyContent: 'center',
@@ -569,10 +566,11 @@ const DashboardPage = () => {
       }}>
         <Card sx={{
           maxWidth: 500,
-          bgcolor: 'rgba(255, 255, 255, 0.95)',
+          bgcolor: 'rgba(255, 255, 255, 0.1)',
           borderRadius: '16px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-          backdropFilter: 'blur(10px)'
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255,255,255,0.15)'
         }}>
           <CardContent sx={{ p: 3 }}>
             <Alert 
@@ -611,11 +609,10 @@ const DashboardPage = () => {
   if (!data) {
     return (
       <Box sx={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
         display: 'flex',
         justifyContent: 'center',
-        alignItems: 'center'
+        alignItems: 'center',
+        minHeight: 300,
       }}>
         <Typography variant="h6" sx={{ color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
           Nenhum dado disponível
@@ -625,11 +622,7 @@ const DashboardPage = () => {
   }
 
   return (
-    <Box sx={{ 
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
-      p: 3 
-    }}>
+    <Box sx={{ p: 3 }}>
       {/* Título */}
       <motion.div
         initial={{ opacity: 0, x: -20 }}

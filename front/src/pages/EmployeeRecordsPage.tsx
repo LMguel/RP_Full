@@ -180,7 +180,7 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   const getStatusText = (tipo: string) => {
-    const labels: Record<string,string> = { entrada:'Entrada', saida:'Saida', 'saida':'Saida', intervalo_inicio:'Saida Intervalo', intervalo_fim:'Volta Intervalo', retorno:'Volta Intervalo', saida_antecipada:'Saida Antecipada' };
+    const labels: Record<string,string> = { entrada: 'Entrada', saida: 'Saida', 'saída': 'Saida', intervalo_inicio: 'Saida Intervalo', intervalo_fim: 'Volta Intervalo', retorno: 'Volta Intervalo', saida_antecipada: 'Saida Antecipada' };
     return labels[tipo.toLowerCase()] || tipo;
   };
 
@@ -244,18 +244,7 @@ const EmployeeRecordsPage: React.FC = () => {
       const saiIntRec = records.find(r => ['intervalo_inicio','saida_intervalo','intervalo_saida'].includes((r.type||r.tipo||'').toLowerCase()));
       const voltaIntRec = records.find(r => ['intervalo_fim','volta_intervalo','retorno','intervalo_volta'].includes((r.type||r.tipo||'').toLowerCase()));
       const saiRec = [...records].reverse().find(r => ['saida','saída','saida_final','saída_final','checkout'].includes((r.type||r.tipo||'').toLowerCase()));
-      const horasPrevisvasStr = (() => {
-        if (!isWeekday) return undefined;
-        // Se temos entrada e saída reais, calcula previsto a partir delas menos o intervalo
-        if (entRec && saiRec) {
-          const entTime = parseDataHora(entRec.data_hora || '');
-          const saiTime = parseDataHora(saiRec.data_hora || '');
-          const diffMin = (saiTime.getTime() - entTime.getTime()) / 60000;
-          return toHHMM(Math.max(0, diffMin - funcionarioSchedule.intervalo_min));
-        }
-        // Fallback: usa o horário cadastrado do funcionário
-        return toHHMM(minPrevistos);
-      })();
+      const horasPrevisvasStr = isWeekday ? toHHMM(minPrevistos) : undefined;
       // Calcula horas trabalhadas descontando intervalo quando não há registros explícitos de intervalo
       let horasTrabalhadasStr: string | undefined = undefined;
       if (records.length) {

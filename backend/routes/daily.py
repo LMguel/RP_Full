@@ -124,7 +124,19 @@ def calculate_daily_summary(company_id, employee_id, date, records):
         worked_minutes += (saida_dt - entrada_dt).total_seconds() / 60
     
     worked_hours = worked_minutes / 60
-    expected_hours = 8.0  # TODO: Buscar das configurações
+    # Buscar horas previstas do horário cadastrado do funcionário
+    try:
+        emp_resp = table_employees.get_item(Key={'company_id': company_id, 'id': employee_id})
+        emp_item = emp_resp.get('Item', {})
+        h_entry = emp_item.get('horario_entrada')
+        h_exit  = emp_item.get('horario_saida')
+        if h_entry and h_exit:
+            def _hhmm_to_min(s): h, m = map(int, s.split(':')); return h * 60 + m
+            expected_hours = (_hhmm_to_min(h_exit) - _hhmm_to_min(h_entry)) / 60.0
+        else:
+            expected_hours = 8.0
+    except Exception:
+        expected_hours = 8.0
     
     # Calcular diferença
     difference_minutes = int(worked_minutes - (expected_hours * 60))
@@ -594,12 +606,7 @@ def get_daily_summaries():
                         if abs(diff_saida) <= tolerancia_atraso:
                             # Dentro da tolerância: arredondar para horário padrão
                             fim_efetivo = saida_padrao_min
-                        elif diff_saida > tolerancia_atraso:
-                            # Saiu depois da tolerância: horas totais até horario_saida,
-                            # excedente é hora extra
-                            fim_efetivo = saida_padrao_min
-                            horas_extras_min = saida_min - saida_padrao_min
-                        # Se saiu antes além da tolerância: usa saida_min real
+                        # else: usa saida_min real (independente de ser cedo ou tarde)
                     
                     # Calcular minutos totais trabalhados
                     minutos_totais = fim_efetivo - inicio_efetivo
@@ -633,6 +640,17 @@ def get_daily_summaries():
                     
                     if minutos_trabalhados < 0:
                         minutos_trabalhados = 0
+                    
+                    # Hora extra = total trabalhado ACIMA do total previsto
+                    if entrada_padrao_min is not None and saida_padrao_min is not None:
+                        previsto_bruto_dia = saida_padrao_min - entrada_padrao_min
+                        if funcionario_tem_intervalo and emp_intervalo and emp_intervalo > 0:
+                            previsto_min_dia = max(0, previsto_bruto_dia - emp_intervalo)
+                        else:
+                            previsto_min_dia = previsto_bruto_dia
+                        horas_extras_min = max(0, minutos_trabalhados - previsto_min_dia)
+                    else:
+                        horas_extras_min = 0
                     
                     horas_trabalhadas = round(minutos_trabalhados / 60, 2)
                     horas_trabalhadas_str = minutes_to_hhmm(minutos_trabalhados)

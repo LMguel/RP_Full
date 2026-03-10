@@ -31,6 +31,7 @@ import {
   Paper,
   Autocomplete,
 } from '@mui/material';
+import Collapse from '@mui/material/Collapse';
 import {
   CalendarMonth as CalendarIcon,
   LocationOn as LocationOnIcon,
@@ -45,6 +46,8 @@ import {
   Public as PublicIcon,
   Place as PlaceIcon,
   Star as StarIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -129,6 +132,7 @@ const HolidayCalendarSettings: React.FC = () => {
   const [location, setLocation] = useState<LocationInfo | null>(null);
   const [manualUF, setManualUF] = useState<string>('');
   const [manualCity, setManualCity] = useState<string>('');
+  const [loadedFromBackend, setLoadedFromBackend] = useState(false);
 
   // Calendário
   const [year, setYear] = useState(currentYear);
@@ -139,6 +143,9 @@ const HolidayCalendarSettings: React.FC = () => {
 
   // Vista: 'list' | 'calendar'
   const [view, setView] = useState<'list' | 'calendar'>('list');
+
+  // Expansão do card
+  const [expanded, setExpanded] = useState(false);
 
   // Dialogs
   const [editDialog, setEditDialog] = useState<{ open: boolean; holiday: Holiday | null }>({ open: false, holiday: null });
@@ -185,12 +192,30 @@ const HolidayCalendarSettings: React.FC = () => {
     );
   }, []);
 
-  useEffect(() => { requestGeolocation(); }, [requestGeolocation]);
+  useEffect(() => {
+    // Primeiro tenta carregar localização salva no backend; só pede GPS se não tiver
+    apiService.get('/api/configuracoes').then((config: any) => {
+      const savedUF   = config?.empresa_uf   || '';
+      const savedCity = config?.empresa_cidade || '';
+      if (savedUF || savedCity) {
+        setManualUF(savedUF);
+        setManualCity(savedCity);
+        setLoadedFromBackend(true);
+        setLocationMode('manual');
+      } else {
+        requestGeolocation();
+      }
+    }).catch(() => {
+      requestGeolocation();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Buscar feriados ─────────────────────────────────────────────────────────
-  const fetchHolidays = useCallback(async (uf: string, _city: string, yr: number) => {
+  const fetchHolidays = useCallback(async (uf: string, city: string, yr: number) => {
     setLoadingHolidays(true);
     let national: Holiday[] = [];
+    let municipal: Holiday[] = [];
     let saved: Holiday[] = [];
 
     // 1. Feriados nacionais via BrasilAPI
@@ -201,15 +226,51 @@ const HolidayCalendarSettings: React.FC = () => {
         id: `nacional-${i}-${h.date}`,
         date: h.date,
         name: h.name,
-        type: h.type === 'municipal' ? 'feriado' : 'feriado',
-        source: 'nacional',
+        type: 'feriado' as HolidayType,
+        source: 'nacional' as HolidaySource,
         active: true,
         edited: false,
         custom: false,
       }));
     } catch { /* silencioso */ }
 
-    // 2. Feriados salvos no backend (customizações do admin)
+    // 2. Feriados municipais via IBGE + BrasilAPI
+    if (city && uf) {
+      try {
+        // Normaliza nome da cidade: remove acentos, lowercase
+        const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        const cityNorm = normalize(city);
+        const ibgeRes = await fetch(
+          `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`
+        );
+        const municipios: { id: number; nome: string }[] = await ibgeRes.json();
+        const municipio = municipios.find(m => normalize(m.nome) === cityNorm);
+        if (municipio) {
+          const mRes = await fetch(
+            `https://brasilapi.com.br/api/feriados/v2/${yr}?city=${municipio.id}`
+          );
+          if (mRes.ok) {
+            const mData: { date: string; name: string; type: string }[] = await mRes.json();
+            // BrasilAPI v2 retorna nacional + estadual + municipal; pegar só os novos (municipal)
+            const nationalDates = new Set(national.map(h => h.date));
+            municipal = mData
+              .filter(h => !nationalDates.has(h.date))
+              .map((h, i) => ({
+                id: `municipal-${i}-${h.date}`,
+                date: h.date,
+                name: h.name,
+                type: 'feriado' as HolidayType,
+                source: (h.type === 'municipal' ? 'municipal' : 'estadual') as HolidaySource,
+                active: true,
+                edited: false,
+                custom: false,
+              }));
+          }
+        }
+      } catch { /* silencioso */ }
+    }
+
+    // 3. Feriados salvos no backend (customizações do admin)
     try {
       const resp = await apiService.get(`/api/feriados?ano=${yr}&uf=${uf}`);
       if (Array.isArray(resp)) {
@@ -226,9 +287,10 @@ const HolidayCalendarSettings: React.FC = () => {
       }
     } catch { /* endpoint pode não existir ainda */ }
 
-    // 3. Merge: saved sobrescreve national pelo mesmo date
+    // 4. Merge: nacional → municipal/estadual → saved sobrescreve
     const mergedMap = new Map<string, Holiday>();
     national.forEach(h => mergedMap.set(h.date, h));
+    municipal.forEach(h => mergedMap.set(h.date, h));
     saved.forEach(h => mergedMap.set(h.date, h));
     const merged = Array.from(mergedMap.values()).sort((a, b) => a.date.localeCompare(b.date));
     setHolidays(merged);
@@ -240,12 +302,10 @@ const HolidayCalendarSettings: React.FC = () => {
   useEffect(() => {
     const uf   = locationMode === 'auto' ? (location?.uf || '') : manualUF;
     const city = locationMode === 'auto' ? (location?.city || '') : manualCity;
-    // auto: sempre busca (feriados nacionais não precisam de UF)
-    // manual/denied: só busca quando UF selecionado
     if (locationMode === 'auto' || uf) {
       fetchHolidays(uf, city, year);
     }
-  }, [location, locationMode, manualUF, year, fetchHolidays]);
+  }, [location, locationMode, manualUF, manualCity, year, fetchHolidays]);
 
   // ── Ações ───────────────────────────────────────────────────────────────────
   const toggleHoliday = (id: string) => {
@@ -336,31 +396,50 @@ const HolidayCalendarSettings: React.FC = () => {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <Card sx={cardSx}>
-      <CardContent>
-        {/* Header */}
-        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:3 }}>
+      <CardContent sx={{ pb: expanded ? undefined : '16px !important' }}>
+        {/* Header — clicável para expandir */}
+        <Box
+          onClick={() => setExpanded(e => !e)}
+          sx={{ display:'flex', alignItems:'center', gap:2, cursor:'pointer', userSelect:'none',
+            mb: expanded ? 3 : 0 }}
+        >
           <CalendarIcon sx={{ color:'#3b82f6', fontSize:'24px' }} />
           <Box sx={{ flex:1 }}>
             <Typography variant="h6" sx={{ fontWeight:600, color:'white', fontSize:'18px' }}>
               Calendário de Feriados
             </Typography>
             <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'14px' }}>
-              Detecção automática por localização • Ajuste manual disponível
+              {expanded
+                ? 'Detecção automática por localização • Ajuste manual disponível'
+                : (() => {
+                    const loc = manualCity || location?.city || manualUF || location?.uf || '';
+                    const total = holidays.filter(h => h.active).length;
+                    return loc
+                      ? `${loc}${(manualUF || location?.uf) ? ` (${manualUF || location?.uf})` : ''} • ${total} feriado${total !== 1 ? 's' : ''} em ${year}`
+                      : `${total} feriado${total !== 1 ? 's' : ''} em ${year}`;
+                  })()
+              }
             </Typography>
           </Box>
-          {hasChanges && (
+          {loadingHolidays && !expanded && <CircularProgress size={16} sx={{ color:'rgba(255,255,255,0.4)' }} />}
+          {hasChanges && expanded && (
             <Button
               variant="contained"
               size="small"
               startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
-              onClick={saveAll}
+              onClick={e => { e.stopPropagation(); saveAll(); }}
               disabled={saving}
               sx={{ background:'linear-gradient(135deg,#3b82f6,#2563eb)', '&:hover':{background:'linear-gradient(135deg,#2563eb,#1d4ed8)'} }}
             >
               {saving ? 'Salvando...' : 'Salvar Calendário'}
             </Button>
           )}
+          <IconButton size="small" sx={{ color:'rgba(255,255,255,0.5)', pointerEvents:'none' }}>
+            {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          </IconButton>
         </Box>
+
+        <Collapse in={expanded} timeout="auto" unmountOnExit>
 
         {/* Seção de Localização */}
         <Box sx={{ background:'rgba(255,255,255,0.04)', borderRadius:2, p:2, mb:3, border:'1px solid rgba(255,255,255,0.08)' }}>
@@ -380,7 +459,7 @@ const HolidayCalendarSettings: React.FC = () => {
                 Localização detectada: <strong>{location.city}</strong>{location.uf ? ` — ${location.uf}` : ''}
               </Typography>
               <Chip label="Automático" size="small" sx={{ background:'rgba(16,185,129,0.15)', color:'#10b981', border:'1px solid #10b981', fontSize:'11px' }} />
-              <Button size="small" variant="text" onClick={() => setLocationMode('manual')}
+              <Button size="small" variant="text" onClick={() => { setLocationMode('manual'); setLoadedFromBackend(false); }}
                 sx={{ color:'rgba(255,255,255,0.5)', fontSize:'12px', textTransform:'none' }}>
                 Alterar manualmente
               </Button>
@@ -390,11 +469,21 @@ const HolidayCalendarSettings: React.FC = () => {
           {(locationMode === 'denied' || locationMode === 'manual') && (
             <Box>
               <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:2 }}>
-                <LocationOffIcon sx={{ color:'#f59e0b', fontSize:'20px' }} />
+                {loadedFromBackend
+                  ? <LocationOnIcon sx={{ color:'#3b82f6', fontSize:'20px' }} />
+                  : <LocationOffIcon sx={{ color:'#f59e0b', fontSize:'20px' }} />
+                }
                 <Typography sx={{ color:'rgba(255,255,255,0.8)', fontSize:'14px' }}>
-                  {locationMode === 'denied' ? 'Localização negada ou indisponível.' : 'Seleção manual de localização.'}
-                  {' '}Selecione seu estado e cidade abaixo.
+                  {loadedFromBackend
+                    ? 'Localização da empresa (salva anteriormente):'
+                    : locationMode === 'denied'
+                      ? 'Localização negada ou indisponível. Selecione seu estado e cidade abaixo.'
+                      : 'Seleção manual de localização. Selecione seu estado e cidade abaixo.'
+                  }
                 </Typography>
+                {loadedFromBackend && (
+                  <Chip label="Salvo" size="small" sx={{ background:'rgba(59,130,246,0.15)', color:'#60a5fa', border:'1px solid #3b82f6', fontSize:'11px' }} />
+                )}
                 {locationMode === 'denied' && (
                   <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={requestGeolocation}
                     sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.7)', fontSize:'12px' }}>
@@ -405,7 +494,7 @@ const HolidayCalendarSettings: React.FC = () => {
               <Box sx={{ display:'flex', gap:2 }}>
                 <FormControl size="small" sx={{ minWidth:180, ...fieldSx }}>
                   <InputLabel>Estado (UF)</InputLabel>
-                  <Select value={manualUF} label="Estado (UF)" onChange={e => setManualUF(e.target.value)}
+                  <Select value={manualUF} label="Estado (UF)" onChange={e => { setManualUF(e.target.value); setLoadedFromBackend(false); }}
                     MenuProps={{ PaperProps:{ sx:{ background:'#1e293b', color:'white' } } }}>
                     {ESTADOS_BR.map(e => <MenuItem key={e.uf} value={e.uf}>{e.uf} — {e.name}</MenuItem>)}
                   </Select>
@@ -414,7 +503,7 @@ const HolidayCalendarSettings: React.FC = () => {
                   size="small"
                   label="Cidade (opcional)"
                   value={manualCity}
-                  onChange={e => setManualCity(e.target.value)}
+                  onChange={e => { setManualCity(e.target.value); setLoadedFromBackend(false); }}
                   sx={{ minWidth:200, ...fieldSx }}
                   placeholder="Ex: São Paulo"
                 />
@@ -501,6 +590,7 @@ const HolidayCalendarSettings: React.FC = () => {
             {[
               { label:'Total de feriados', value: holidays.filter(h=>h.active).length, color:'#60a5fa' },
               { label:'Nacionais', value: holidays.filter(h=>h.source==='nacional'&&h.active).length, color: SOURCE_COLOR.nacional },
+              { label:'Municipais/Estaduais', value: holidays.filter(h=>['municipal','estadual'].includes(h.source)&&h.active).length, color: SOURCE_COLOR.municipal },
               { label:'Manuais / Ajustados', value: holidays.filter(h=>(h.custom||h.edited)&&h.active).length, color: SOURCE_COLOR.manual },
               { label:'Desativados', value: holidays.filter(h=>!h.active).length, color:'rgba(255,255,255,0.3)' },
             ].map(s => (
@@ -511,6 +601,8 @@ const HolidayCalendarSettings: React.FC = () => {
             ))}
           </Box>
         )}
+
+        </Collapse>
       </CardContent>
 
       {/* Dialog: Editar feriado */}

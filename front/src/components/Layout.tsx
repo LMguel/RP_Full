@@ -30,6 +30,7 @@ import {
   Business as BusinessIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
+  SmartToy as SmartToyIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -79,6 +80,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       ]
     },
     { text: 'Configurações', icon: <SettingsIcon />, path: '/settings' },
+    { text: 'Assistente RH', icon: <SmartToyIcon />, path: '/chatbot-rh' },
   ];
 
   // Atualizar submenu quando a rota mudar
@@ -502,13 +504,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               minHeight: 'calc(100vh - 64px)'
             }}
           >
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="sync">
               <motion.div
                 key={location.pathname}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
               >
                 {children}
               </motion.div>

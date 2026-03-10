@@ -541,6 +541,21 @@ def obter_funcionario(payload, funcionario_id):
         print(f"[GET] Erro geral: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@routes.route('/funcionarios/<funcionario_id>', methods=['GET'])
+@token_required
+def buscar_funcionario(payload, funcionario_id):
+    empresa_id = payload.get('company_id')
+    if not empresa_id:
+        return jsonify({'error': 'Company ID não encontrado no token'}), 400
+    try:
+        resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': funcionario_id})
+        item = resp.get('Item')
+        if not item:
+            return jsonify({'error': 'Funcionário não encontrado'}), 404
+        return jsonify(item)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @routes.route('/funcionarios/<funcionario_id>', methods=['PUT'])
 @token_required
 def atualizar_funcionario(payload, funcionario_id):

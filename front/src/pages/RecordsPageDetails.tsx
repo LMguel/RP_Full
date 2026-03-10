@@ -261,8 +261,13 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
         text: `Entrada ${antecipado} min antes`,
         color: '#93c5fd' // azul claro
       });
+    } else {
+      // Atraso: registrou depois do horário esperado + tolerância
+      statuses.push({
+        text: `Atraso ${desvio} min`,
+        color: '#ef4444'
+      });
     }
-    // Atraso removido - não exibir status de atraso
   }
 
   // Tratar registros de saída: verificar saída antecipada em relação ao horário de saída
