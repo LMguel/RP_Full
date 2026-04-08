@@ -27,6 +27,7 @@ export interface TimeRecord {
   employee_name?: string;
   data_hora: string; // ISO string
   tipo: 'entrada' | 'saída';
+  tipo?: 'dia_inteiro' | 'entrada' | 'saída';
   type?: 'entrada' | 'saida' | 'saída';  // Novo campo padronizado
   metodo: 'automatico' | 'manual';
   foto?: string;

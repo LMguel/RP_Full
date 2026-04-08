@@ -654,7 +654,7 @@ const RecordsDetailedPage: React.FC = () => {
   const handleSaveRecord = async (recordData: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída';
+    tipo: 'entrada' | 'saída' | 'dia_inteiro';
     justificativa: string;
   }) => {
     setSubmitting(true);

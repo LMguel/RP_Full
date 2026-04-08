@@ -29,7 +29,7 @@ interface TimeRecordFormProps {
   onSubmit: (data: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída';
+    tipo: 'entrada' | 'saída' | 'dia_inteiro';
     justificativa: string;
   }) => Promise<void>;
   loading?: boolean;
@@ -48,7 +48,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     data_hora: '',
     date: '', // YYYY-MM-DD
     time: '', // HH:MM
-    tipo: 'entrada' as 'entrada' | 'saída',
+    tipo: 'entrada' as 'entrada' | 'saída' | 'dia_inteiro',
     justificativa: '',
   });
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -119,34 +119,40 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       newErrors.employee_id = 'Funcionário é obrigatório';
     }
 
-    if (!formData.date || !formData.time) {
-      newErrors.data_hora = 'Data e hora são obrigatórias';
+    if (formData.tipo === 'dia_inteiro') {
+      if (!formData.date) {
+        newErrors.data_hora = 'Data é obrigatória para marcar dia inteiro';
+      }
     } else {
-      // Validações empresariais críticas
-      const selectedDateTime = new Date(`${formData.date}T${formData.time}:00`);
-      const now = new Date();
-      
-      // 1. Não pode registrar no futuro
-      if (selectedDateTime > now) {
-        newErrors.data_hora = 'Não é possível registrar ponto no futuro';
-      }
-      
-      // 2. Não pode registrar muito no passado (mais de 30 dias)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(now.getDate() - 30);
-      if (selectedDateTime < thirtyDaysAgo) {
-        newErrors.data_hora = 'Não é possível registrar ponto com mais de 30 dias';
-      }
-      
-      // 3. Horário comercial básico (opcional - pode ser removido se necessário)
-      const hour = selectedDateTime.getHours();
-      if (hour < 5 || hour > 23) {
-        newErrors.data_hora = 'Registro fora do horário permitido (05:00 - 23:59)';
-      }
-      
-      // 4. Validar formato de data
-      if (isNaN(selectedDateTime.getTime())) {
-        newErrors.data_hora = 'Data e hora inválidas';
+      if (!formData.date || !formData.time) {
+        newErrors.data_hora = 'Data e hora são obrigatórias';
+      } else {
+        // Validações empresariais críticas
+        const selectedDateTime = new Date(`${formData.date}T${formData.time}:00`);
+        const now = new Date();
+        
+        // 1. Não pode registrar no futuro
+        if (selectedDateTime > now) {
+          newErrors.data_hora = 'Não é possível registrar ponto no futuro';
+        }
+        
+        // 2. Não pode registrar muito no passado (mais de 30 dias)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(now.getDate() - 30);
+        if (selectedDateTime < thirtyDaysAgo) {
+          newErrors.data_hora = 'Não é possível registrar ponto com mais de 30 dias';
+        }
+        
+        // 3. Horário comercial básico (opcional - pode ser removido se necessário)
+        const hour = selectedDateTime.getHours();
+        if (hour < 5 || hour > 23) {
+          newErrors.data_hora = 'Registro fora do horário permitido (05:00 - 23:59)';
+        }
+        
+        // 4. Validar formato de data
+        if (isNaN(selectedDateTime.getTime())) {
+          newErrors.data_hora = 'Data e hora inválidas';
+        }
       }
     }
 
@@ -177,8 +183,11 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     }
     try {
       // Validação adicional: verificar registros duplicados
-      const selectedDate = new Date(`${formData.date}T${formData.time}:00`);
       const dateStr = formData.date;
+      let selectedDate: Date | null = null;
+      if (formData.tipo !== 'dia_inteiro') {
+        selectedDate = new Date(`${formData.date}T${formData.time}:00`);
+      }
       // Buscar registros existentes do funcionário na mesma data
       try {
         const existingRecords = await apiService.getTimeRecords({
@@ -208,27 +217,35 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
           }));
           return;
         }
-        // Verificar se não há conflito de horários próximos (menos de 30 minutos)
-        const newDateTime = selectedDate.getTime();
-        const conflictingRecords = recordsToCheck.filter((record: any) => {
-          if (!record.data_hora) return false;
-          const existingDateTime = new Date(record.data_hora).getTime();
-          const timeDiff = Math.abs(newDateTime - existingDateTime);
-          return timeDiff < (30 * 60 * 1000); // Menos de 30 minutos
-        });
-        if (conflictingRecords.length > 0) {
-          setErrors(prev => ({
-            ...prev,
-            data_hora: 'Existe um registro muito próximo deste horário (menos de 30 minutos)'
-          }));
-          return;
+        // Para registros de dia inteiro, não faz checagem de proximidade
+        if (formData.tipo !== 'dia_inteiro') {
+          // Verificar se não há conflito de horários próximos (menos de 30 minutos)
+          const newDateTime = selectedDate ? selectedDate.getTime() : Date.now();
+          const conflictingRecords = recordsToCheck.filter((record: any) => {
+            if (!record.data_hora) return false;
+            const existingDateTime = new Date(record.data_hora).getTime();
+            const timeDiff = Math.abs(newDateTime - existingDateTime);
+            return timeDiff < (30 * 60 * 1000); // Menos de 30 minutos
+          });
+          if (conflictingRecords.length > 0) {
+            setErrors(prev => ({
+              ...prev,
+              data_hora: 'Existe um registro muito próximo deste horário (menos de 30 minutos)'
+            }));
+            return;
+          }
         }
       } catch (checkError) {
         console.warn('⚠️ Não foi possível verificar registros existentes:', checkError);
         // Continua mesmo se não conseguir verificar (para não bloquear o sistema)
       }
       // Combine date and time into the format expected by backend: 'YYYY-MM-DD HH:MM:SS'
-      const formattedDateTime = `${formData.date} ${formData.time}:00`;
+      let formattedDateTime = '';
+      if (formData.tipo === 'dia_inteiro') {
+        formattedDateTime = `${formData.date} 00:00:00`;
+      } else {
+        formattedDateTime = `${formData.date} ${formData.time}:00`;
+      }
       await onSubmit({
         employee_id: selectedEmployee.id,
         data_hora: formattedDateTime,
@@ -491,6 +508,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                       filter: 'invert(1) brightness(0.7)',
                     },
                   }}
+                  disabled={formData.tipo === 'dia_inteiro' || loading}
                 />
               </Box>
 
@@ -527,7 +545,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                   name="tipo"
                   value={formData.tipo}
                   onChange={(event) => {
-                    const value = event.target.value as 'entrada' | 'saída';
+                    const value = event.target.value as 'entrada' | 'saída' | 'dia_inteiro';
                     setFormData(prev => ({
                       ...prev,
                       tipo: value,
@@ -555,6 +573,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                 >
                   <MenuItem value="entrada">Entrada</MenuItem>
                   <MenuItem value="saída">Saída</MenuItem>
+                  <MenuItem value="dia_inteiro">Dia inteiro (Atestado/Afastamento)</MenuItem>
                 </Select>
                 {errors.tipo && (
                   <Typography variant="caption" sx={{ color: '#ef4444', mt: 1 }}>

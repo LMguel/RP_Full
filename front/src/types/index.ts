@@ -52,7 +52,7 @@ export interface TimeRecord {
   registro_id: string;
   funcionario_id: string;
   data_hora: string;
-  tipo: 'entrada' | 'saída';
+  tipo?: 'dia_inteiro' | 'entrada' | 'saída';
   type?: 'entrada' | 'saida' | 'saída';  // Novo campo padronizado
   method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL' | 'AJUSTE';  // Método de registro
   status?: RecordStatus;  // ATIVO, AJUSTADO, INVALIDADO

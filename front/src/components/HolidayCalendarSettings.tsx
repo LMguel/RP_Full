@@ -518,7 +518,7 @@ const HolidayCalendarSettings: React.FC = () => {
             <InputLabel>Ano</InputLabel>
             <Select value={year} label="Ano" onChange={e => setYear(Number(e.target.value))}
               MenuProps={{ PaperProps:{ sx:{ background:'#1e293b', color:'white' } } }}>
-              {[currentYear - 1, currentYear, currentYear + 1].map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+              {Array.from({ length: 8 }, (_, i) => currentYear - 5 + i).map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
             </Select>
           </FormControl>
 

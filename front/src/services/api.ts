@@ -181,7 +181,7 @@ class ApiService {
   async registerTimeManual(data: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída';
+    tipo: 'entrada' | 'saída' | 'dia_inteiro';
     justificativa: string;
   }) {
     const response = await this.api.post('/api/registrar_ponto_manual', data);
