@@ -49,7 +49,7 @@ import { Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
 import XLSXStyle from 'xlsx-js-style';
 import { apiService } from '../services/api';
-import { TimeRecord, Employee } from '../types';
+import { TimeRecord, Employee, WeeklyScheduleMap } from '../types';
 
 interface EmployeeWithRecords extends Employee {
   registros?: TimeRecord[];
@@ -117,6 +117,7 @@ const EmployeeRecordsPage: React.FC = () => {
     horario_saida: string;
     intervalo_min: number;
   }>({ horario_entrada: '08:00', horario_saida: '17:00', intervalo_min: 60 });
+  const [customSchedule, setCustomSchedule] = useState<WeeklyScheduleMap | null>(null);
 
   const getFirstDayOfMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); return `${y}-${String(m).padStart(2,'0')}-01`; };
   const getLastDayOfMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); const l = new Date(y,m,0).getDate(); return `${y}-${String(m).padStart(2,'0')}-${String(l).padStart(2,'0')}`; };
@@ -144,11 +145,26 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   // Calcula os minutos previstos por dia com base no horário do funcionário
-  const minutosPrevistosDia = (schedule: typeof funcionarioSchedule): number => {
+  const minutosPrevistosDia = (schedule: typeof funcionarioSchedule, dateISO?: string): number => {
     const parseHHMM = (s: string) => { const [h,m] = s.split(':').map(Number); return h*60+(m||0); };
-    const entrada = parseHHMM(schedule.horario_entrada);
-    const saida = parseHHMM(schedule.horario_saida);
-    return Math.max(0, saida - entrada - schedule.intervalo_min);
+    let entrada = schedule.horario_entrada;
+    let saida = schedule.horario_saida;
+
+    if (dateISO && customSchedule) {
+      const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(dateISO + 'T12:00:00').getDay()];
+      const daySchedule = customSchedule[dayKey as keyof WeeklyScheduleMap];
+      if (daySchedule?.active === false) {
+        return 0;
+      }
+      entrada = daySchedule?.start || entrada;
+      saida = daySchedule?.end || saida;
+    }
+
+    if (!entrada || !saida) {
+      return 0;
+    }
+
+    return Math.max(0, parseHHMM(saida) - parseHHMM(entrada) - schedule.intervalo_min);
   };
 
   // Converte data_hora (DD-MM-YYYY HH:MM:SS  ou  YYYY-MM-DDTHH:MM:SS) para Date
@@ -209,31 +225,7 @@ const EmployeeRecordsPage: React.FC = () => {
       setSelectedEmployeeRecords(sorted);
       setSelectedEmployee({ id: employeeId, nome: employeeName||'Funcionario', cargo:'', foto_url:'', face_id:'', empresa_nome:'', empresa_id:'', data_cadastro: new Date().toISOString(), registros: sorted, totalHoras: calcularTotalHoras(sorted), ultimoRegistro: sorted[sorted.length-1] });
 
-      // Mantem o valor de hora extra idêntico ao exibido na coluna de RecordsPage.
-      const summaryResponse = await apiService.getTimeRecordsSummary(params);
-      const summaryList = Array.isArray(summaryResponse) ? summaryResponse : [];
-      const summaryItem = summaryList.find((item: any) => {
-        const id = String(item?.funcionario_id ?? item?.employee_id ?? '');
-        return id === String(employeeId);
-      }) || summaryList[0] || null;
-      const toNumber = (value: any): number => {
-        if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-        if (typeof value === 'string') {
-          const parsed = parseFloat(value.replace(',', '.'));
-          return Number.isFinite(parsed) ? parsed : 0;
-        }
-        return 0;
-      };
-      const parseHHMMToMinutes = (val: any): number => {
-        if (typeof val === 'string' && /^\d{1,3}:\d{2}$/.test(val)) {
-          const [h, m] = val.split(':').map(Number);
-          return h * 60 + m;
-        }
-        return 0;
-      };
-      const horasExtrasMin = summaryItem?.horas_extras_minutos != null
-        ? toNumber(summaryItem.horas_extras_minutos)
-        : parseHHMMToMinutes(summaryItem?.horas_extras);
+      const horasExtrasMin = calcularHorasExtrasPeriodo(sorted, dateFrom, dateTo);
       setSummaryExtraMinutes(horasExtrasMin);
     } catch {
       setSummaryExtraMinutes(0);
@@ -242,12 +234,44 @@ const EmployeeRecordsPage: React.FC = () => {
     finally { setLoading(false); }
   }, [employeeId, employeeName, dateFrom, dateTo]);
 
+  const calcularHorasExtrasPeriodo = (records: TimeRecord[], startDate?: string, endDate?: string) => {
+    const isWithinRange = (value?: string) => {
+      if (!value || !startDate || !endDate) return true;
+      const raw = value.includes('T') ? value.split('T')[0] : value.split(' ')[0];
+      const parts = raw.split('-');
+      const iso = parts[0]?.length === 4 ? raw : `${parts[2]}-${parts[1]}-${parts[0]}`;
+      return iso >= startDate && iso <= endDate;
+    };
+
+    const extrasByDate: Record<string, number> = {};
+    records.forEach((r) => {
+      const status = String((r as any).status || 'ATIVO').toUpperCase();
+      if (status !== 'ATIVO') return;
+      const tipo = String((r as any).type || (r as any).tipo || '').toLowerCase();
+      if (tipo !== 'saida' && tipo !== 'saída') return;
+      if (!isWithinRange((r as any).data_hora)) return;
+      const extra = Number((r as any).horas_extras_minutos || 0);
+      if (!Number.isFinite(extra) || extra <= 0) return;
+      const raw = (r as any).data_hora.includes('T') ? (r as any).data_hora.split('T')[0] : (r as any).data_hora.split(' ')[0];
+      const parts = raw.split('-');
+      const iso = parts[0]?.length === 4 ? raw : `${parts[2]}-${parts[1]}-${parts[0]}`;
+      extrasByDate[iso] = Math.max(extrasByDate[iso] || 0, extra);
+    });
+
+    return Object.values(extrasByDate).reduce((acc, value) => acc + value, 0);
+  };
+
+  useEffect(() => {
+    if (!selectedEmployeeRecords.length) return;
+    const horasExtrasMin = calcularHorasExtrasPeriodo(selectedEmployeeRecords, dateFrom, dateTo);
+    setSummaryExtraMinutes(horasExtrasMin);
+  }, [selectedEmployeeRecords, dateFrom, dateTo]);
+
   const buildCalendar = (): RegistroDia[] => {
     if (!selectedMonth) return [];
     const [year, month] = selectedMonth.split('-').map(Number);
     const lastDay = new Date(year, month, 0).getDate();
     const todayISO = new Date().toISOString().slice(0,10);
-    const minPrevistos = minutosPrevistosDia(funcionarioSchedule);
     const grouped: Record<string,TimeRecord[]> = {};
     selectedEmployeeRecords.forEach(r => {
       if (!r.data_hora) return;
@@ -265,10 +289,11 @@ const EmployeeRecordsPage: React.FC = () => {
       const iso = dateObj.toISOString().slice(0,10);
       const records = grouped[iso] || [];
       const dow = dateObj.getDay(); // 0=Dom, 6=Sab
-      const isWeekday = dow >= 1 && dow <= 5;
       const isPast = iso <= todayISO;
       const feriadoNome = activeHolidayMap[iso];
       const isHoliday = Boolean(feriadoNome);
+      const previstoMinDia = minutosPrevistosDia(funcionarioSchedule, iso);
+      const isWorkday = previstoMinDia > 0;
       let status: RegistroDia['status'] = 'SEM_REGISTRO';
       let cor: RegistroDia['cor'] = 'cinza';
       if (isHoliday) {
@@ -277,14 +302,14 @@ const EmployeeRecordsPage: React.FC = () => {
       } else if (records.length > 0) {
         const hasAtraso = records.some(r => (r.atraso_minutos||0) > 0);
         if (hasAtraso) { status='ATRASO'; cor='laranja'; } else { status='PRESENTE'; cor='verde'; }
-      } else if (isWeekday && isPast) {
+      } else if (isWorkday && isPast) {
         status='FALTA'; cor='vermelho';
       }
       const entRec = records.find(r => (r.type||r.tipo||'').toLowerCase()==='entrada');
       const saiIntRec = records.find(r => ['intervalo_inicio','saida_intervalo','intervalo_saida'].includes((r.type||r.tipo||'').toLowerCase()));
       const voltaIntRec = records.find(r => ['intervalo_fim','volta_intervalo','retorno','intervalo_volta'].includes((r.type||r.tipo||'').toLowerCase()));
       const saiRec = [...records].reverse().find(r => ['saida','saída','saida_final','saída_final','checkout'].includes((r.type||r.tipo||'').toLowerCase()));
-      const horasPrevisvasStr = isWeekday && !isHoliday ? toHHMM(minPrevistos) : undefined;
+      const horasPrevisvasStr = isWorkday && !isHoliday ? toHHMM(previstoMinDia) : undefined;
       // Calcula horas trabalhadas descontando intervalo quando não há registros explícitos de intervalo
       let horasTrabalhadasStr: string | undefined = undefined;
       let horasExtrasStr: string | undefined = undefined;
@@ -331,12 +356,14 @@ const EmployeeRecordsPage: React.FC = () => {
     const atrasos = calendarDays.filter(d => d.status==='ATRASO').length;
     const minutosExtras = summaryExtraMinutes;
     // Dias úteis passados ou hoje no mês = dias previstos
-    const diasUteisPrevistosAteHoje = calendarDays.filter(d => {
-      const dow = new Date(d.data+'T12:00:00').getDay();
-      return dow >= 1 && dow <= 5 && d.data <= todayISO && d.status !== 'FERIADO';
-    }).length;
-    const minPrevistos = minutosPrevistosDia(funcionarioSchedule);
-    const totalMinPrevistos = diasUteisPrevistosAteHoje * minPrevistos;
+    const diasUteisPrevistosAteHoje = calendarDays.filter(d => d.data <= todayISO && d.status !== 'FERIADO' && (d.horas_previstas && d.horas_previstas !== '00:00')).length;
+    const totalMinPrevistos = calendarDays.reduce((acc, day) => {
+      if (day.data > todayISO) return acc;
+      if (day.status === 'FERIADO') return acc;
+      if (!day.horas_previstas) return acc;
+      const [h, m] = day.horas_previstas.split(':').map(Number);
+      return acc + h * 60 + (m || 0);
+    }, 0);
     // Horas trabalhadas reais: soma das horas de cada dia
     const totalMinTrabalhados = diasTrabalhados.reduce((acc, day) => {
       if (day.status === 'FERIADO') return acc;
@@ -558,6 +585,7 @@ const EmployeeRecordsPage: React.FC = () => {
       const saida   = emp?.horario_saida   || '17:00';
       const intervalo = Number(emp?.intervalo_emp ?? emp?.duracao_intervalo ?? 60);
       setFuncionarioSchedule({ horario_entrada: entrada, horario_saida: saida, intervalo_min: intervalo });
+      setCustomSchedule(emp?.custom_schedule || null);
     }).catch(() => {});
   }, [employeeId]);
 
@@ -643,9 +671,9 @@ const EmployeeRecordsPage: React.FC = () => {
               <CalendarIcon sx={{ color:'rgba(255,255,255,0.7)', fontSize:20 }} />
               <Typography sx={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>Calendário do Mês</Typography>
             </Box>
-            <Tooltip title={`Horário: ${funcionarioSchedule.horario_entrada} – ${funcionarioSchedule.horario_saida} (intervalo ${funcionarioSchedule.intervalo_min}min)`}>
+            <Tooltip title={`Horario base: ${funcionarioSchedule.horario_entrada} – ${funcionarioSchedule.horario_saida} (intervalo ${funcionarioSchedule.intervalo_min}min)`}>
               <Typography sx={{ color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'default' }}>
-                Jornada diária: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{toHHMM(minutosPrevistosDia(funcionarioSchedule))}h</strong>
+                Jornada diaria: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{toHHMM(minutosPrevistosDia(funcionarioSchedule))}h</strong>
                 &nbsp;|&nbsp;
                 {funcionarioSchedule.horario_entrada} → {funcionarioSchedule.horario_saida} (-{funcionarioSchedule.intervalo_min}min intervalo)
               </Typography>

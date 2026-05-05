@@ -14,6 +14,8 @@ import {
   CircularProgress,
   Chip,
   Grid,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -24,13 +26,88 @@ import {
 } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
 import { apiService } from '../services/api';
-import { HorarioPreset } from '../types';
+import { DiaSemana, HorarioDiaConfig, HorarioPreset } from '../types';
+
+interface EmployeeWithoutPreset {
+  id: string;
+  nome: string;
+  cargo?: string;
+}
 
 interface HorarioFormData {
   nome: string;
-  horario_entrada: string;
-  horario_saida: string;
+  horarios: Record<DiaSemana, HorarioDiaConfig>;
 }
+
+const WEEK_DAYS: Array<{ key: DiaSemana; label: string; short: string }> = [
+  { key: 'segunda', label: 'Segunda', short: 'Seg' },
+  { key: 'terca', label: 'Terca', short: 'Ter' },
+  { key: 'quarta', label: 'Quarta', short: 'Qua' },
+  { key: 'quinta', label: 'Quinta', short: 'Qui' },
+  { key: 'sexta', label: 'Sexta', short: 'Sex' },
+  { key: 'sabado', label: 'Sabado', short: 'Sab' },
+  { key: 'domingo', label: 'Domingo', short: 'Dom' },
+];
+
+const DEFAULT_START = '08:00';
+const DEFAULT_END = '18:00';
+
+const buildDefaultSchedule = (start = DEFAULT_START, end = DEFAULT_END) => {
+  return WEEK_DAYS.reduce((acc, day) => {
+    acc[day.key] = { entrada: start, saida: end, ativo: true };
+    return acc;
+  }, {} as Record<DiaSemana, HorarioDiaConfig>);
+};
+
+const buildScheduleFromPreset = (preset?: HorarioPreset) => {
+  if (preset?.horarios) {
+    return preset.horarios;
+  }
+  if (preset?.horario_entrada && preset?.horario_saida) {
+    return buildDefaultSchedule(preset.horario_entrada, preset.horario_saida);
+  }
+  return buildDefaultSchedule();
+};
+
+const getFirstActiveTimes = (horarios: Record<DiaSemana, HorarioDiaConfig>) => {
+  for (const day of WEEK_DAYS) {
+    const dayData = horarios[day.key];
+    if (dayData?.ativo && dayData.entrada && dayData.saida) {
+      return { entrada: dayData.entrada, saida: dayData.saida };
+    }
+  }
+  return { entrada: null, saida: null };
+};
+
+const buildScheduleSummary = (preset: HorarioPreset) => {
+  const horarios = preset.horarios || (preset.horario_entrada && preset.horario_saida
+    ? buildDefaultSchedule(preset.horario_entrada, preset.horario_saida)
+    : null);
+
+  if (!horarios) {
+    return 'Horario nao definido';
+  }
+
+  const activeDays = WEEK_DAYS.filter(day => horarios[day.key]?.ativo);
+  if (activeDays.length === 0) {
+    return 'Sem dias ativos';
+  }
+
+  const first = horarios[activeDays[0].key];
+  const allSame = activeDays.every(day => {
+    const current = horarios[day.key];
+    return current?.entrada === first?.entrada && current?.saida === first?.saida;
+  });
+
+  if (allSame && first?.entrada && first?.saida) {
+    const daysLabel = activeDays.length === 7
+      ? 'Seg a Dom'
+      : activeDays.map(day => day.short).join(', ');
+    return `${daysLabel}: ${first.entrada} - ${first.saida}`;
+  }
+
+  return 'Varia por dia';
+};
 
 const HorarioEmpresaSettings: React.FC = () => {
   const [horarios, setHorarios] = useState<HorarioPreset[]>([]);
@@ -38,10 +115,11 @@ const HorarioEmpresaSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingHorario, setEditingHorario] = useState<HorarioPreset | null>(null);
+  const [employeesWithoutPreset, setEmployeesWithoutPreset] = useState<EmployeeWithoutPreset[]>([]);
+  const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [formData, setFormData] = useState<HorarioFormData>({
     nome: '',
-    horario_entrada: '',
-    horario_saida: '',
+    horarios: buildDefaultSchedule(),
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -69,17 +147,17 @@ const HorarioEmpresaSettings: React.FC = () => {
       setEditingHorario(horario);
       setFormData({
         nome: horario.nome,
-        horario_entrada: horario.horario_entrada,
-        horario_saida: horario.horario_saida,
+        horarios: buildScheduleFromPreset(horario),
       });
     } else {
       setEditingHorario(null);
       setFormData({
         nome: '',
-        horario_entrada: '',
-        horario_saida: '',
+        horarios: buildDefaultSchedule(),
       });
     }
+    loadEmployeesWithoutPreset();
+    setSelectedEmployees([]);
     setErrors({});
     setDialogOpen(true);
   };
@@ -89,9 +167,10 @@ const HorarioEmpresaSettings: React.FC = () => {
     setEditingHorario(null);
     setFormData({
       nome: '',
-      horario_entrada: '',
-      horario_saida: '',
+      horarios: buildDefaultSchedule(),
     });
+    setEmployeesWithoutPreset([]);
+    setSelectedEmployees([]);
     setErrors({});
   };
 
@@ -102,25 +181,60 @@ const HorarioEmpresaSettings: React.FC = () => {
       newErrors.nome = 'Nome do horário é obrigatório';
     }
 
-    if (!formData.horario_entrada) {
-      newErrors.horario_entrada = 'Horário de entrada é obrigatório';
-    }
-
-    if (!formData.horario_saida) {
-      newErrors.horario_saida = 'Horário de saída é obrigatório';
-    }
-
-    // Validar formato HH:MM
     const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    if (formData.horario_entrada && !timePattern.test(formData.horario_entrada)) {
-      newErrors.horario_entrada = 'Formato inválido. Use HH:MM';
-    }
-    if (formData.horario_saida && !timePattern.test(formData.horario_saida)) {
-      newErrors.horario_saida = 'Formato inválido. Use HH:MM';
+    let hasActiveDay = false;
+
+    WEEK_DAYS.forEach((day) => {
+      const dayData = formData.horarios[day.key];
+      if (!dayData) {
+        return;
+      }
+      if (dayData.ativo) {
+        hasActiveDay = true;
+        if (!dayData.entrada || !dayData.saida) {
+          newErrors[day.key] = 'Entrada e saida sao obrigatorias';
+          return;
+        }
+        if (!timePattern.test(dayData.entrada) || !timePattern.test(dayData.saida)) {
+          newErrors[day.key] = 'Formato invalido. Use HH:MM';
+        }
+      }
+    });
+
+    if (!hasActiveDay) {
+      newErrors.horarios = 'Selecione ao menos um dia ativo';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const handleDayToggle = (dayKey: DiaSemana, checked: boolean) => {
+    setFormData((prev) => ({
+      ...prev,
+      horarios: {
+        ...prev.horarios,
+        [dayKey]: {
+          ...prev.horarios[dayKey],
+          ativo: checked,
+          entrada: checked ? (prev.horarios[dayKey]?.entrada || DEFAULT_START) : null,
+          saida: checked ? (prev.horarios[dayKey]?.saida || DEFAULT_END) : null,
+        }
+      }
+    }));
+  };
+
+  const handleDayTimeChange = (dayKey: DiaSemana, field: 'entrada' | 'saida', value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      horarios: {
+        ...prev.horarios,
+        [dayKey]: {
+          ...prev.horarios[dayKey],
+          [field]: value,
+        }
+      }
+    }));
   };
 
   const handleSave = async () => {
@@ -130,11 +244,20 @@ const HorarioEmpresaSettings: React.FC = () => {
 
     try {
       setSaving(true);
+      const { entrada, saida } = getFirstActiveTimes(formData.horarios);
       await apiService.post('/api/horarios', {
         nome: formData.nome.trim(),
-        horario_entrada: formData.horario_entrada,
-        horario_saida: formData.horario_saida,
+        horarios: formData.horarios,
+        horario_entrada: entrada,
+        horario_saida: saida,
       });
+
+      if (selectedEmployees.length > 0) {
+        await apiService.post('/api/horarios/aplicar', {
+          nome: formData.nome.trim(),
+          funcionarios: selectedEmployees,
+        });
+      }
 
       toast.success(editingHorario 
         ? 'Horário atualizado com sucesso!' 
@@ -149,6 +272,25 @@ const HorarioEmpresaSettings: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const loadEmployeesWithoutPreset = async () => {
+    try {
+      const response = await apiService.get('/api/horarios/funcionarios/sem-preset');
+      const data = Array.isArray(response) ? response : (response?.funcionarios || []);
+      setEmployeesWithoutPreset(data);
+    } catch (err) {
+      console.error('Error loading employees without preset:', err);
+      setEmployeesWithoutPreset([]);
+    }
+  };
+
+  const toggleEmployeeSelection = (employeeId: string) => {
+    setSelectedEmployees((prev) => (
+      prev.includes(employeeId)
+        ? prev.filter((id) => id !== employeeId)
+        : [...prev, employeeId]
+    ));
   };
 
   const handleDelete = async (horario: HorarioPreset) => {
@@ -286,7 +428,7 @@ const HorarioEmpresaSettings: React.FC = () => {
                         </Typography>
                         <Chip
                           icon={<ScheduleIcon sx={{ fontSize: '16px !important' }} />}
-                          label={`${horario.horario_entrada} - ${horario.horario_saida}`}
+                          label={buildScheduleSummary(horario)}
                           size="small"
                           sx={{
                             background: 'rgba(59, 130, 246, 0.2)',
@@ -395,77 +537,146 @@ const HorarioEmpresaSettings: React.FC = () => {
               }}
             />
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-              <TextField
-                fullWidth
-                label="Horário de Entrada"
-                type="time"
-                value={formData.horario_entrada}
-                onChange={(e) => setFormData({ ...formData, horario_entrada: e.target.value })}
-                error={!!errors.horario_entrada}
-                helperText={errors.horario_entrada}
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'white',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    '&.Mui-focused': { color: '#3b82f6' }
-                  },
-                  '& input[type="time"]::-webkit-calendar-picker-indicator': {
-                    filter: 'invert(1) brightness(0.7)',
-                  },
-                }}
-              />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {errors.horarios && (
+                <Typography sx={{ color: '#ef4444', fontSize: '12px' }}>
+                  {errors.horarios}
+                </Typography>
+              )}
 
-              <TextField
-                fullWidth
-                label="Horário de Saída"
-                type="time"
-                value={formData.horario_saida}
-                onChange={(e) => setFormData({ ...formData, horario_saida: e.target.value })}
-                error={!!errors.horario_saida}
-                helperText={errors.horario_saida}
-                InputLabelProps={{ shrink: true }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'white',
-                    '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-                    '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
-                    '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    '&.Mui-focused': { color: '#3b82f6' }
-                  },
-                  '& input[type="time"]::-webkit-calendar-picker-indicator': {
-                    filter: 'invert(1) brightness(0.7)',
-                  },
-                }}
-              />
+              {WEEK_DAYS.map((day) => {
+                const dayData = formData.horarios[day.key];
+                const dayError = errors[day.key];
+                return (
+                  <Box key={day.key} sx={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 2, alignItems: 'center' }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={dayData?.ativo || false}
+                          onChange={(e) => handleDayToggle(day.key, e.target.checked)}
+                          sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
+                        />
+                      }
+                      label={day.label}
+                      sx={{ color: 'rgba(255, 255, 255, 0.8)' }}
+                    />
+
+                    <TextField
+                      fullWidth
+                      label="Entrada"
+                      type="time"
+                      value={dayData?.entrada || ''}
+                      onChange={(e) => handleDayTimeChange(day.key, 'entrada', e.target.value)}
+                      disabled={!dayData?.ativo}
+                      error={!!dayError}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                          '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+                          '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-focused': { color: '#3b82f6' }
+                        },
+                        '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                          filter: 'invert(1) brightness(0.7)',
+                        },
+                      }}
+                    />
+
+                    <TextField
+                      fullWidth
+                      label="Saida"
+                      type="time"
+                      value={dayData?.saida || ''}
+                      onChange={(e) => handleDayTimeChange(day.key, 'saida', e.target.value)}
+                      disabled={!dayData?.ativo}
+                      error={!!dayError}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          color: 'white',
+                          '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                          '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.5)' },
+                          '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          '&.Mui-focused': { color: '#3b82f6' }
+                        },
+                        '& input[type="time"]::-webkit-calendar-picker-indicator': {
+                          filter: 'invert(1) brightness(0.7)',
+                        },
+                      }}
+                    />
+
+                    {dayError && (
+                      <Box sx={{ gridColumn: '1 / -1' }}>
+                        <Typography sx={{ color: '#ef4444', fontSize: '12px', ml: 1 }}>
+                          {dayError}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })}
             </Box>
 
-            {formData.nome && formData.horario_entrada && formData.horario_saida && (
-              <Box 
-                sx={{ 
-                  p: 2, 
+            {formData.nome && (
+              <Box
+                sx={{
+                  p: 2,
                   background: 'rgba(59, 130, 246, 0.1)',
                   borderRadius: '8px',
                   border: '1px solid rgba(59, 130, 246, 0.2)',
                 }}
               >
                 <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '12px', mb: 0.5 }}>
-                  Pré-visualização:
+                  Pre-visualizacao:
                 </Typography>
                 <Typography sx={{ color: '#60a5fa', fontWeight: 600 }}>
-                  {formData.nome}: {formData.horario_entrada} - {formData.horario_saida}
+                  {formData.nome}
                 </Typography>
               </Box>
             )}
+
+            <Box
+              sx={{
+                p: 2,
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                background: 'rgba(255, 255, 255, 0.03)'
+              }}
+            >
+              <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', fontWeight: 600, mb: 1 }}>
+                Funcionarios sem horario pre-definido
+              </Typography>
+              {employeesWithoutPreset.length === 0 ? (
+                <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '13px' }}>
+                  Nenhum funcionario disponivel.
+                </Typography>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 180, overflowY: 'auto' }}>
+                  {employeesWithoutPreset.map((emp) => (
+                    <FormControlLabel
+                      key={emp.id}
+                      control={
+                        <Checkbox
+                          checked={selectedEmployees.includes(emp.id)}
+                          onChange={() => toggleEmployeeSelection(emp.id)}
+                          sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
+                        />
+                      }
+                      label={`${emp.nome}${emp.cargo ? ` - ${emp.cargo}` : ''}`}
+                      sx={{ color: 'rgba(255, 255, 255, 0.8)' }}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Box>
           </Box>
         </DialogContent>
 

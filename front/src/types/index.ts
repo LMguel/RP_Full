@@ -9,7 +9,9 @@ export interface Employee {
   id: string;
   nome: string;
   cargo: string;
+  pred_hora?: string;
   email?: string;
+  custom_schedule?: WeeklyScheduleMap;
   foto_url: string;
   face_id: string;
   empresa_nome: string;
@@ -26,13 +28,32 @@ export interface Employee {
   intervalo_emp?: number;
 }
 
+export type DiaSemana = 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' | 'domingo';
+
+export type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface WeeklyScheduleDay {
+  start?: string;
+  end?: string;
+  active?: boolean;
+}
+
+export type WeeklyScheduleMap = Partial<Record<WeekdayKey, WeeklyScheduleDay>>;
+
+export interface HorarioDiaConfig {
+  entrada: string | null;
+  saida: string | null;
+  ativo: boolean;
+}
+
 export interface HorarioPreset {
-  id: string;
-  empresa_id: string;
+  id?: string;
+  empresa_id?: string;
   nome: string;
-  horario_entrada: string;
-  horario_saida: string;
-  data_criacao: string;
+  horario_entrada?: string;
+  horario_saida?: string;
+  horarios?: Record<DiaSemana, HorarioDiaConfig>;
+  data_criacao?: string;
 }
 
 export interface CompanySettings {

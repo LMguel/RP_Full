@@ -20,6 +20,14 @@ from utils.geolocation import validar_localizacao, formatar_distancia
 import unicodedata
 import re
 from utils.logger import setup_logger
+from utils.schedule import (
+    build_pt_schedule_from_legacy,
+    build_weekly_from_legacy,
+    get_first_active_times,
+    get_schedule_for_date,
+    normalize_preset_schedule,
+    pt_schedule_to_weekly,
+)
 
 s3 = boto3.client('s3', region_name=REGIAO)
 
@@ -54,6 +62,38 @@ def _emp_tem_intervalo(funcionario):
     except (ValueError, TypeError):
         num = 0
     return num > 0, num
+
+
+def _get_company_presets(company_id: str):
+    try:
+        response = tabela_configuracoes.get_item(Key={'company_id': company_id})
+        config_item = response.get('Item', {})
+        presets = config_item.get('horarios_preset', [])
+        if not isinstance(presets, list):
+            return []
+        return [normalize_preset_schedule(p) for p in presets]
+    except Exception as e:
+        print(f"[PRESET] Erro ao buscar presets: {e}")
+        return []
+
+
+def _find_preset_by_name(presets, name: str):
+    return next((p for p in presets if p.get('nome') == name), None)
+
+
+def _apply_preset_to_employee(employee_item: dict, preset: dict):
+    if not preset:
+        return
+    preset = normalize_preset_schedule(preset)
+    horarios = preset.get('horarios') or {}
+    weekly = pt_schedule_to_weekly(horarios)
+    if weekly:
+        employee_item['custom_schedule'] = weekly
+    entrada, saida = get_first_active_times(horarios)
+    if entrada and saida:
+        employee_item['horario_entrada'] = entrada
+        employee_item['horario_saida'] = saida
+    employee_item['pred_hora'] = preset.get('nome')
 
 # CORS configurado globalmente no app.py
 
@@ -301,6 +341,7 @@ def invalidar_registro(registro_id):
         hoje = agora.strftime('%Y-%m-%d')
         data_hora_str = agora.strftime('%Y-%m-%d %H:%M:%S')
         data_hora_calculo = data_hora_str  # Por padrão igual ao real
+        target_date = agora.date()
         
         # Buscar registros do dia usando composite key da tabela TimeRecords
         # HASH: company_id, RANGE: employee_id#date_time
@@ -333,7 +374,7 @@ def invalidar_registro(registro_id):
                 config_response = tabela_configuracoes.get_item(Key={'company_id': company_id})
                 config = config_response.get('Item', {})
                 tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
-                horario_entrada_esperado = funcionario.get('horario_entrada')
+                horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date)
                 
                 if horario_entrada_esperado:
                     # Parse horário esperado
@@ -404,9 +445,8 @@ def invalidar_registro(registro_id):
                     'duracao_intervalo': 60
                 })
                 
-                # Pegar horários esperados do funcionário
-                horario_entrada_esperado = funcionario.get('horario_entrada')
-                horario_saida_esperado = funcionario.get('horario_saida')
+                # Pegar horários esperados do funcionário para o dia
+                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
                 
                 # Pegar horários reais (entrada do dia + saída agora)
                 # employee_id#date_time formato: miguel_123#2025-11-10 08:30:00
@@ -592,6 +632,8 @@ def atualizar_funcionario(payload, funcionario_id):
         senha = request.form.get('senha')
         horario_entrada = request.form.get('horario_entrada')  # Novo: horário de entrada
         horario_saida = request.form.get('horario_saida')  # Novo: horário de saída
+        nome_horario = request.form.get('nome_horario')  # Nome do horário pré-definido
+        tipo_horario = request.form.get('tipo_horario')
         home_office = request.form.get('home_office', 'false').lower() == 'true'
         
         if not nome or not cargo:
@@ -670,6 +712,21 @@ def atualizar_funcionario(payload, funcionario_id):
                     funcionario['intervalo_emp'] = int(emp_val) if emp_val else None
                 except Exception:
                     funcionario['intervalo_emp'] = None
+
+        # Aplicar regras de horário por dia
+        if tipo_horario == 'variavel':
+            funcionario.pop('horario_entrada', None)
+            funcionario.pop('horario_saida', None)
+            funcionario.pop('pred_hora', None)
+            funcionario.pop('custom_schedule', None)
+        else:
+            presets = _get_company_presets(empresa_id)
+            preset_name = nome_horario or cargo
+            preset = _find_preset_by_name(presets, preset_name) if preset_name else None
+            if preset:
+                _apply_preset_to_employee(funcionario, preset)
+            elif horario_entrada and horario_saida:
+                funcionario['custom_schedule'] = build_weekly_from_legacy(horario_entrada, horario_saida)
             else:
                 # definir para o padrão da empresa (apenas se intervalo automático estiver ativo)
                 try:
@@ -893,6 +950,7 @@ def cadastrar_funcionario(payload):
             horario_entrada = data.get('horario_entrada')
             horario_saida = data.get('horario_saida')
             nome_horario = data.get('nome_horario')  # Nome do horário pré-definido
+            tipo_horario = data.get('tipo_horario')
             login = data.get('login')
             senha = data.get('senha')
             home_office = data.get('home_office', False)
@@ -913,6 +971,7 @@ def cadastrar_funcionario(payload):
             horario_entrada = request.form.get('horario_entrada')
             horario_saida = request.form.get('horario_saida')
             nome_horario = request.form.get('nome_horario')  # Nome do horário pré-definido
+            tipo_horario = request.form.get('tipo_horario')
             login = request.form.get('login')
             senha = request.form.get('senha')
             home_office = request.form.get('home_office', 'false').lower() == 'true'
@@ -1064,6 +1123,21 @@ def cadastrar_funcionario(payload):
                         funcionario_item['intervalo_emp'] = None
                 except Exception:
                     funcionario_item['intervalo_emp'] = None
+
+        # Aplicar regras de horário por dia
+        if tipo_horario == 'variavel':
+            funcionario_item.pop('horario_entrada', None)
+            funcionario_item.pop('horario_saida', None)
+            funcionario_item.pop('pred_hora', None)
+            funcionario_item.pop('custom_schedule', None)
+        else:
+            presets = _get_company_presets(empresa_id)
+            preset_name = nome_horario or cargo
+            preset = _find_preset_by_name(presets, preset_name) if preset_name else None
+            if preset:
+                _apply_preset_to_employee(funcionario_item, preset)
+            elif horario_entrada and horario_saida:
+                funcionario_item['custom_schedule'] = build_weekly_from_legacy(horario_entrada, horario_saida)
         
         # Salvar no DynamoDB (Employees table uses company_id as partition key)
         tabela_funcionarios.put_item(Item=funcionario_item)
@@ -1071,39 +1145,37 @@ def cadastrar_funcionario(payload):
         # Salvar horário pré-definido se fornecido
         if nome_horario and horario_entrada and horario_saida:
             try:
-                # Buscar configuração existente
                 response = tabela_configuracoes.get_item(
-                    Key={
-                        'company_id': empresa_id,
-                        'config_key': 'horarios_preset'
-                    }
+                    Key={'company_id': empresa_id}
                 )
-                
+
                 config_item = response.get('Item', {})
-                horarios = config_item.get('horarios', [])
-                
-                # Verificar se horário com esse nome já existe
+                horarios = config_item.get('horarios_preset', [])
+
+                if not isinstance(horarios, list):
+                    horarios = []
+
                 horario_existente = next((h for h in horarios if h['nome'] == nome_horario), None)
-                
+
                 if not horario_existente:
-                    # Criar novo horário pré-definido
                     horario_id = str(uuid.uuid4())
                     horarios.append({
                         'id': horario_id,
                         'nome': nome_horario,
+                        'horarios': build_pt_schedule_from_legacy(horario_entrada, horario_saida),
                         'horario_entrada': horario_entrada,
                         'horario_saida': horario_saida,
                         'data_criacao': datetime.now().isoformat()
                     })
-                    
-                    # Salvar de volta em ConfigCompany
-                    config_item = {
-                        'company_id': empresa_id,
-                        'config_key': 'horarios_preset',
-                        'horarios': horarios,
-                        'updated_at': datetime.now().isoformat()
-                    }
-                    tabela_configuracoes.put_item(Item=config_item)
+
+                    tabela_configuracoes.update_item(
+                        Key={'company_id': empresa_id},
+                        UpdateExpression='SET horarios_preset = :hp, updated_at = :ua',
+                        ExpressionAttributeValues={
+                            ':hp': horarios,
+                            ':ua': datetime.now().isoformat()
+                        }
+                    )
                     print(f"[CADASTRO] Horário pré-definido '{nome_horario}' criado com sucesso")
             except Exception as e:
                 print(f"[AVISO] Erro ao salvar horário pré-definido: {e}")
@@ -1239,13 +1311,22 @@ def listar_registros(payload):
             
             for chave, regs_do_dia in registros_por_func_data.items():
                 employee_id = chave.split('#')[0]
+                date_str = chave.split('#')[1] if '#' in chave else None
                 funcionario = funcionarios_map.get(employee_id)
                 
                 if not funcionario:
                     continue
                     
-                horario_entrada_esperado = funcionario.get('horario_entrada')
-                horario_saida_esperado = funcionario.get('horario_saida')
+                try:
+                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else None
+                except Exception:
+                    target_date = None
+
+                if target_date:
+                    horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
+                else:
+                    horario_entrada_esperado = funcionario.get('horario_entrada')
+                    horario_saida_esperado = funcionario.get('horario_saida')
                 
                 if not horario_entrada_esperado or not horario_saida_esperado:
                     continue
@@ -1644,8 +1725,6 @@ def listar_registros_resumo(payload):
                 
             func_id = funcionario['id']
             func_nome = funcionario.get('nome', 'Desconhecido')
-            horario_entrada_esperado = funcionario.get('horario_entrada')
-            horario_saida_esperado = funcionario.get('horario_saida')
             
             print(f"[DEBUG RESUMO] Processando funcionário: {func_nome} ({func_id})")
             
@@ -1696,6 +1775,20 @@ def listar_registros_resumo(payload):
                     
                     if entrada and saida:
                         try:
+                            try:
+                                target_date = datetime.strptime(data, '%d-%m-%Y').date()
+                            except Exception:
+                                try:
+                                    target_date = datetime.strptime(data, '%Y-%m-%d').date()
+                                except Exception:
+                                    target_date = None
+
+                            if target_date:
+                                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
+                            else:
+                                horario_entrada_esperado = funcionario.get('horario_entrada')
+                                horario_saida_esperado = funcionario.get('horario_saida')
+
                             def _try_parse_dt(value):
                                 for fmt in ('%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
                                     try:
@@ -1899,6 +1992,7 @@ def listar_funcionarios(payload):
                 'intervalo_personalizado': f.get('intervalo_personalizado', False),
                 'intervalo_emp': f.get('intervalo_emp'),
                 'tolerancia_atraso': f.get('tolerancia_atraso'),
+                'custom_schedule': f.get('custom_schedule'),
             }
             funcionarios_list.append(funcionario_dict)
         return jsonify({'funcionarios': funcionarios_list})
@@ -2140,10 +2234,17 @@ def registrar_ponto_manual(payload):
     data_hora_calculo = data_hora  # Por padrão, o horário de cálculo é igual ao real
 
     if tipo == 'entrada':
-        horario_entrada_esperado = funcionario.get('horario_entrada')
+        try:
+            data_str, _ = data_hora.split(' ')
+            target_date = datetime.strptime(data_str, '%Y-%m-%d').date()
+        except Exception:
+            target_date = None
+        if target_date:
+            horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date)
+        else:
+            horario_entrada_esperado = funcionario.get('horario_entrada')
         tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
         if horario_entrada_esperado:
-            from datetime import datetime, timedelta
             data_str, hora_str = data_hora.split(' ')
             # Aceita tanto HH:MM quanto HH:MM:SS
             def parse_hora(h):
@@ -2200,8 +2301,17 @@ def registrar_ponto_manual(payload):
             })
             
             # Pegar horários esperados do funcionário
-            horario_entrada_esperado = funcionario.get('horario_entrada')
-            horario_saida_esperado = funcionario.get('horario_saida')
+            try:
+                data_registro = data_hora.split(' ')[0]
+                target_date = datetime.strptime(data_registro, '%Y-%m-%d').date()
+            except Exception:
+                target_date = None
+
+            if target_date:
+                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
+            else:
+                horario_entrada_esperado = funcionario.get('horario_entrada')
+                horario_saida_esperado = funcionario.get('horario_saida')
             
             # Buscar registros do mesmo dia para encontrar a entrada
             data_registro = data_hora.split(' ')[0]  # YYYY-MM-DD
@@ -2618,6 +2728,9 @@ def listar_horarios_preset(payload):
         # Garantir que é uma lista
         if not isinstance(horarios, list):
             horarios = []
+
+        # Normalizar estrutura para compatibilidade
+        horarios = [normalize_preset_schedule(h) for h in horarios]
         
         # Ordenar por nome
         horarios = sorted(horarios, key=lambda x: x.get('nome', ''))
@@ -2662,6 +2775,78 @@ def listar_horarios_por_funcionarios(payload):
         print(f"Erro ao listar horários de funcionários: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
+@routes.route('/horarios/funcionarios/sem-preset', methods=['GET'])
+@token_required
+def listar_funcionarios_sem_preset(payload):
+    """
+    Lista funcionarios sem horario pre-definido (pred_hora vazio)
+    """
+    try:
+        empresa_id = payload.get('company_id')
+
+        response = tabela_funcionarios.query(
+            KeyConditionExpression=Key('company_id').eq(empresa_id)
+        )
+        funcionarios = response.get('Items', [])
+
+        sem_preset = []
+        for func in funcionarios:
+            pred_hora = (func.get('pred_hora') or '').strip()
+            if pred_hora:
+                continue
+            sem_preset.append({
+                'id': func.get('id'),
+                'nome': func.get('nome'),
+                'cargo': func.get('cargo', ''),
+            })
+
+        return jsonify(sem_preset)
+    except Exception as e:
+        print(f"Erro ao listar funcionarios sem preset: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@routes.route('/horarios/aplicar', methods=['POST'])
+@token_required
+def aplicar_horario_preset(payload):
+    """
+    Aplica um horario pre-definido a funcionarios selecionados
+    Body: {"nome": "Horario X", "funcionarios": ["id1", "id2"]}
+    """
+    try:
+        empresa_id = payload.get('company_id')
+        data = request.get_json() or {}
+
+        nome = (data.get('nome') or '').strip()
+        funcionarios = data.get('funcionarios') or []
+
+        if not nome or not isinstance(funcionarios, list) or not funcionarios:
+            return jsonify({'error': 'nome e funcionarios sao obrigatorios'}), 400
+
+        presets = _get_company_presets(empresa_id)
+        preset = _find_preset_by_name(presets, nome)
+        if not preset:
+            return jsonify({'error': f'Horario "{nome}" nao encontrado'}), 404
+
+        updated = 0
+        for func_id in funcionarios:
+            try:
+                resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': func_id})
+                func_item = resp.get('Item')
+                if not func_item:
+                    continue
+                _apply_preset_to_employee(func_item, preset)
+                tabela_funcionarios.put_item(Item=func_item)
+                updated += 1
+            except Exception as e:
+                print(f"[HORARIOS] Falha ao aplicar preset em {func_id}: {e}")
+
+        return jsonify({'success': True, 'updated': updated}), 200
+    except Exception as e:
+        print(f"Erro ao aplicar horario preset: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @routes.route('/horarios/<nome_horario>', methods=['GET'])
 @token_required
 def obter_horario_por_nome(nome_horario, payload):
@@ -2682,12 +2867,15 @@ def obter_horario_por_nome(nome_horario, payload):
         
         # Procurar pelo nome
         horario_encontrado = next((h for h in horarios if h['nome'] == nome_horario), None)
+        if horario_encontrado:
+            horario_encontrado = normalize_preset_schedule(horario_encontrado)
         
         if horario_encontrado:
             return jsonify({
                 'nome': horario_encontrado['nome'],
-                'horario_entrada': horario_encontrado['horario_entrada'],
-                'horario_saida': horario_encontrado['horario_saida']
+                'horario_entrada': horario_encontrado.get('horario_entrada'),
+                'horario_saida': horario_encontrado.get('horario_saida'),
+                'horarios': horario_encontrado.get('horarios')
             })
         else:
             return jsonify({'error': f'Horário "{nome_horario}" não encontrado'}), 404
@@ -2711,15 +2899,36 @@ def criar_horario_preset(payload):
         nome = data.get('nome')  # ex: "Padrão"
         horario_entrada = data.get('horario_entrada')  # ex: "08:00"
         horario_saida = data.get('horario_saida')  # ex: "17:00"
+        horarios_payload = data.get('horarios')
         
-        if not all([nome, horario_entrada, horario_saida]):
-            return jsonify({'error': 'nome, horario_entrada e horario_saida são obrigatórios'}), 400
-        
+        if not nome:
+            return jsonify({'error': 'nome é obrigatório'}), 400
+
         # Validar formato HH:MM
         import re
         time_pattern = r'^([01]\d|2[0-3]):([0-5]\d)$'
-        if not re.match(time_pattern, horario_entrada) or not re.match(time_pattern, horario_saida):
-            return jsonify({'error': 'Formato de horário inválido. Use HH:MM'}), 400
+
+        if isinstance(horarios_payload, dict) and horarios_payload:
+            for day_name, day_data in horarios_payload.items():
+                if not isinstance(day_data, dict):
+                    return jsonify({'error': f'Estrutura inválida para {day_name}'}), 400
+                ativo = day_data.get('ativo', True)
+                entrada = day_data.get('entrada')
+                saida = day_data.get('saida')
+                if ativo:
+                    if not entrada or not saida:
+                        return jsonify({'error': f'Entrada e saída obrigatórias para {day_name}'}), 400
+                    if not re.match(time_pattern, entrada) or not re.match(time_pattern, saida):
+                        return jsonify({'error': f'Formato inválido em {day_name}. Use HH:MM'}), 400
+                else:
+                    if entrada or saida:
+                        return jsonify({'error': f'{day_name} está inativo e não deve ter horário'}), 400
+        elif horario_entrada and horario_saida:
+            if not re.match(time_pattern, horario_entrada) or not re.match(time_pattern, horario_saida):
+                return jsonify({'error': 'Formato de horário inválido. Use HH:MM'}), 400
+            horarios_payload = build_pt_schedule_from_legacy(horario_entrada, horario_saida)
+        else:
+            return jsonify({'error': 'horarios ou horario_entrada/horario_saida são obrigatórios'}), 400
         
         # Buscar configuração existente ou criar nova
         response = tabela_configuracoes.get_item(
@@ -2736,18 +2945,22 @@ def criar_horario_preset(payload):
         # Verificar se horário com esse nome já existe
         horario_existente = next((h for h in horarios if h['nome'] == nome), None)
         
+        entrada_legacy, saida_legacy = get_first_active_times(horarios_payload)
+
         if horario_existente:
             # Atualizar horário existente
-            horario_existente['horario_entrada'] = horario_entrada
-            horario_existente['horario_saida'] = horario_saida
+            horario_existente['horarios'] = horarios_payload
+            horario_existente['horario_entrada'] = entrada_legacy
+            horario_existente['horario_saida'] = saida_legacy
         else:
             # Adicionar novo horário
             horario_id = str(uuid.uuid4())
             horarios.append({
                 'id': horario_id,
                 'nome': nome,
-                'horario_entrada': horario_entrada,
-                'horario_saida': horario_saida,
+                'horarios': horarios_payload,
+                'horario_entrada': entrada_legacy,
+                'horario_saida': saida_legacy,
                 'data_criacao': datetime.now().isoformat()
             })
         
@@ -2766,8 +2979,9 @@ def criar_horario_preset(payload):
         return jsonify({
             'success': True,
             'nome': nome,
-            'horario_entrada': horario_entrada,
-            'horario_saida': horario_saida
+            'horario_entrada': entrada_legacy,
+            'horario_saida': saida_legacy,
+            'horarios': horarios_payload
         }), 201
         
     except Exception as e:
@@ -2776,13 +2990,17 @@ def criar_horario_preset(payload):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@routes.route('/horarios/<nome_horario>', methods=['DELETE'])
+@routes.route('/horarios/<nome_horario>', methods=['DELETE', 'OPTIONS'])
 @token_required
-def excluir_horario_preset(nome_horario, payload):
+def excluir_horario_preset(payload, nome_horario):
+    if request.method == 'OPTIONS':
+        return '', 200
     """
     Exclui um horário pré-definido da empresa
     """
     try:
+        from urllib.parse import unquote
+        nome_horario = unquote(nome_horario or '')
         empresa_id = payload.get('company_id')
         
         # Buscar configuração existente
@@ -2798,7 +3016,13 @@ def excluir_horario_preset(nome_horario, payload):
             horarios = []
         
         # Filtrar para remover o horário
-        horarios_filtrados = [h for h in horarios if h['nome'] != nome_horario]
+        horarios_filtrados = []
+        for h in horarios:
+            if not isinstance(h, dict):
+                horarios_filtrados.append(h)
+                continue
+            if h.get('nome') != nome_horario:
+                horarios_filtrados.append(h)
         
         if len(horarios_filtrados) == len(horarios):
             return jsonify({'error': f'Horário "{nome_horario}" não encontrado'}), 404
@@ -3233,7 +3457,15 @@ def registrar_ponto_localizacao(payload):
         
         if tipo == 'entrada':
             tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
-            horario_entrada_esperado = funcionario.get('horario_entrada')
+            try:
+                data_str = data_hora_atual.split(' ')[0]
+                target_date = datetime.strptime(data_str, '%Y-%m-%d').date()
+            except Exception:
+                target_date = None
+            if target_date:
+                horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date)
+            else:
+                horario_entrada_esperado = funcionario.get('horario_entrada')
             
             if horario_entrada_esperado:
                 try:

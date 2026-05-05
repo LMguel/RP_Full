@@ -261,6 +261,46 @@ const RecordsSummaryPage: React.FC = () => {
         });
       }
       
+      if (dateRange.start_date && dateRange.end_date) {
+        try {
+          const registrosResponse = await apiService.getTimeRecords(params);
+          const registrosList = Array.isArray(registrosResponse) ? registrosResponse : [];
+          const extrasByEmployee: Record<string, number> = {};
+
+          const isWithinRange = (value?: string) => {
+            if (!value || !dateRange.start_date || !dateRange.end_date) return false;
+            const raw = value.includes('T') ? value.split('T')[0] : value.split(' ')[0];
+            const parts = raw.split('-');
+            const iso = parts[0]?.length === 4 ? raw : `${parts[2]}-${parts[1]}-${parts[0]}`;
+            return iso >= dateRange.start_date && iso <= dateRange.end_date;
+          };
+
+          registrosList.forEach((reg: any) => {
+            const empId = String(reg.funcionario_id || reg.employee_id || '');
+            if (!empId) return;
+            const status = String(reg.status || 'ATIVO').toUpperCase();
+            if (status !== 'ATIVO') return;
+            const tipo = String(reg.type || reg.tipo || '').toLowerCase();
+            if (tipo !== 'saida' && tipo !== 'saída') return;
+            if (!isWithinRange(reg.data_hora)) return;
+            const extraMin = Number(reg.horas_extras_minutos || 0);
+            if (!Number.isFinite(extraMin)) return;
+            extrasByEmployee[empId] = (extrasByEmployee[empId] || 0) + extraMin;
+          });
+
+          summaries = summaries.map((item) => {
+            const empId = String(item.employee_id || '');
+            if (!empId) return item;
+            return {
+              ...item,
+              horas_extras: extrasByEmployee[empId] ?? 0,
+            };
+          });
+        } catch (err) {
+          console.error('Erro ao recalcular horas extras por periodo:', err);
+        }
+      }
+
       console.log('📊 [RESUMO] Summaries processados:', summaries);
       setEmployeeSummaries(summaries);
       

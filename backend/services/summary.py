@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import List, Dict, Optional, Tuple
 from boto3.dynamodb.conditions import Key, Attr
 from models import DailySummary, MonthlySummary, WorkMode, DayStatus
+from utils.schedule import get_schedule_for_date
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table_records = dynamodb.Table('TimeRecords')
@@ -51,30 +52,10 @@ def get_employee_schedule(company_id: str, employee_id: str, target_date: date) 
     )
     employee = emp_response.get('Item')
     
-    # Dia da semana (mon, tue, wed, ...)
-    weekday = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][target_date.weekday()]
-    
-    # 1. Tentar custom_schedule do employee
-    if employee and employee.get('custom_schedule'):
-        day_schedule = employee['custom_schedule'].get(weekday)
-        if day_schedule:
-            return day_schedule.get('start'), day_schedule.get('end')
-    
-    # 2. Fallback para weekly_schedule da company
     config_response = table_config.get_item(Key={'company_id': company_id})
     config = config_response.get('Item', {})
-    
-    weekly_schedule = config.get('weekly_schedule', {})
-    day_schedule = weekly_schedule.get(weekday)
-    
-    if day_schedule:
-        return day_schedule.get('start'), day_schedule.get('end')
-    
-    # 3. Fallback legado: horario_entrada/horario_saida
-    if employee:
-        return employee.get('horario_entrada'), employee.get('horario_saida')
-    
-    return None, None
+
+    return get_schedule_for_date(employee or {}, target_date, config)
 
 def calculate_daily_summary(company_id: str, employee_id: str, target_date: date) -> DailySummary:
     """

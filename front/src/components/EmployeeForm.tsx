@@ -29,7 +29,7 @@ import {
   Schedule as ScheduleIcon,
   AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
-import { Employee, HorarioPreset } from '../types';
+import { DiaSemana, Employee, HorarioDiaConfig, HorarioPreset } from '../types';
 import { config } from '../config';
 
 interface EmployeeFormProps {
@@ -62,7 +62,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     employee?.foto_url || null
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [horariosPreset, setHorariosPreset] = useState<any[]>([]);
+  const [horariosPreset, setHorariosPreset] = useState<HorarioPreset[]>([]);
   const [loadingHorarios, setLoadingHorarios] = useState(false);
   const [nomeHorario, setNomeHorario] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -75,6 +75,59 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [selectedPreset, setSelectedPreset] = useState<string>('');
 
   const allCargos = [...new Set(existingCargos)].sort();
+
+  const WEEK_DAYS: DiaSemana[] = [
+    'segunda',
+    'terca',
+    'quarta',
+    'quinta',
+    'sexta',
+    'sabado',
+    'domingo',
+  ];
+
+  const getFirstActiveTimesFromPreset = (preset: HorarioPreset) => {
+    const horarios = preset.horarios;
+    if (!horarios) {
+      return {
+        entrada: preset.horario_entrada || '',
+        saida: preset.horario_saida || ''
+      };
+    }
+    for (const day of WEEK_DAYS) {
+      const dayData = horarios[day as DiaSemana] as HorarioDiaConfig | undefined;
+      if (dayData?.ativo && dayData.entrada && dayData.saida) {
+        return { entrada: dayData.entrada, saida: dayData.saida };
+      }
+    }
+    return { entrada: '', saida: '' };
+  };
+
+  const formatPresetSummary = (preset: HorarioPreset) => {
+    if (!preset.horarios) {
+      if (preset.horario_entrada && preset.horario_saida) {
+        return `${preset.horario_entrada} - ${preset.horario_saida}`;
+      }
+      return 'Horario nao definido';
+    }
+
+    const activeDays = WEEK_DAYS.filter(day => preset.horarios?.[day]?.ativo);
+    if (activeDays.length === 0) {
+      return 'Sem dias ativos';
+    }
+
+    const first = preset.horarios[activeDays[0]];
+    const allSame = activeDays.every(day => {
+      const current = preset.horarios?.[day];
+      return current?.entrada === first?.entrada && current?.saida === first?.saida;
+    });
+
+    if (allSame && first?.entrada && first?.saida) {
+      return `${first.entrada} - ${first.saida}`;
+    }
+
+    return 'Varia por dia';
+  };
 
   React.useEffect(() => {
     const carregarHorarios = async () => {
@@ -174,10 +227,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     setSelectedPreset(presetNome);
     const preset = horariosPreset.find(h => h.nome === presetNome);
     if (preset) {
+      const { entrada, saida } = getFirstActiveTimesFromPreset(preset);
       setFormData(prev => ({
         ...prev,
-        horario_entrada: preset.horario_entrada,
-        horario_saida: preset.horario_saida,
+        horario_entrada: entrada,
+        horario_saida: saida,
       }));
       setNomeHorario(preset.nome);
     }
@@ -737,7 +791,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                               <Typography>{preset.nome}</Typography>
                               <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' }}>
-                                {preset.horario_entrada} - {preset.horario_saida}
+                                {formatPresetSummary(preset)}
                               </Typography>
                             </Box>
                           </MenuItem>

@@ -97,7 +97,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
 
   const [summaries, setSummaries] = useState<any[]>([]);
   // Mapa employee_id → jornada { horario_entrada, horario_saida, intervalo_min }
-  const [scheduleMap, setScheduleMap] = useState<Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number }>>({});
+  const [scheduleMap, setScheduleMap] = useState<Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }>>({});
   const [loading, setLoading] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -116,7 +116,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       );
       setEmployees(sortedEmployees);
       // Montar mapa de jornada por funcionário
-      const map: Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number }> = {};
+      const map: Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }> = {};
       employeesList.forEach((emp: any) => {
         const id = emp.id || emp.funcionario_id;
         if (id) {
@@ -124,6 +124,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
             horario_entrada: emp.horario_entrada || '08:00',
             horario_saida: emp.horario_saida || '17:00',
             intervalo_min: Number(emp.intervalo_emp ?? emp.duracao_intervalo ?? 60),
+            custom_schedule: emp.custom_schedule,
           };
         }
       });
@@ -235,6 +236,20 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
     setSelectedMonth(getCurrentMonth());
   };
 
+  const getExpectedMinutesForDate = (dateStr: string, sched?: { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }) => {
+    if (!sched || !dateStr) return null;
+    const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(dateStr + 'T12:00:00').getDay()];
+    const daySchedule = sched.custom_schedule?.[dayKey];
+    const active = daySchedule?.active;
+    if (active === false) {
+      return 0;
+    }
+    const entrada = daySchedule?.start || sched.horario_entrada;
+    const saida = daySchedule?.end || sched.horario_saida;
+    if (!entrada || !saida) return 0;
+    return minutosPrevistosDia(entrada, saida, sched.intervalo_min);
+  };
+
   const exportToExcel = () => {
     if (!summaries.length) {
       toast.error('Nenhum dado para exportar');
@@ -242,7 +257,8 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
     }
     const rows = summaries.map(s => {
       const sched = scheduleMap[String(s.employee_id)];
-      const previsto = sched ? toHHMM(minutosPrevistosDia(sched.horario_entrada, sched.horario_saida, sched.intervalo_min)) : '-';
+      const previstoMin = sched ? getExpectedMinutesForDate(s.date, sched) : null;
+      const previsto = previstoMin !== null ? toHHMM(previstoMin) : '-';
       return {
         Data: formatDateLabel(s.date),
         Funcionário: s.employee_name,
@@ -323,7 +339,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                 .filter(s => !selectedEmployee || s.employee_id === selectedEmployee.id)
                 .map(s => {
                   const sched = scheduleMap[String(s.employee_id)];
-                  const previstoMin = sched ? minutosPrevistosDia(sched.horario_entrada, sched.horario_saida, sched.intervalo_min) : null;
+                  const previstoMin = sched ? getExpectedMinutesForDate(s.date, sched) : null;
                   const previstoStr = previstoMin !== null ? toHHMM(previstoMin) : null;
                   const dateFmt = formatDate(s.date);
                   const cellSx = { py: 1, px: 1 };

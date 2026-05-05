@@ -6,6 +6,7 @@ from boto3.dynamodb.conditions import Key, Attr
 from utils.auth import verify_token
 from functools import wraps
 from utils.aws import dynamodb
+from utils.schedule import get_schedule_for_date
 import boto3
 
 # Tabelas DynamoDB
@@ -125,18 +126,27 @@ def calculate_daily_summary(company_id, employee_id, date, records):
     
     worked_hours = worked_minutes / 60
     # Buscar horas previstas do horário cadastrado do funcionário
+    expected_entry_str = None
     try:
         emp_resp = table_employees.get_item(Key={'company_id': company_id, 'id': employee_id})
         emp_item = emp_resp.get('Item', {})
-        h_entry = emp_item.get('horario_entrada')
-        h_exit  = emp_item.get('horario_saida')
+        try:
+            target_date = datetime.strptime(date, '%Y-%m-%d').date()
+        except Exception:
+            target_date = None
+        if target_date:
+            h_entry, h_exit = get_schedule_for_date(emp_item, target_date)
+        else:
+            h_entry = emp_item.get('horario_entrada')
+            h_exit = emp_item.get('horario_saida')
+        expected_entry_str = h_entry
         if h_entry and h_exit:
             def _hhmm_to_min(s): h, m = map(int, s.split(':')); return h * 60 + m
             expected_hours = (_hhmm_to_min(h_exit) - _hhmm_to_min(h_entry)) / 60.0
         else:
-            expected_hours = 8.0
+            expected_hours = 0.0
     except Exception:
-        expected_hours = 8.0
+        expected_hours = 0.0
     
     # Calcular diferença
     difference_minutes = int(worked_minutes - (expected_hours * 60))
@@ -146,10 +156,13 @@ def calculate_daily_summary(company_id, employee_id, date, records):
     
     # Calcular atraso (TODO: verificar horário previsto de entrada)
     delay_minutes = 0
-    if first_entry:
+    if first_entry and expected_entry_str:
         entrada_dt = datetime.fromisoformat(first_entry.replace('Z', '+00:00'))
-        # Assumir entrada prevista às 08:00
-        expected_entry = entrada_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+        try:
+            hh, mm = map(int, expected_entry_str.split(':'))
+            expected_entry = entrada_dt.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        except Exception:
+            expected_entry = entrada_dt
         if entrada_dt > expected_entry:
             delay_minutes = int((entrada_dt - expected_entry).total_seconds() / 60)
     
@@ -493,6 +506,7 @@ def get_daily_summaries():
                         'nome': emp.get('nome', emp.get('id')),
                         'horario_entrada': emp.get('horario_entrada'),
                         'horario_saida': emp.get('horario_saida'),
+                        'custom_schedule': emp.get('custom_schedule'),
                         'intervalo': intervalo  # None = sem intervalo pré-definido
                     }
                 print(f"[DEBUG] Dados de funcionários carregados: {len(employee_data)}")
@@ -514,8 +528,16 @@ def get_daily_summaries():
             # Obter dados do funcionário
             emp_info = employee_data.get(emp_id, {})
             emp_nome = emp_info.get('nome', emp_id)
-            emp_horario_entrada = emp_info.get('horario_entrada')
-            emp_horario_saida = emp_info.get('horario_saida')
+            try:
+                target_date = datetime.strptime(item.get('date'), '%Y-%m-%d').date()
+            except Exception:
+                target_date = None
+
+            if target_date:
+                emp_horario_entrada, emp_horario_saida = get_schedule_for_date(emp_info, target_date)
+            else:
+                emp_horario_entrada = emp_info.get('horario_entrada')
+                emp_horario_saida = emp_info.get('horario_saida')
             emp_intervalo_raw = emp_info.get('intervalo')  # None = sem intervalo pré-definido
             
             # Verificar se funcionário tem intervalo pré-definido
