@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Drawer,
@@ -35,6 +35,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { apiService } from '../services/api';
 
 const logoUrl = new URL('../image/logo.png', import.meta.url).href;
 
@@ -49,6 +50,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [backendVersion, setBackendVersion] = useState<string>('');
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
@@ -323,8 +325,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     </Box>
   );
 
-  // Aplicar estilo ao body para garantir que não apareça fundo branco
-  React.useEffect(() => {
+  // Aplicar estilo ao body para garantir que nao apareca fundo branco
+  useEffect(() => {
     document.body.style.background = 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)';
     document.body.style.margin = '0';
     document.body.style.padding = '0';
@@ -336,6 +338,31 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       document.body.style.margin = '';
       document.body.style.padding = '';
       document.documentElement.style.background = '';
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadVersion = async () => {
+      try {
+        const response = await apiService.get('/api/version');
+        const version = response?.version || 'unknown';
+        const commit = response?.commit || '';
+        const display = commit ? `Backend v${version} (${commit})` : `Backend v${version}`;
+        if (isMounted) {
+          setBackendVersion(display);
+        }
+      } catch {
+        if (isMounted) {
+          setBackendVersion('Backend vunknown');
+        }
+      }
+    };
+
+    loadVersion();
+    return () => {
+      isMounted = false;
     };
   }, []);
 
@@ -516,6 +543,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </motion.div>
             </AnimatePresence>
           </Container>
+          <Box
+            component="footer"
+            sx={{
+              py: 2,
+              textAlign: 'center',
+              color: 'rgba(255, 255, 255, 0.6)',
+              fontSize: '12px',
+            }}
+          >
+            {backendVersion || 'Backend vunknown'}
+          </Box>
         </Box>
       </Box>
 

@@ -59,6 +59,16 @@ def health_check():
 def api_health_check():
     return jsonify({'status': 'OK', 'message': 'API endpoints funcionando', 'service': 'Ponto Inteligente API'}), 200
 
+@app.route('/api/version', methods=['GET'])
+def api_version():
+    version = os.getenv('BACKEND_VERSION') or os.getenv('APP_VERSION') or 'unknown'
+    commit = os.getenv('GIT_SHA') or os.getenv('GIT_COMMIT') or ''
+    return jsonify({
+        'service': 'Ponto Inteligente API',
+        'version': version,
+        'commit': commit,
+    }), 200
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint não encontrado'}), 404
