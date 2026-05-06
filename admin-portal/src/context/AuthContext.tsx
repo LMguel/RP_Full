@@ -92,18 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Call backend API for authentication
-<<<<<<< HEAD
     const apiUrl = import.meta.env.VITE_API_URL;
-    
+
     if (!apiUrl) {
       throw new Error(
         "VITE_API_URL não está configurada! " +
-        "Crie um arquivo .env na raiz do projeto com a variável VITE_API_URL."
+          "Crie um arquivo .env na raiz do projeto com a variável VITE_API_URL."
       );
     }
-=======
-    const apiUrl = import.meta.env.VITE_API_URL || "";
->>>>>>> 00f317441bf5cad651f90046ca77fbb1254f8c5a
     
     const response = await fetch(`${apiUrl}/api/auth/admin-login`, {
       method: "POST",

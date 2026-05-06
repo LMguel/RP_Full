@@ -221,8 +221,9 @@ const HolidayCalendarSettings: React.FC = () => {
     // 1. Feriados nacionais via BrasilAPI
     try {
       const res = await fetch(`https://brasilapi.com.br/api/feriados/v1/${yr}`);
-      const data: { date: string; name: string; type: string }[] = await res.json();
-      national = data.map((h, i) => ({
+      if (res.ok) {
+        const data: { date: string; name: string; type: string }[] = await res.json();
+        national = data.map((h, i) => ({
         id: `nacional-${i}-${h.date}`,
         date: h.date,
         name: h.name,
@@ -231,7 +232,8 @@ const HolidayCalendarSettings: React.FC = () => {
         active: true,
         edited: false,
         custom: false,
-      }));
+        }));
+      }
     } catch { /* silencioso */ }
 
     // 2. Feriados municipais via IBGE + BrasilAPI
@@ -251,7 +253,7 @@ const HolidayCalendarSettings: React.FC = () => {
           );
           if (mRes.ok) {
             const mData: { date: string; name: string; type: string }[] = await mRes.json();
-            // BrasilAPI v2 retorna nacional + estadual + municipal; pegar só os novos (municipal)
+            // BrasilAPI v2 retorna nacional + estadual + municipal; pegar so os novos (municipal)
             const nationalDates = new Set(national.map(h => h.date));
             municipal = mData
               .filter(h => !nationalDates.has(h.date))

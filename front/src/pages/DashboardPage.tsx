@@ -279,23 +279,9 @@ const DashboardPage = () => {
       ];
 
       try {
-        // Carregar dados essenciais com timeout menor
+        // Carregar dados essenciais sem timeout artificial para evitar vazios intermitentes
         const results = await Promise.allSettled(
-          apiCalls.map(async (api) => {
-            try {
-              const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Request timeout')), 5000); // 5 segundos
-              });
-              
-              const response = await Promise.race([
-                apiService.get(api.url),
-                timeoutPromise
-              ]);
-              return response;
-            } catch (error) {
-              return { data: null, status: 500 };
-            }
-          })
+          apiCalls.map((api) => apiService.get(api.url))
         );
 
       // Função auxiliar para extrair dados seguros - completamente silenciosa

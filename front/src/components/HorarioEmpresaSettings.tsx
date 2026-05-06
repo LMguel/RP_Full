@@ -279,7 +279,13 @@ const HorarioEmpresaSettings: React.FC = () => {
       const response = await apiService.get('/api/horarios/funcionarios/sem-preset');
       const data = Array.isArray(response) ? response : (response?.funcionarios || []);
       setEmployeesWithoutPreset(data);
-    } catch (err) {
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        // Backend ainda nao suporta este endpoint; segue com lista vazia.
+        setEmployeesWithoutPreset([]);
+        return;
+      }
       console.error('Error loading employees without preset:', err);
       setEmployeesWithoutPreset([]);
     }
