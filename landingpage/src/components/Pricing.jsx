@@ -1,199 +1,303 @@
 import React, { useState } from 'react'
+import { motion } from 'framer-motion'
+import { Check, Tablet, Smartphone, Layers, ArrowRight, Info } from 'lucide-react'
 
-function scrollToContato() {
-    document.querySelector('#contato')?.scrollIntoView({ behavior: 'smooth' })
-}
+const ranges = [
+  { label: 'Até 10 func.', key: '10' },
+  { label: '11 a 20 func.', key: '20' },
+  { label: '21 a 30 func.', key: '30' },
+]
 
 const plans = [
-    {
-        name: 'Mobile (GPS no celular)',
-        badge: 'Recomendado para começar',
-        price: 'A partir de R$ 69/mês',
-        setup: 'Setup grátis',
-        setupClass: 'text-green-600 font-semibold',
-        featured: true,
-        bullets: [
-            'Funcionário bate o ponto no próprio celular',
-            'Localização no registro',
-            'Relatórios + Excel para DP',
-        ],
-    },
-    {
-        name: 'Tablet (Ponto Facial)',
-        badge: null,
-        price: 'A partir de R$ 109/mês',
-        setup: 'Setup: 12× de R$ 79,99 ou R$ 799 à vista',
-        setupClass: 'text-slate-500',
-        featured: false,
-        bullets: [
-            'Ponto fixo na empresa',
-            'Reconhecimento facial anti-fraude',
-            'Relatórios + Excel para DP',
-        ],
-    },
-    {
-        name: 'Híbrido (Celular + Tablet)',
-        badge: null,
-        price: 'A partir de R$ 139/mês',
-        setup: 'Setup: 12× de R$ 79,99 ou R$ 799 à vista',
-        setupClass: 'text-slate-500',
-        featured: false,
-        bullets: [
-            'Quem está externo usa o celular',
-            'Quem está presencial usa o tablet',
-            'Relatórios + Excel para DP',
-        ],
-    },
+  {
+    id: 'tablet',
+    icon: Tablet,
+    name: 'Tablet',
+    tagline: 'Registro em dispositivo fixo',
+    popular: true,
+    accent: 'blue',
+    prices: { '10': 129, '20': 159, '30': 199 },
+    description: 'Ideal para empresas que registram o ponto em um dispositivo fixo instalado na entrada.',
+    features: [
+      'Terminal tablet fixo na empresa',
+      'Foto capturada em cada registro',
+      'Painel de gestão completo',
+      'Relatórios e exportação Excel',
+      'Suporte inicial incluso',
+    ],
+    note: '* Tablet fornecido pelo cliente ou cotado à parte.',
+  },
+  {
+    id: 'mobile',
+    icon: Smartphone,
+    name: 'Mobile',
+    tagline: 'Registro no celular com GPS',
+    popular: false,
+    accent: 'cyan',
+    prices: { '10': 149, '20': 179, '30': 219 },
+    description: 'Ideal para equipes em campo que precisam de registro pelo celular com geolocalização.',
+    features: [
+      'App no celular do colaborador',
+      'Geolocalização em cada registro',
+      'Painel de gestão completo',
+      'Relatórios e exportação Excel',
+      'Suporte inicial incluso',
+    ],
+  },
+  {
+    id: 'hibrido',
+    icon: Layers,
+    name: 'Híbrido',
+    tagline: 'Tablet + Mobile no mesmo contrato',
+    popular: false,
+    accent: 'green',
+    prices: { '10': 189, '20': 229, '30': 279 },
+    description: 'Ideal para empresas que precisam de tablet fixo na sede e mobile para equipes externas.',
+    features: [
+      'Tablet + Mobile habilitados',
+      'Painel de gestão unificado',
+      'Geolocalização inclusa',
+      'Relatórios e exportação Excel',
+      'Suporte inicial incluso',
+    ],
+  },
 ]
 
-const faixas = [
-    {
-        plan: 'Mobile',
-        setup: 'Setup grátis',
-        ranges: [
-            { label: 'Até 5 func.', price: 'R$ 69/mês' },
-            { label: 'Até 15 func.', price: 'R$ 99/mês' },
-            { label: 'Até 30 func.', price: 'R$ 129/mês' },
-        ],
-    },
-    {
-        plan: 'Tablet',
-        setup: 'Setup: 12× R$ 79,99 ou R$ 799 à vista',
-        ranges: [
-            { label: 'Até 5 func.', price: 'R$ 109/mês' },
-            { label: 'Até 15 func.', price: 'R$ 139/mês' },
-            { label: 'Até 30 func.', price: 'R$ 179/mês' },
-        ],
-    },
-    {
-        plan: 'Híbrido',
-        setup: 'Setup: 12× R$ 79,99 ou R$ 799 à vista',
-        ranges: [
-            { label: 'Até 5 func.', price: 'R$ 139/mês' },
-            { label: 'Até 15 func.', price: 'R$ 169/mês' },
-            { label: 'Até 30 func.', price: 'R$ 219/mês' },
-        ],
-    },
-]
+const accentCard = {
+  blue: {
+    border: 'border-blue-500/30',
+    glow: 'shadow-[0_0_40px_rgba(59,130,246,0.12)]',
+    badge: 'bg-blue-600 text-white',
+    icon: 'bg-blue-500/10 text-blue-400',
+    btn: 'btn-primary',
+    check: 'text-blue-400',
+  },
+  cyan: {
+    border: 'border-cyan-500/20',
+    glow: '',
+    badge: '',
+    icon: 'bg-cyan-500/10 text-cyan-400',
+    btn: 'btn-secondary',
+    check: 'text-cyan-400',
+  },
+  green: {
+    border: 'border-emerald-500/20',
+    glow: '',
+    badge: '',
+    icon: 'bg-emerald-500/10 text-emerald-400',
+    btn: 'btn-secondary',
+    check: 'text-emerald-400',
+  },
+}
 
-export default function Pricing() {
-    const [faixaOpen, setFaixaOpen] = useState(false)
+const item = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, delay: i * 0.1, ease: [0.21, 0.47, 0.32, 0.98] },
+  }),
+}
 
-    return (
-        <section id="planos" className="section" style={{ background: '#F8FAFC' }}>
-            <div className="max-w-6xl mx-auto px-4 md:px-8">
-                {/* Title */}
-                <h2 className="section-title">Planos simples para PMEs</h2>
-                <p className="text-center text-sm mb-10" style={{ color: '#475569', marginTop: '-1.5rem' }}>
-                    Relatórios e exportação Excel inclusos em todos os planos.
-                </p>
+export default function Pricing({ onContact }) {
+  const [range, setRange] = useState('10')
 
-                {/* Cards */}
-                <div className="grid md:grid-cols-3 gap-6">
-                    {plans.map((plan) => (
-                        <div
-                            key={plan.name}
-                            className="card flex flex-col"
-                            style={plan.featured
-                                ? { borderColor: '#2563EB', borderWidth: '2px', boxShadow: '0 4px 20px rgba(37,99,235,0.10)' }
-                                : {}
-                            }
-                        >
-                            {/* Badge */}
-                            {plan.badge && (
-                                <span
-                                    className="self-start text-xs font-semibold px-3 py-1 rounded-full mb-3"
-                                    style={{ background: '#DBEAFE', color: '#2563EB' }}
-                                >
-                                    {plan.badge}
-                                </span>
-                            )}
+  return (
+    <section id="planos" className="py-24 bg-rp-surface relative overflow-hidden">
+      <div className="absolute inset-0 bg-hero-grid opacity-30" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-blue-600/6 blur-[120px]" />
 
-                            {/* Name */}
-                            <h3 className="font-bold text-lg" style={{ color: '#0F172A' }}>
-                                {plan.name}
-                            </h3>
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="text-center mb-14">
+          <motion.span
+            initial={{ opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="section-label"
+          >
+            Planos e preços
+          </motion.span>
+          <motion.h2
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.1 }}
+            className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight mt-2 mb-4"
+          >
+            Simples, transparente, sem surpresas
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.2 }}
+            className="text-slate-400 text-lg max-w-xl mx-auto"
+          >
+            Escolha o plano ideal para o tamanho da sua equipe.
+          </motion.p>
+        </div>
 
-                            {/* Price */}
-                            <p className="mt-2 text-2xl font-bold" style={{ color: '#0F172A' }}>
-                                {plan.price}
-                            </p>
+        {/* Range switcher */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.25 }}
+          className="flex justify-center mb-10"
+        >
+          <div className="inline-flex bg-rp-card border border-white/[0.07] rounded-xl p-1 gap-1">
+            {ranges.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => setRange(r.key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+                  range === r.key
+                    ? 'bg-blue-600 text-white shadow-lg'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </motion.div>
 
-                            {/* Setup */}
-                            <p className={`text-xs mt-1 ${plan.setupClass}`}>
-                                {plan.setup}
-                            </p>
+        {/* Cards */}
+        <div className="grid lg:grid-cols-3 gap-6 mb-10">
+          {plans.map((plan, i) => {
+            const a = accentCard[plan.accent]
+            const Icon = plan.icon
+            return (
+              <motion.div
+                key={plan.id}
+                custom={i}
+                variants={item}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: '-60px' }}
+                className={`relative rounded-2xl p-7 border transition-all duration-300 ${
+                  plan.popular
+                    ? `bg-rp-card ${a.border} ${a.glow}`
+                    : 'bg-rp-card border-white/[0.07] hover:border-white/[0.12]'
+                }`}
+              >
+                {/* Popular badge */}
+                {plan.popular && (
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                    <span className="bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-lg shadow-blue-500/30">
+                      ✦ Mais Popular
+                    </span>
+                  </div>
+                )}
 
-                            {/* Bullets */}
-                            <ul className="mt-5 space-y-2 flex-1">
-                                {plan.bullets.map((b, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-sm" style={{ color: '#334155' }}>
-                                        <span className="mt-0.5 flex-shrink-0 text-blue-500">✓</span>
-                                        <span>{b}</span>
-                                    </li>
-                                ))}
-                            </ul>
-
-                            {/* CTA */}
-                            <button
-                                onClick={scrollToContato}
-                                className="btn-primary w-full py-3 mt-6 text-sm"
-                            >
-                                Receber proposta por e-mail
-                            </button>
-                        </div>
-                    ))}
+                {/* Icon + Name */}
+                <div className={`w-11 h-11 rounded-xl ${a.icon} flex items-center justify-center mb-5`}>
+                  <Icon size={20} />
                 </div>
 
-                {/* Faixas accordion */}
-                <div className="mt-10 max-w-3xl mx-auto">
-                    <button
-                        onClick={() => setFaixaOpen(!faixaOpen)}
-                        className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors"
-                        style={{ color: '#2563EB' }}
-                    >
-                        <span>Ver valores por faixa (até 5, 15 e 30 funcionários)</span>
-                        <svg
-                            className={`w-4 h-4 transition-transform duration-200 ${faixaOpen ? 'rotate-180' : ''}`}
-                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
-                        >
-                            <path d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
+                <h3 className="text-xl font-bold text-white mb-1">{plan.name}</h3>
+                <p className="text-sm text-slate-400 mb-6">{plan.tagline}</p>
 
-                    <div className={`accordion-content ${faixaOpen ? 'open' : ''}`}>
-                        <div className="grid md:grid-cols-3 gap-4 pt-4 pb-2">
-                            {faixas.map((f) => (
-                                <div key={f.plan} className="bg-white border border-slate-200 rounded-xl p-4">
-                                    <p className="font-bold text-sm mb-1" style={{ color: '#0F172A' }}>{f.plan}</p>
-                                    <p className="text-xs mb-3" style={{ color: '#64748B' }}>{f.setup}</p>
-                                    {f.ranges.map((r) => (
-                                        <div key={r.label} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0">
-                                            <span className="text-xs" style={{ color: '#475569' }}>{r.label}</span>
-                                            <span className="text-sm font-semibold" style={{ color: '#0F172A' }}>{r.price}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
+                {/* Price */}
+                <motion.div
+                  key={range}
+                  initial={{ opacity: 0.5, scale: 0.96 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.2 }}
+                  className="mb-6"
+                >
+                  <div className="flex items-start gap-1">
+                    <span className="text-slate-400 text-sm mt-2.5 font-medium">R$</span>
+                    <span className="text-5xl font-black text-white tracking-tight leading-none">
+                      {plan.prices[range]}
+                    </span>
+                    <span className="text-slate-400 text-sm self-end mb-1">/mês</span>
+                  </div>
+                </motion.div>
 
-                {/* Microcopy */}
-                <p className="text-center text-xs mt-6" style={{ color: '#64748B' }}>
-                    Sem surpresas: você escolhe o plano e eu envio a proposta por e-mail.
-                </p>
+                <div className="h-px bg-white/[0.06] mb-6" />
 
-                {/* CTA final */}
-                <div className="text-center mt-8">
-                    <button onClick={scrollToContato} className="btn-primary py-3 px-8">
-                        Receber proposta por e-mail
-                    </button>
-                    <p className="text-xs mt-3" style={{ color: '#64748B' }}>
-                        Respondo ainda hoje por e-mail.
-                    </p>
-                </div>
+                {/* Description */}
+                <p className="text-xs text-slate-500 mb-5">{plan.description}</p>
+
+                {/* Features */}
+                <ul className="space-y-3 mb-7">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-center gap-2.5 text-sm text-slate-300">
+                      <Check size={13} className={a.check} strokeWidth={2.5} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                {plan.note && (
+                  <p className="text-xs text-slate-600 mb-5 italic">{plan.note}</p>
+                )}
+
+                <button
+                  onClick={() => onContact(plan.name)}
+                  className={`w-full ${a.btn} py-3`}
+                >
+                  Solicitar proposta
+                  <ArrowRight size={14} />
+                </button>
+              </motion.div>
+            )
+          })}
+        </div>
+
+        {/* Overage note */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="card-dark p-5 flex items-start gap-4 max-w-3xl mx-auto mb-10"
+        >
+          <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Info size={15} className="text-amber-400" />
+          </div>
+          <div>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              <span className="font-semibold text-white">Acima de 30 colaboradores:</span>{' '}
+              acréscimo de <span className="font-semibold text-white">R$ 10,00 por colaborador excedente/mês</span>, cobrado no ciclo de faturamento seguinte ao período em que o limite foi ultrapassado.
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Implementation box */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="rounded-2xl border border-blue-500/20 bg-blue-600/5 p-8 max-w-4xl mx-auto"
+        >
+          <div className="grid sm:grid-cols-2 gap-6 items-center">
+            <div>
+              <p className="text-xs font-semibold text-blue-400 uppercase tracking-widest mb-2">Implantação única</p>
+              <div className="flex items-baseline gap-1 mb-2">
+                <span className="text-2xl text-slate-400">R$</span>
+                <span className="text-6xl font-black text-white tracking-tight">799</span>
+              </div>
+              <p className="text-sm text-slate-400">Pagamento único · sem recorrência</p>
+              <p className="text-xs text-slate-500 mt-1">ou 10× de R$ 79,90</p>
             </div>
-        </section>
-    )
+            <ul className="space-y-3">
+              {[
+                'Ativação e configuração completa do sistema',
+                'Cadastro inicial dos colaboradores',
+                'Instalação presencial do tablet na empresa (plano Tablet e Híbrido)',
+                'Tablet levado configurado e pronto para uso no dia da instalação',
+              ].map((f) => (
+                <li key={f} className="flex items-center gap-2.5 text-sm text-slate-300">
+                  <Check size={13} className="text-blue-400 flex-shrink-0" strokeWidth={2.5} />
+                  {f}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </motion.div>
+      </div>
+    </section>
+  )
 }

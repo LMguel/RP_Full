@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Sistema de controle de ponto eletrônico simples, confiável e pronto para usar. Tablet, mobile ou híbrido. Implantação inclusa. Planos a partir de R$ 129/mês." />
+  <title>REGISTRA.PONTO — Controle de Ponto Eletrônico para Empresas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 16px; }
+    body { font-family: 'Inter', system-ui, sans-serif; color: #1E293B; background: #F8FAFC; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    img { max-width: 100%; display: block; }
+    a { color: inherit; text-decoration: none; }
+    button { cursor: pointer; border: none; background: none; font-family: inherit; }
+    ul { list-style: none; }
+
+    :root {
+      --primary: #0F2D5E;
+      --primary-light: #1A4080;
+      --primary-dark: #081B3D;
+      --green: #1D9E75;
+      --green-hover: #179063;
+      --white: #FFFFFF;
+      --gray-50: #F8FAFC;
+      --gray-100: #F1F5F9;
+      --gray-200: #E2E8F0;
+      --gray-400: #94A3B8;
+      --gray-500: #64748B;
+      --gray-600: #475569;
+      --gray-700: #374151;
+      --gray-800: #1E293B;
+      --shadow-sm: 0 1px 3px rgba(15,45,94,0.08);
+      --shadow-md: 0 4px 16px rgba(15,45,94,0.12);
+      --shadow-lg: 0 12px 40px rgba(15,45,94,0.16);
+      --radius: 8px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    section { padding: 88px 0; }
+
+    .section-label { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green); margin-bottom: 12px; }
+    .section-title { font-size: clamp(28px, 4vw, 42px); font-weight: 700; color: var(--primary); line-height: 1.2; margin-bottom: 16px; }
+    .section-subtitle { font-size: 18px; color: var(--gray-600); max-width: 600px; }
+    .section-header { text-align: center; margin-bottom: 56px; }
+    .section-header .section-subtitle { margin: 0 auto; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 28px; border-radius: var(--radius); font-size: 15px; font-weight: 600; transition: all 0.2s ease; white-space: nowrap; }
+    .btn-primary { background: var(--green); color: var(--white); }
+    .btn-primary:hover { background: var(--green-hover); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(29,158,117,0.35); }
+    .btn-outline-white { background: transparent; color: var(--white); border: 2px solid rgba(255,255,255,0.55); }
+    .btn-outline-white:hover { background: rgba(255,255,255,0.1); border-color: var(--white); }
+    .btn-lg { padding: 18px 36px; font-size: 17px; }
+
+    /* Header */
+    #header { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; transition: background 0.3s, box-shadow 0.3s; }
+    #header.scrolled { background: var(--white); box-shadow: 0 2px 20px rgba(15,45,94,0.12); }
+    .header-inner { display: flex; align-items: center; justify-content: space-between; height: 112px; }
+    .logo { display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 800; color: var(--white); letter-spacing: -0.02em; transition: color 0.3s; text-shadow: 0 2px 10px rgba(0,0,0,0.28); }
+    #header .logo { font-size: 52px; gap: 22px; }
+    #header.scrolled .logo { color: var(--primary); }
+    .logo-icon { width: 54px; height: 54px; background: var(--green); border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
+    #header .logo-icon { width: 92px; height: 92px; }
+    .logo-icon svg { width: 100%; height: 100%; transform: scale(1.45); transform-origin: center; }
+    #header .logo-icon svg { transform: scale(2.6); }
+    .logo-dot { color: var(--green); }
+    .nav { display: flex; align-items: center; gap: 32px; }
+    .nav a { font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.85); transition: color 0.2s; }
+    .nav a:hover { color: var(--white); }
+    #header.scrolled .nav a { color: var(--gray-600); }
+    #header.scrolled .nav a:hover { color: var(--primary); }
+    .header-cta .btn { padding: 10px 20px; font-size: 14px; }
+    .hamburger { display: none; flex-direction: column; gap: 5px; padding: 8px; }
+    .hamburger span { display: block; width: 24px; height: 2px; background: var(--white); border-radius: 2px; transition: all 0.3s; }
+    #header.scrolled .hamburger span { background: var(--primary); }
+    .mobile-menu { display: none; position: fixed; top: 72px; left: 0; right: 0; bottom: 0; background: var(--white); padding: 24px; flex-direction: column; z-index: 999; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow-y: auto; }
+    .mobile-menu.open { display: flex; }
+    .mobile-menu a { display: block; padding: 14px 0; font-size: 16px; font-weight: 500; color: var(--gray-800); border-bottom: 1px solid var(--gray-100); }
+    .mobile-menu .btn { margin-top: 20px; justify-content: center; }
+
+    /* Hero */
+    #hero { background: var(--primary); padding: 148px 0 88px; position: relative; overflow: hidden; }
+    .hero-pattern { position: absolute; inset: 0; opacity: 0.035; background-image: radial-gradient(circle, #fff 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+    .hero-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; position: relative; }
+    .hero-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(29,158,117,0.15); border: 1px solid rgba(29,158,117,0.3); border-radius: 100px; padding: 6px 16px; margin-bottom: 24px; }
+    .hero-badge-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; }
+    .hero-badge span { font-size: 13px; font-weight: 500; color: #4ECBA0; }
+    .hero-title { font-size: clamp(32px, 4.5vw, 52px); font-weight: 800; color: var(--white); line-height: 1.15; margin-bottom: 20px; letter-spacing: -0.02em; }
+    .hero-title em { font-style: normal; color: #4ECBA0; }
+    .hero-subtitle { font-size: 18px; color: rgba(255,255,255,0.72); line-height: 1.7; margin-bottom: 36px; max-width: 500px; }
+    .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; }
+
+    /* Device Mockups */
+    .hero-visual { display: flex; justify-content: center; align-items: center; }
+    .devices-wrapper { position: relative; width: 100%; max-width: 380px; margin: 0 auto; padding-bottom: 30px; padding-right: 50px; }
+    .device-tablet { background: #0A1F3F; border-radius: 18px; padding: 12px; border: 2px solid rgba(255,255,255,0.08); box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04); width: 270px; }
+    .device-screen { background: #0D1526; border-radius: 8px; overflow: hidden; }
+    .app-ui { padding: 18px 14px; }
+    .app-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .app-brand { font-size: 10px; font-weight: 700; color: #4ECBA0; letter-spacing: 0.05em; }
+    .app-clock { font-size: 10px; color: rgba(255,255,255,0.35); font-variant-numeric: tabular-nums; }
+    .app-checkin-box { background: rgba(29,158,117,0.1); border: 1px solid rgba(29,158,117,0.2); border-radius: 10px; padding: 18px; text-align: center; margin-bottom: 12px; }
+    .app-check-circle { width: 42px; height: 42px; background: var(--green); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
+    .app-emp-name { font-size: 12px; font-weight: 600; color: var(--white); margin-bottom: 4px; }
+    .app-emp-time { font-size: 22px; font-weight: 700; color: #4ECBA0; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+    .app-emp-label { font-size: 9px; color: rgba(255,255,255,0.4); }
+    .app-stats { display: flex; gap: 6px; }
+    .app-stat { flex: 1; background: rgba(255,255,255,0.04); border-radius: 7px; padding: 8px 6px; text-align: center; }
+    .app-stat-label { font-size: 8px; color: rgba(255,255,255,0.35); margin-bottom: 3px; }
+    .app-stat-val { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.8); }
+
+    .device-phone { position: absolute; bottom: 0; right: 0; background: #0A1F3F; border-radius: 22px; padding: 9px; border: 2px solid rgba(255,255,255,0.08); box-shadow: 0 20px 60px rgba(0,0,0,0.5); width: 118px; }
+    .phone-screen { background: #0D1526; border-radius: 14px; overflow: hidden; }
+    .phone-ui { padding: 14px 10px; }
+    .phone-brand { font-size: 7px; font-weight: 700; color: #4ECBA0; text-align: center; margin-bottom: 10px; letter-spacing: 0.05em; }
+    .phone-pin { width: 26px; height: 26px; background: rgba(29,158,117,0.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 7px; }
+    .phone-gps-text { font-size: 7px; color: rgba(255,255,255,0.45); text-align: center; margin-bottom: 10px; }
+    .phone-btn { background: var(--green); border-radius: 6px; padding: 8px 4px; text-align: center; font-size: 7.5px; font-weight: 700; color: var(--white); }
+
+    /* Differentials */
+    #differentials { background: var(--white); padding: 28px 0; border-bottom: 1px solid var(--gray-200); }
+    .diff-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .diff-item { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-radius: var(--radius-lg); transition: background 0.2s; }
+    .diff-item:hover { background: var(--gray-50); }
+    .diff-icon { width: 44px; height: 44px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .diff-icon-green { background: rgba(29,158,117,0.1); }
+    .diff-icon-blue { background: rgba(15,45,94,0.08); }
+    .diff-text strong { display: block; font-size: 14px; font-weight: 600; color: var(--gray-800); margin-bottom: 2px; }
+    .diff-text span { font-size: 12px; color: var(--gray-500); }
+
+    /* How it works */
+    #how-it-works { background: var(--gray-50); }
+    .steps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; position: relative; }
+    .steps-connector { position: absolute; top: 36px; left: calc(33.33% - 8px); right: calc(33.33% - 8px); height: 2px; background: linear-gradient(to right, var(--green), var(--primary)); z-index: 0; pointer-events: none; }
+    .step-card { background: var(--white); border-radius: var(--radius-lg); padding: 36px 28px; border: 1px solid var(--gray-200); position: relative; z-index: 1; transition: box-shadow 0.3s, transform 0.3s; }
+    .step-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-4px); }
+    .step-num { width: 48px; height: 48px; border-radius: 12px; font-size: 22px; font-weight: 800; color: var(--white); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+    .step-card:nth-child(2) .step-num { background: var(--green); }
+    .step-card:nth-child(3) .step-num { background: var(--primary); }
+    .step-card:nth-child(4) .step-num { background: var(--primary-light); }
+    .step-card h3 { font-size: 18px; font-weight: 700; color: var(--gray-800); margin-bottom: 10px; }
+    .step-card p { font-size: 14px; color: var(--gray-600); line-height: 1.65; }
+
+    /* Pricing */
+    #pricing { background: var(--white); }
+    .plan-switcher { display: flex; justify-content: center; background: var(--gray-100); border-radius: 12px; padding: 5px; width: fit-content; margin: 0 auto 48px; gap: 4px; }
+    .plan-switcher button { padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--gray-600); transition: all 0.2s; white-space: nowrap; }
+    .plan-switcher button.active { background: var(--primary); color: var(--white); box-shadow: var(--shadow-sm); }
+    .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px; }
+    .plan-card { border: 2px solid var(--gray-200); border-radius: var(--radius-xl); padding: 36px 28px; position: relative; background: var(--white); transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s; }
+    .plan-card:hover { border-color: var(--primary); box-shadow: var(--shadow-lg); transform: translateY(-4px); }
+    .plan-card.featured { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(15,45,94,0.07), var(--shadow-md); }
+    .popular-badge { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); background: var(--green); color: var(--white); font-size: 11px; font-weight: 700; padding: 4px 14px; border-radius: 100px; white-space: nowrap; }
+    .plan-icon-wrap { width: 52px; height: 52px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+    .icon-blue { background: rgba(15,45,94,0.08); }
+    .icon-green { background: rgba(29,158,117,0.1); }
+    .plan-name { font-size: 22px; font-weight: 700; color: var(--gray-800); margin-bottom: 4px; }
+    .plan-tagline { font-size: 13px; color: var(--gray-500); margin-bottom: 22px; }
+    .plan-price { display: flex; align-items: flex-start; gap: 4px; margin-bottom: 22px; }
+    .plan-currency { font-size: 16px; font-weight: 600; color: var(--primary); margin-top: 8px; }
+    .plan-amount { font-size: 52px; font-weight: 800; color: var(--primary); line-height: 1; transition: transform 0.2s ease; }
+    .plan-period { font-size: 13px; color: var(--gray-500); align-self: flex-end; margin-bottom: 6px; }
+    .plan-divider { height: 1px; background: var(--gray-200); margin-bottom: 20px; }
+    .plan-ideal-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--gray-400); margin-bottom: 6px; }
+    .plan-desc { font-size: 14px; color: var(--gray-600); margin-bottom: 20px; line-height: 1.6; }
+    .plan-inc-label { font-size: 11px; font-weight: 600; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+    .plan-features { display: flex; flex-direction: column; gap: 9px; margin-bottom: 24px; }
+    .plan-feature { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; color: var(--gray-600); }
+    .feat-check { color: var(--green); flex-shrink: 0; margin-top: 2px; }
+    .plan-note { font-size: 11px; color: var(--gray-400); font-style: italic; margin-bottom: 22px; }
+    .plan-btn { width: 100%; justify-content: center; border-radius: var(--radius); padding: 14px; font-size: 15px; font-weight: 600; transition: all 0.2s; }
+    .plan-btn-fill { background: var(--primary); color: var(--white); }
+    .plan-btn-fill:hover { background: var(--primary-light); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .plan-btn-outline { background: transparent; color: var(--primary); border: 2px solid var(--gray-200); }
+    .plan-btn-outline:hover { border-color: var(--primary); background: rgba(15,45,94,0.04); }
+    .overage-box { background: var(--gray-50); border: 1px solid var(--gray-200); border-left: 4px solid var(--green); border-radius: var(--radius); padding: 20px 24px; display: flex; align-items: flex-start; gap: 14px; }
+    .overage-emoji { font-size: 20px; flex-shrink: 0; line-height: 1.4; }
+    .overage-text { font-size: 14px; color: var(--gray-600); line-height: 1.65; }
+    .overage-text strong { color: var(--gray-800); }
+
+    /* Implementation */
+    #implementation { background: var(--gray-50); }
+    .impl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+    .impl-title { font-size: clamp(26px, 3vw, 36px); font-weight: 700; color: var(--primary); margin-bottom: 12px; }
+    .impl-subtitle { font-size: 16px; color: var(--gray-600); margin-bottom: 32px; line-height: 1.65; }
+    .impl-list { display: flex; flex-direction: column; gap: 18px; }
+    .impl-item { display: flex; align-items: flex-start; gap: 14px; }
+    .impl-item-icon { width: 36px; height: 36px; background: rgba(29,158,117,0.1); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .impl-item-text strong { display: block; font-size: 15px; font-weight: 600; color: var(--gray-800); margin-bottom: 2px; }
+    .impl-item-text span { font-size: 13px; color: var(--gray-500); }
+    .impl-price-box { background: var(--primary); border-radius: var(--radius-xl); padding: 52px 44px; text-align: center; position: relative; overflow: hidden; }
+    .impl-price-box::before { content: ''; position: absolute; top: -50px; right: -50px; width: 200px; height: 200px; background: rgba(255,255,255,0.03); border-radius: 50%; }
+    .impl-price-box::after { content: ''; position: absolute; bottom: -30px; left: -30px; width: 120px; height: 120px; background: rgba(255,255,255,0.03); border-radius: 50%; }
+    .impl-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+    .impl-value { font-size: 72px; font-weight: 800; color: var(--white); letter-spacing: -0.04em; line-height: 1; margin-bottom: 6px; }
+    .impl-curr { font-size: 32px; font-weight: 700; vertical-align: super; }
+    .impl-note { font-size: 14px; color: rgba(255,255,255,0.55); margin-bottom: 36px; }
+    .impl-badges { display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 1; }
+    .impl-badge { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius); padding: 12px 18px; display: flex; align-items: center; gap: 10px; font-size: 14px; color: rgba(255,255,255,0.88); }
+    .impl-badge-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; flex-shrink: 0; }
+
+    /* Why choose */
+    #why-choose { background: var(--white); }
+    .benefits-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .benefit-card { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: var(--radius-lg); padding: 28px; transition: box-shadow 0.3s, border-color 0.3s, transform 0.3s; }
+    .benefit-card:hover { box-shadow: var(--shadow-md); border-color: var(--primary); transform: translateY(-3px); }
+    .benefit-icon { width: 48px; height: 48px; border-radius: var(--radius); background: rgba(15,45,94,0.08); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+    .benefit-icon.green { background: rgba(29,158,117,0.1); }
+    .benefit-card h3 { font-size: 16px; font-weight: 700; color: var(--gray-800); margin-bottom: 8px; }
+    .benefit-card p { font-size: 14px; color: var(--gray-600); line-height: 1.65; }
+
+    /* FAQ */
+    #faq { background: var(--gray-50); }
+    .faq-list { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+    .faq-item { background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-lg); overflow: hidden; }
+    .faq-q { width: 100%; text-align: left; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; font-size: 15px; font-weight: 600; color: var(--gray-800); transition: background 0.2s, color 0.2s; }
+    .faq-q:hover { background: var(--gray-50); }
+    .faq-chevron { flex-shrink: 0; color: var(--gray-400); transition: transform 0.3s, color 0.3s; }
+    .faq-item.open .faq-chevron { transform: rotate(180deg); color: var(--primary); }
+    .faq-item.open .faq-q { color: var(--primary); background: rgba(15,45,94,0.03); }
+    .faq-a { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
+    .faq-item.open .faq-a { max-height: 300px; }
+    .faq-a p { padding: 16px 24px 20px; font-size: 14px; color: var(--gray-600); line-height: 1.75; border-top: 1px solid var(--gray-100); }
+
+    /* Final CTA */
+    #final-cta { background: var(--primary); padding: 108px 0; text-align: center; position: relative; overflow: hidden; }
+    #final-cta::before { content: ''; position: absolute; inset: 0; opacity: 0.035; background-image: radial-gradient(circle, #fff 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+    .cta-inner { position: relative; }
+    #final-cta h2 { font-size: clamp(28px, 4vw, 46px); font-weight: 800; color: var(--white); line-height: 1.2; margin-bottom: 16px; max-width: 640px; margin-left: auto; margin-right: auto; }
+    #final-cta p { font-size: 18px; color: rgba(255,255,255,0.68); margin-bottom: 40px; }
+
+    /* Footer */
+    #footer { background: var(--primary-dark); padding: 52px 0 28px; }
+    .footer-top { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 40px; border-bottom: 1px solid rgba(255,255,255,0.07); margin-bottom: 28px; gap: 32px; }
+    .footer-tagline { font-size: 13px; color: rgba(255,255,255,0.38); margin-top: 8px; }
+    .footer-links { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+    .footer-links a { font-size: 14px; color: rgba(255,255,255,0.58); transition: color 0.2s; }
+    .footer-links a:hover { color: var(--white); }
+    .footer-links button { font-size: 14px; color: rgba(255,255,255,0.58); transition: color 0.2s; font-weight: 400; }
+    .footer-links button:hover { color: var(--white); }
+    .footer-bottom { font-size: 13px; color: rgba(255,255,255,0.35); text-align: center; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 24px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--white); border-radius: var(--radius-xl); padding: 40px; width: 100%; max-width: 520px; position: relative; box-shadow: 0 25px 80px rgba(0,0,0,0.25); animation: modalIn 0.25s ease; }
+    @keyframes modalIn { from { opacity: 0; transform: scale(0.95) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    .modal-close { position: absolute; top: 18px; right: 18px; width: 32px; height: 32px; border-radius: var(--radius); background: var(--gray-100); display: flex; align-items: center; justify-content: center; color: var(--gray-500); transition: background 0.2s; }
+    .modal-close:hover { background: var(--gray-200); }
+    .modal h2 { font-size: 24px; font-weight: 700; color: var(--primary); margin-bottom: 6px; }
+    .modal > div > p { font-size: 14px; color: var(--gray-500); margin-bottom: 28px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--gray-700); margin-bottom: 6px; }
+    .form-group input, .form-group select { width: 100%; padding: 12px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); font-size: 14px; font-family: inherit; color: var(--gray-800); transition: border-color 0.2s; background: var(--white); }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary); }
+    .form-group input.error, .form-group select.error { border-color: #EF4444; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-submit { width: 100%; justify-content: center; margin-top: 8px; }
+    .form-success { text-align: center; padding: 16px 0; display: none; }
+    .success-icon { width: 64px; height: 64px; background: rgba(29,158,117,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
+    .form-success h3 { font-size: 20px; font-weight: 700; color: var(--primary); margin-bottom: 8px; }
+    .form-success p { color: var(--gray-500); margin: 0; font-size: 15px; }
+
+    /* Animations */
+    .fade-up { opacity: 0; transform: translateY(28px); transition: opacity 0.6s ease, transform 0.6s ease; }
+    .fade-up.visible { opacity: 1; transform: translateY(0); }
+    .delay-1 { transition-delay: 0.1s; }
+    .delay-2 { transition-delay: 0.2s; }
+    .delay-3 { transition-delay: 0.3s; }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .diff-grid { grid-template-columns: repeat(2, 1fr); }
+      .benefits-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      section { padding: 64px 0; }
+      .nav, .header-cta { display: none; }
+      .logo { font-size: 20px; gap: 9px; }
+      #header .logo { font-size: 24px; gap: 10px; }
+      .logo-icon { width: 40px; height: 40px; }
+      #header .logo-icon { width: 46px; height: 46px; }
+      .logo-icon svg { width: 100%; height: 100%; transform: scale(1.45); transform-origin: center; }
+      #header .logo-icon svg { transform: scale(1.75); }
+      .hamburger { display: flex; }
+      .hero-inner { grid-template-columns: 1fr; gap: 48px; }
+      .hero-visual { order: -1; }
+      .devices-wrapper { max-width: 260px; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .steps-connector { display: none; }
+      .pricing-grid { grid-template-columns: 1fr; gap: 36px; }
+      .plan-switcher { flex-direction: column; width: 100%; }
+      .plan-switcher button { width: 100%; text-align: center; }
+      .impl-grid { grid-template-columns: 1fr; }
+      .benefits-grid { grid-template-columns: 1fr; }
+      .footer-top { flex-direction: column; }
+      .footer-links { gap: 16px; }
+      .form-row { grid-template-columns: 1fr; }
+      .modal { padding: 28px 20px; }
+    }
+    @media (max-width: 480px) {
+      .diff-grid { grid-template-columns: 1fr; }
+      .hero-actions { flex-direction: column; }
+      .hero-actions .btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ==================== HEADER ==================== -->
+<header id="header">
+  <div class="container">
+    <div class="header-inner">
+      <a href="#hero" class="logo" aria-label="REGISTRA.PONTO — Página inicial">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/>
+          </svg>
+        </div>
+        REGISTRA<span class="logo-dot">.</span>PONTO
+      </a>
+
+      <nav class="nav" aria-label="Menu principal">
+        <a href="#pricing">Planos</a>
+        <a href="#how-it-works">Como funciona</a>
+        <a href="#implementation">Implantação</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+
+      <div class="header-cta">
+        <button class="btn btn-primary open-modal" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.5 1.18 2 2 0 012.18 0h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.61-.51a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92z"/>
+          </svg>
+          Fale com um consultor
+        </button>
+      </div>
+
+      <button class="hamburger" id="hamburger" aria-label="Abrir menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Mobile Menu -->
+<nav class="mobile-menu" id="mobileMenu" aria-label="Menu mobile">
+  <a href="#pricing">Planos</a>
+  <a href="#how-it-works">Como funciona</a>
+  <a href="#implementation">Implantação</a>
+  <a href="#faq">FAQ</a>
+  <button class="btn btn-primary open-modal" type="button" style="width:100%;justify-content:center;">Falar com um consultor</button>
+</nav>
+
+<!-- ==================== MODAL ==================== -->
+<div class="modal-overlay" id="contactModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <button class="modal-close" id="modalClose" aria-label="Fechar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+
+    <div id="formContent">
+      <h2 id="modalTitle">Fale com um consultor</h2>
+      <p>Preencha o formulário e entraremos em contato com uma proposta personalizada.</p>
+      <form id="contactForm" novalidate>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="f-nome">Nome completo *</label>
+            <input type="text" id="f-nome" name="nome" placeholder="Seu nome" autocomplete="name" />
+          </div>
+          <div class="form-group">
+            <label for="f-empresa">Empresa *</label>
+            <input type="text" id="f-empresa" name="empresa" placeholder="Nome da empresa" autocomplete="organization" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="f-email">E-mail *</label>
+            <input type="email" id="f-email" name="email" placeholder="seu@email.com" autocomplete="email" />
+          </div>
+          <div class="form-group">
+            <label for="f-tel">Telefone *</label>
+            <input type="tel" id="f-tel" name="telefone" placeholder="(00) 00000-0000" autocomplete="tel" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="f-plano">Plano de interesse</label>
+          <select id="f-plano" name="plano">
+            <option value="">Selecione um plano...</option>
+            <option value="tablet">Tablet</option>
+            <option value="mobile">Mobile (GPS)</option>
+            <option value="hibrido">Híbrido</option>
+            <option value="nao-sei">Ainda não sei</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg form-submit">
+          Solicitar proposta
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+
+    <div class="form-success" id="formSuccess">
+      <div class="success-icon">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+      </div>
+      <h3>Mensagem enviada!</h3>
+      <p>Recebemos sua solicitação e entraremos em contato em até 1 dia útil.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== HERO ==================== -->
+<section id="hero">
+  <div class="hero-pattern" aria-hidden="true"></div>
+  <div class="container">
+    <div class="hero-inner">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <div class="hero-badge-dot"></div>
+          <span>Sistema de ponto eletrônico B2B</span>
+        </div>
+        <h1 class="hero-title">
+          Controle de ponto <em>eletrônico</em> simples, confiável e pronto para usar
+        </h1>
+        <p class="hero-subtitle">
+          Da implantação ao suporte: tudo incluso para sua empresa registrar pontos com segurança e conformidade.
+        </p>
+        <div class="hero-actions">
+          <a href="#pricing" class="btn btn-primary btn-lg">
+            Ver planos e preços
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+            </svg>
+          </a>
+          <button class="btn btn-outline-white btn-lg open-modal" type="button">Falar com consultor</button>
+        </div>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="devices-wrapper">
+          <!-- Tablet -->
+          <div class="device-tablet">
+            <div class="device-screen">
+              <div class="app-ui">
+                <div class="app-topbar">
+                  <div class="app-brand">REGISTRA.PONTO</div>
+                  <div class="app-clock" id="heroTime">08:47</div>
+                </div>
+                <div class="app-checkin-box">
+                  <div class="app-check-circle">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  </div>
+                  <div class="app-emp-name">Carlos Silva</div>
+                  <div class="app-emp-time" id="heroTimeDisplay">08:47</div>
+                  <div class="app-emp-label">Entrada registrada com sucesso</div>
+                </div>
+                <div class="app-stats">
+                  <div class="app-stat">
+                    <div class="app-stat-label">Hoje</div>
+                    <div class="app-stat-val" style="color:#4ECBA0;">12 reg.</div>
+                  </div>
+                  <div class="app-stat">
+                    <div class="app-stat-label">Semana</div>
+                    <div class="app-stat-val">48h</div>
+                  </div>
+                  <div class="app-stat">
+                    <div class="app-stat-label">Pendentes</div>
+                    <div class="app-stat-val" style="color:#F59E0B;">2</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Phone -->
+          <div class="device-phone">
+            <div class="phone-screen">
+              <div class="phone-ui">
+                <div class="phone-brand">REGISTRA.PONTO</div>
+                <div class="phone-pin">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ECBA0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+                  </svg>
+                </div>
+                <div class="phone-gps-text">GPS localizado</div>
+                <div class="phone-btn">Registrar ponto</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== DIFFERENTIALS ==================== -->
+<div id="differentials">
+  <div class="container">
+    <div class="diff-grid">
+      <div class="diff-item fade-up">
+        <div class="diff-icon diff-icon-green">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="diff-text">
+          <strong>Implantação inclusa</strong>
+          <span>Sem custos surpresa no início</span>
+        </div>
+      </div>
+      <div class="diff-item fade-up delay-1">
+        <div class="diff-icon diff-icon-blue">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+        </div>
+        <div class="diff-text">
+          <strong>Tablet, mobile ou híbrido</strong>
+          <span>Registre como precisar</span>
+        </div>
+      </div>
+      <div class="diff-item fade-up delay-2">
+        <div class="diff-icon diff-icon-green">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </div>
+        <div class="diff-text">
+          <strong>Relatórios e exportação</strong>
+          <span>Dados prontos para folha</span>
+        </div>
+      </div>
+      <div class="diff-item fade-up delay-3">
+        <div class="diff-icon diff-icon-blue">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        </div>
+        <div class="diff-text">
+          <strong>Suporte remoto</strong>
+          <span>Assistência sempre disponível</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== HOW IT WORKS ==================== -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Processo</div>
+      <h2 class="section-title">Como funciona</h2>
+      <p class="section-subtitle">Três passos simples para modernizar o controle de ponto da sua empresa.</p>
+    </div>
+    <div class="steps-grid">
+      <div class="steps-connector" aria-hidden="true"></div>
+      <div class="step-card fade-up">
+        <div class="step-num" style="background:var(--green);">1</div>
+        <h3>Contratação e implantação</h3>
+        <p>Ativamos o sistema, cadastramos o ambiente e configuramos tudo para você. Nenhuma complicação técnica da sua parte.</p>
+      </div>
+      <div class="step-card fade-up delay-1">
+        <div class="step-num" style="background:var(--primary);">2</div>
+        <h3>Registro de ponto</h3>
+        <p>Colaboradores registram via tablet fixo, celular com GPS ou ambos — conforme o plano contratado.</p>
+      </div>
+      <div class="step-card fade-up delay-2">
+        <div class="step-num" style="background:var(--primary-light);">3</div>
+        <h3>Gestão e relatórios</h3>
+        <p>Acesse o painel, visualize registros em tempo real, gere relatórios e exporte dados quando precisar.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PRICING ==================== -->
+<section id="pricing">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Investimento</div>
+      <h2 class="section-title">Escolha o plano ideal para sua empresa</h2>
+      <p class="section-subtitle">Todos os planos incluem painel de gestão, relatórios, exportação e suporte inicial.</p>
+    </div>
+
+    <div class="plan-switcher" role="group" aria-label="Faixa de funcionários">
+      <button class="active" data-range="10" type="button" aria-pressed="true">Até 10 funcionários</button>
+      <button data-range="20" type="button" aria-pressed="false">11 a 20 funcionários</button>
+      <button data-range="30" type="button" aria-pressed="false">21 a 30 funcionários</button>
+    </div>
+
+    <div class="pricing-grid">
+      <!-- TABLET -->
+      <div class="plan-card fade-up">
+        <div class="plan-icon-wrap icon-blue">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+        </div>
+        <div class="plan-name">Tablet</div>
+        <div class="plan-tagline">Registro em dispositivo fixo</div>
+        <div class="plan-price">
+          <span class="plan-currency">R$</span>
+          <span class="plan-amount" data-plan="tablet">129</span>
+          <span class="plan-period">/mês</span>
+        </div>
+        <div class="plan-divider"></div>
+        <div class="plan-ideal-label">Ideal para</div>
+        <div class="plan-desc">Empresas que registram ponto em um dispositivo fixo instalado na entrada da empresa.</div>
+        <div class="plan-inc-label">Inclui</div>
+        <ul class="plan-features">
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Painel de gestão completo</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Relatórios e exportação</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Suporte inicial incluso</li>
+        </ul>
+        <div class="plan-note">* Tablet fornecido pelo cliente ou cotado à parte.</div>
+        <button class="btn plan-btn plan-btn-outline open-modal" type="button">Solicitar proposta</button>
+      </div>
+
+      <!-- MOBILE -->
+      <div class="plan-card featured fade-up delay-1">
+        <div class="popular-badge">Mais popular</div>
+        <div class="plan-icon-wrap icon-green">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="17" r="1" fill="#1D9E75" stroke="none"/>
+            <path d="M9.5 9a2.5 2.5 0 015 0c0 2.5-2.5 4-2.5 4s-2.5-1.5-2.5-4z" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="plan-name">Mobile</div>
+        <div class="plan-tagline">Registro no celular com GPS</div>
+        <div class="plan-price">
+          <span class="plan-currency">R$</span>
+          <span class="plan-amount" data-plan="mobile">149</span>
+          <span class="plan-period">/mês</span>
+        </div>
+        <div class="plan-divider"></div>
+        <div class="plan-ideal-label">Ideal para</div>
+        <div class="plan-desc">Equipes em campo ou que precisam de registro no celular com geolocalização do colaborador.</div>
+        <div class="plan-inc-label">Inclui</div>
+        <ul class="plan-features">
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Painel de gestão completo</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Relatórios e exportação</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Geolocalização do colaborador</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Suporte inicial incluso</li>
+        </ul>
+        <button class="btn plan-btn plan-btn-fill open-modal" type="button">Solicitar proposta</button>
+      </div>
+
+      <!-- HYBRID -->
+      <div class="plan-card fade-up delay-2">
+        <div class="plan-icon-wrap icon-blue">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="12" height="17" rx="2"/><path d="M16 8h4a2 2 0 012 2v7a2 2 0 01-2 2h-4"/><line x1="7" y1="21" x2="10" y2="21"/>
+          </svg>
+        </div>
+        <div class="plan-name">Híbrido</div>
+        <div class="plan-tagline">Tablet + Mobile no mesmo contrato</div>
+        <div class="plan-price">
+          <span class="plan-currency">R$</span>
+          <span class="plan-amount" data-plan="hybrid">189</span>
+          <span class="plan-period">/mês</span>
+        </div>
+        <div class="plan-divider"></div>
+        <div class="plan-ideal-label">Ideal para</div>
+        <div class="plan-desc">Empresas que precisam das duas modalidades: tablet fixo na sede e mobile para equipes de campo.</div>
+        <div class="plan-inc-label">Inclui tudo dos dois planos</div>
+        <ul class="plan-features">
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Tablet + Mobile habilitados</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Painel de gestão unificado</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Relatórios e exportação</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Geolocalização inclusa</li>
+          <li class="plan-feature"><svg class="feat-check" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Suporte inicial incluso</li>
+        </ul>
+        <button class="btn plan-btn plan-btn-outline open-modal" type="button">Solicitar proposta</button>
+      </div>
+    </div>
+
+    <div class="overage-box">
+      <div class="overage-emoji">⚠️</div>
+      <div class="overage-text">
+        <strong>Acima de 30 colaboradores:</strong> acréscimo de <strong>R$ 10,00 por colaborador excedente/mês</strong>, cobrado no ciclo de faturamento seguinte ao período em que o limite contratado foi ultrapassado.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== IMPLEMENTATION ==================== -->
+<section id="implementation">
+  <div class="container">
+    <div class="impl-grid">
+      <div class="fade-up">
+        <div class="section-label">Primeiro passo</div>
+        <h2 class="impl-title">Implantação única de R$ 799,00</h2>
+        <p class="impl-subtitle">Configuramos tudo remotamente para que você comece a usar sem preocupações técnicas desde o primeiro dia.</p>
+        <div class="impl-list">
+          <div class="impl-item">
+            <div class="impl-item-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="impl-item-text">
+              <strong>Ativação do sistema</strong>
+              <span>Configuração completa da conta e do ambiente</span>
+            </div>
+          </div>
+          <div class="impl-item">
+            <div class="impl-item-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="impl-item-text">
+              <strong>Cadastro inicial de colaboradores</strong>
+              <span>Inserção dos dados iniciais da equipe</span>
+            </div>
+          </div>
+          <div class="impl-item">
+            <div class="impl-item-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="impl-item-text">
+              <strong>Preparação do ambiente para uso</strong>
+              <span>Tudo configurado e pronto para o primeiro registro</span>
+            </div>
+          </div>
+          <div class="impl-item">
+            <div class="impl-item-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="impl-item-text">
+              <strong>Orientação remota para configuração</strong>
+              <span>Treinamento para os responsáveis via chamada</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fade-up delay-1">
+        <div class="impl-price-box">
+          <div class="impl-label">Implantação única</div>
+          <div class="impl-value"><span class="impl-curr">R$</span>799</div>
+          <div class="impl-note">pagamento único · sem recorrência</div>
+          <div class="impl-badges">
+            <div class="impl-badge"><div class="impl-badge-dot"></div>100% remoto — sem deslocamento</div>
+            <div class="impl-badge"><div class="impl-badge-dot"></div>Ambiente pronto em até 48 horas</div>
+            <div class="impl-badge"><div class="impl-badge-dot"></div>Suporte na fase de adaptação</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== WHY CHOOSE ==================== -->
+<section id="why-choose">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Diferenciais</div>
+      <h2 class="section-title">Por que escolher o REGISTRA.PONTO</h2>
+      <p class="section-subtitle">Desenvolvido para empresas que precisam de controle de ponto sem complicação.</p>
+    </div>
+    <div class="benefits-grid">
+      <div class="benefit-card fade-up">
+        <div class="benefit-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>Ambiente pronto para uso</h3>
+        <p>Sem complicações técnicas. Entregamos tudo configurado e pronto para o primeiro registro.</p>
+      </div>
+      <div class="benefit-card fade-up delay-1">
+        <div class="benefit-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        </div>
+        <h3>Suporte remoto incluso</h3>
+        <p>Tire dúvidas e resolva problemas sem sair do lugar. Nosso suporte está à disposição.</p>
+      </div>
+      <div class="benefit-card fade-up delay-2">
+        <div class="benefit-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="12" height="17" rx="2"/><path d="M16 8h4a2 2 0 012 2v7a2 2 0 01-2 2h-4"/></svg>
+        </div>
+        <h3>Três modalidades de registro</h3>
+        <p>Tablet fixo, mobile com GPS ou híbrido. Escolha o que melhor se encaixa na sua operação.</p>
+      </div>
+      <div class="benefit-card fade-up">
+        <div class="benefit-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </div>
+        <h3>Relatórios completos</h3>
+        <p>Exporte dados prontos para folha de pagamento e auditorias em poucos cliques.</p>
+      </div>
+      <div class="benefit-card fade-up delay-1">
+        <div class="benefit-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F2D5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h3>Geolocalização no mobile</h3>
+        <p>Registros de campo com localização do colaborador para maior controle e transparência.</p>
+      </div>
+      <div class="benefit-card fade-up delay-2">
+        <div class="benefit-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </div>
+        <h3>Contrato transparente</h3>
+        <p>Sem surpresas: tudo documentado com clareza. Você sabe exatamente o que está contratando.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FAQ ==================== -->
+<section id="faq">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-label">Dúvidas</div>
+      <h2 class="section-title">Perguntas frequentes</h2>
+      <p class="section-subtitle">Tire suas dúvidas sobre o REGISTRA.PONTO antes de contratar.</p>
+    </div>
+    <div class="faq-list">
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          O tablet está incluso no plano Tablet?
+          <svg class="faq-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a"><p>O tablet pode ser fornecido pelo contratante ou adquirido à parte conforme o modelo disponível. Consulte um consultor para cotação do equipamento.</p></div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          O que acontece se eu contratar para 10 funcionários e minha equipe crescer?
+          <svg class="faq-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a"><p>Cada colaborador excedente ao limite contratado é cobrado em R$ 10,00/mês, lançado no ciclo de faturamento subsequente ao período em que o limite foi ultrapassado.</p></div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          Posso mudar de plano depois?
+          <svg class="faq-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a"><p>Sim. Entre em contato com nosso suporte para adequar o contrato à sua realidade. Trabalhamos para que o sistema evolua junto com a sua empresa.</p></div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          A implantação precisa ser presencial?
+          <svg class="faq-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a"><p>Não. Todo o processo de implantação e suporte é realizado de forma 100% remota. Não há necessidade de deslocamento ou agendamento presencial.</p></div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" aria-expanded="false">
+          O sistema está em conformidade com a legislação trabalhista?
+          <svg class="faq-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="faq-a"><p>O REGISTRA.PONTO é desenvolvido para atender os requisitos de registro eletrônico de ponto conforme a regulamentação vigente. Recomendamos sempre validar com seu departamento jurídico ou RH as obrigações específicas da sua empresa.</p></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FINAL CTA ==================== -->
+<section id="final-cta">
+  <div class="container">
+    <div class="cta-inner">
+      <h2>Pronto para modernizar o controle de ponto da sua empresa?</h2>
+      <p>Fale com um consultor e receba uma proposta personalizada.</p>
+      <button class="btn btn-primary btn-lg open-modal" type="button">
+        Solicitar proposta agora
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== FOOTER ==================== -->
+<footer id="footer">
+  <div class="container">
+    <div class="footer-top">
+      <div>
+        <a href="#hero" class="logo" aria-label="REGISTRA.PONTO">
+          <div class="logo-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/>
+            </svg>
+          </div>
+          REGISTRA<span class="logo-dot">.</span>PONTO
+        </a>
+        <div class="footer-tagline">Controle de ponto eletrônico para empresas brasileiras</div>
+      </div>
+      <nav class="footer-links" aria-label="Links do rodapé">
+        <a href="#pricing">Planos</a>
+        <a href="#implementation">Implantação</a>
+        <a href="#faq">FAQ</a>
+        <button class="open-modal" type="button">Contato</button>
+      </nav>
+    </div>
+    <div class="footer-bottom">&copy; 2025 REGISTRA.PONTO. Todos os direitos reservados.</div>
+  </div>
+</footer>
+
+<script>
+  // Pricing data
+  const PRICES = {
+    '10': { tablet: 129, mobile: 149, hybrid: 189 },
+    '20': { tablet: 149, mobile: 179, hybrid: 229 },
+    '30': { tablet: 179, mobile: 209, hybrid: 269 }
+  };
+
+  // Plan switcher
+  const switchBtns = document.querySelectorAll('.plan-switcher button');
+  switchBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      switchBtns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+      const p = PRICES[btn.dataset.range];
+      document.querySelectorAll('[data-plan]').forEach(el => {
+        el.textContent = p[el.dataset.plan];
+        el.style.transform = 'scale(1.1)';
+        setTimeout(() => { el.style.transform = 'scale(1)'; }, 200);
+      });
+    });
+  });
+
+  // Header scroll
+  const header = document.getElementById('header');
+  window.addEventListener('scroll', () => {
+    header.classList.toggle('scrolled', window.scrollY > 60);
+  }, { passive: true });
+
+  // Hamburger
+  const hamburger = document.getElementById('hamburger');
+  const mobileMenu = document.getElementById('mobileMenu');
+  hamburger.addEventListener('click', () => {
+    const open = mobileMenu.classList.toggle('open');
+    hamburger.setAttribute('aria-expanded', open);
+  });
+  mobileMenu.querySelectorAll('a, button').forEach(el => {
+    el.addEventListener('click', () => {
+      mobileMenu.classList.remove('open');
+      hamburger.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  // FAQ accordion
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(i => {
+        i.classList.remove('open');
+        i.querySelector('.faq-q').setAttribute('aria-expanded', 'false');
+      });
+      if (!wasOpen) {
+        item.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+
+  // Modal
+  const modal = document.getElementById('contactModal');
+  const formContent = document.getElementById('formContent');
+  const formSuccess = document.getElementById('formSuccess');
+
+  function openModal() {
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal() {
+    modal.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('.open-modal').forEach(el => {
+    el.addEventListener('click', e => { e.preventDefault(); openModal(); });
+  });
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+  // Form validation
+  document.getElementById('contactForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const rules = [
+      { id: 'f-nome',    ok: v => v.trim().length >= 3 },
+      { id: 'f-empresa', ok: v => v.trim().length >= 2 },
+      { id: 'f-email',   ok: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) },
+      { id: 'f-tel',     ok: v => v.replace(/\D/g, '').length >= 10 },
+    ];
+    let valid = true;
+    rules.forEach(({ id, ok }) => {
+      const el = document.getElementById(id);
+      if (!ok(el.value)) {
+        el.classList.add('error');
+        valid = false;
+        el.addEventListener('input', () => el.classList.remove('error'), { once: true });
+      }
+    });
+    if (!valid) return;
+    formContent.style.display = 'none';
+    formSuccess.style.display = 'block';
+    e.target.reset();
+    setTimeout(() => {
+      closeModal();
+      setTimeout(() => {
+        formContent.style.display = '';
+        formSuccess.style.display = 'none';
+      }, 400);
+    }, 3500);
+  });
+
+  // Phone mask
+  document.getElementById('f-tel').addEventListener('input', function () {
+    let v = this.value.replace(/\D/g, '').slice(0, 11);
+    if (v.length > 10) v = v.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+    else if (v.length > 6) v = v.replace(/^(\d{2})(\d{4})(\d*)$/, '($1) $2-$3');
+    else if (v.length > 2) v = v.replace(/^(\d{2})(\d*)$/, '($1) $2');
+    this.value = v;
+  });
+
+  // Scroll animations
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+
+  // Smooth scroll
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) { e.preventDefault(); window.scrollTo({ top: target.getBoundingClientRect().top + scrollY - 80, behavior: 'smooth' }); }
+    });
+  });
+
+  // Live clock
+  function tick() {
+    const t = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const a = document.getElementById('heroTime');
+    const b = document.getElementById('heroTimeDisplay');
+    if (a) a.textContent = t;
+    if (b) b.textContent = t;
+  }
+  tick();
+  setInterval(tick, 30000);
+</script>
+</body>
+</html>

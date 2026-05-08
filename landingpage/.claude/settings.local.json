@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir C:/RP_Full/landingpage/public/image)",
+      "Bash(grep -n \"plan-card\\\\|plan-name\\\\|plan-amount\\\\|plan-tagline\\\\|featured\\\\|Tablet\\\\|Mobile\\\\|Híbrido\\\\|R\\\\$\" C:/RP_Full/landingpage/landing.html)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5175)"
+    ]
+  }
+}
