@@ -69,45 +69,115 @@ def enviar_s3(caminho, nome_arquivo, company_id):
     return url
 
 
-def reconhecer_funcionario(caminho_foto):
+UUID_LEN = 36  # company_id é um UUID com 36 chars (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+
+
+def parse_external_image_id(external_id):
+    """Extrai (company_id, employee_id) de um ExternalImageId no formato '<company_uuid>_<employee_id>'.
+
+    Retorna (None, None) se o formato for inválido. Esta função é a ÚNICA fonte
+    canônica para interpretar ExternalImageId — qualquer caller deve usá-la para
+    evitar parsings divergentes que possam aceitar formatos legados inseguros.
+    """
+    if not isinstance(external_id, str):
+        return None, None
+    # Formato esperado: UUID(36) + '_' + employee_id
+    if len(external_id) <= UUID_LEN + 1:
+        return None, None
+    if external_id[UUID_LEN] != '_':
+        return None, None
+    company_part = external_id[:UUID_LEN]
+    employee_part = external_id[UUID_LEN + 1:]
+    # Validação leve do shape de UUID
+    if company_part.count('-') != 4:
+        return None, None
+    if not employee_part:
+        return None, None
+    return company_part, employee_part
+
+
+def reconhecer_funcionario(caminho_foto, expected_company_id=None):
+    """Procura o rosto na collection do Rekognition.
+
+    Quando `expected_company_id` é fornecido, qualquer match cujo ExternalImageId
+    NÃO pertença a essa company é descartado e a função retorna
+    `{'status': 'TENANT_MISMATCH', ...}` — garantindo isolamento multi-tenant
+    no nível do backend, independentemente do que o frontend envie.
+
+    Retorna um dict com pelo menos a chave `status`:
+      - {'status': 'NO_MATCH'}
+      - {'status': 'INVALID_EXTERNAL_ID', 'external_image_id': ...}
+      - {'status': 'TENANT_MISMATCH', 'matched_company_id': ..., 'expected_company_id': ...}
+      - {'status': 'OK', 'company_id', 'employee_id', 'similarity', 'external_image_id'}
+      - {'status': 'ERROR', 'reason': ...}
+    """
     try:
         print(f"[REKOGNITION] Iniciando busca facial na collection: {COLLECTION}")
-        print(f"[REKOGNITION] Foto: {caminho_foto}")
-        
+        print(f"[REKOGNITION] Foto: {caminho_foto}, expected_company_id={expected_company_id}")
+
         with open(caminho_foto, 'rb') as image_file:
             image_bytes = image_file.read()
             print(f"[REKOGNITION] Tamanho da imagem: {len(image_bytes)} bytes")
-        
+
         # Threshold configurável via variável de ambiente (padrão: 85)
         threshold = int(os.environ.get('REKOGNITION_THRESHOLD', '85'))
-        
+
         response = rekognition.search_faces_by_image(
             CollectionId=COLLECTION,
             Image={'Bytes': image_bytes},
             MaxFaces=1,
-            FaceMatchThreshold=threshold
+            FaceMatchThreshold=threshold,
         )
-        
-        print(f"[REKOGNITION] Resposta recebida: {response}")
-        
-        if response.get('FaceMatches'):
-            face_match = response['FaceMatches'][0]
-            external_id = face_match['Face']['ExternalImageId']
-            similarity = face_match['Similarity']
-            print(f"[REKOGNITION] Match encontrado! ExternalImageId: {external_id}, Similarity: {similarity}%")
-            return external_id
-        else:
-            print(f"[REKOGNITION] Nenhum rosto correspondente encontrado")
-            return None
-            
+
+        matches = response.get('FaceMatches') or []
+        if not matches:
+            print("[REKOGNITION] Nenhum rosto correspondente encontrado")
+            return {'status': 'NO_MATCH'}
+
+        face_match = matches[0]
+        external_id = face_match['Face']['ExternalImageId']
+        similarity = face_match['Similarity']
+        print(f"[REKOGNITION] Match bruto: ExternalImageId={external_id}, Similarity={similarity}%")
+
+        matched_company_id, employee_id = parse_external_image_id(external_id)
+        if not matched_company_id or not employee_id:
+            print(f"[REKOGNITION] ExternalImageId em formato inválido (não 'uuid_employeeid'): {external_id}")
+            return {
+                'status': 'INVALID_EXTERNAL_ID',
+                'external_image_id': external_id,
+            }
+
+        if expected_company_id and matched_company_id != expected_company_id:
+            # Bloqueio defensivo: rosto pertence a outra empresa.
+            print(
+                f"[REKOGNITION][TENANT_MISMATCH] match externo pertence a "
+                f"company_id={matched_company_id}, mas kiosk autenticado é {expected_company_id}. "
+                f"Rejeitando reconhecimento."
+            )
+            return {
+                'status': 'TENANT_MISMATCH',
+                'matched_company_id': matched_company_id,
+                'expected_company_id': expected_company_id,
+                'external_image_id': external_id,
+            }
+
+        return {
+            'status': 'OK',
+            'company_id': matched_company_id,
+            'employee_id': employee_id,
+            'similarity': similarity,
+            'external_image_id': external_id,
+        }
+
     except rekognition.exceptions.InvalidParameterException as e:
-        print(f"[REKOGNITION] Erro de parâmetro inválido: {str(e)}")
-        return None
+        # Caso típico: nenhuma face detectada na imagem.
+        print(f"[REKOGNITION] Parâmetro inválido (provável 'no faces in image'): {str(e)}")
+        return {'status': 'NO_FACE', 'reason': str(e)}
     except rekognition.exceptions.ResourceNotFoundException as e:
         print(f"[REKOGNITION] Collection não encontrada: {str(e)}")
-        return None
+        return {'status': 'ERROR', 'reason': 'collection-not-found'}
     except Exception as e:
         import traceback
         print(f"[REKOGNITION] Erro no reconhecimento: {str(e)}")
         print(f"[REKOGNITION] Traceback: {traceback.format_exc()}")
-        return None
+        return {'status': 'ERROR', 'reason': str(e)}

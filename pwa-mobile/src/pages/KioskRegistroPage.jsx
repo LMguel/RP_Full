@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 /**
  * QUIOSQUE DE PONTO FACIAL - VERSÃO CLEAN
@@ -18,6 +19,13 @@ export default function KioskCleanUI() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const navigate = useNavigate();
+  const { user, userType } = useAuth();
+
+  // company_id da sessão autenticada (kiosk logado como empresa).
+  // O backend é a fonte da verdade; esta validação no PWA é defesa em profundidade:
+  // se por algum motivo o backend devolver um match cross-tenant, o PWA recusa
+  // localmente e exibe TENANT_MISMATCH, evitando que o registro siga adiante.
+  const sessionCompanyId = (userType === 'empresa' && user?.company_id) || null;
 
   // Estados principais
   const [cameraStream, setCameraStream] = useState(null);
@@ -218,8 +226,32 @@ export default function KioskCleanUI() {
           return;
         }
 
+        // ================= DEFESA EM PROFUNDIDADE: TENANT CHECK =================
+        // O backend já bloqueia cross-tenant (routes/facial.py) — mas validamos
+        // de novo aqui para garantir que, mesmo num cenário onde o backend
+        // estivesse comprometido/desatualizado, o PWA não exiba/registre o
+        // funcionário de outra empresa.
+        const matchedCompanyId = recognitionResult.funcionario?.company_id;
+        if (!sessionCompanyId) {
+          console.error('[KIOSK][TENANT_MISMATCH] Sessão sem company_id; relogue como empresa.');
+          setError('❌ Sessão inválida. Faça login novamente.');
+          setTimeout(() => setError(''), 3000);
+          return;
+        }
+        if (matchedCompanyId && matchedCompanyId !== sessionCompanyId) {
+          console.error(
+            '[KIOSK][TENANT_MISMATCH] Backend devolveu funcionário de outra empresa.',
+            { matchedCompanyId, sessionCompanyId }
+          );
+          setError('❌ Funcionário não pertence a esta empresa.');
+          setTimeout(() => setError(''), 3000);
+          return;
+        }
+        // =====================================================================
+
         setRecognizedPerson({
           id: recognitionResult.funcionario.funcionario_id,
+          companyId: matchedCompanyId || sessionCompanyId,
           nome: recognitionResult.funcionario.nome,
           cargo: recognitionResult.funcionario.cargo,
           sugestedType: recognitionResult.proximo_tipo,
@@ -271,6 +303,21 @@ export default function KioskCleanUI() {
   // ==================== REGISTRO DE PONTO ====================
   const handleRegister = async (tipo) => {
     if (!recognizedPerson || isProcessing) return;
+
+    // Defesa em profundidade: nunca permitir registrar ponto se a empresa do
+    // funcionário reconhecido divergir da empresa logada no kiosk. O backend
+    // também valida (routes/facial.py), mas esta checagem evita até a request.
+    if (recognizedPerson.companyId && sessionCompanyId &&
+        recognizedPerson.companyId !== sessionCompanyId) {
+      console.error('[KIOSK][TENANT_MISMATCH] Tentativa de registro cross-tenant bloqueada.', {
+        matchedCompanyId: recognizedPerson.companyId,
+        sessionCompanyId,
+      });
+      setError('❌ Funcionário não pertence a esta empresa.');
+      setRecognizedPerson(null);
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
 
     setIsProcessing(true);
 

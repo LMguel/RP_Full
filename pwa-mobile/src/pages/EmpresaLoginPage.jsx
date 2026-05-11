@@ -16,9 +16,13 @@ export default function EmpresaLoginPage() {
   useEffect(() => {
     // Carregar login salvo (não redirecionar automaticamente ao abrir a tela)
     const savedId = localStorage.getItem('@empresa_login_id');
+    const savedSenha = localStorage.getItem('@empresa_login_senha');
     if (savedId) {
       setUsuario(savedId);
       setRememberLogin(true);
+    }
+    if (savedSenha) {
+      setSenha(savedSenha);
     }
   }, []);
 
@@ -35,11 +39,13 @@ export default function EmpresaLoginPage() {
     try {
         await signInEmpresa(usuario, senha);
 
-        // Salvar ou remover login
+        // Salvar ou remover login e senha
         if (rememberLogin) {
           localStorage.setItem('@empresa_login_id', usuario);
+          localStorage.setItem('@empresa_login_senha', senha);
         } else {
           localStorage.removeItem('@empresa_login_id');
+          localStorage.removeItem('@empresa_login_senha');
         }
 
         // Navegar ao quiosque da empresa após login bem-sucedido

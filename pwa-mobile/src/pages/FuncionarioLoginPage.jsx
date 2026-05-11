@@ -23,9 +23,13 @@ export default function FuncionarioLoginPage() {
 
     // Carregar login salvo
     const savedId = localStorage.getItem('@funcionario_login_id');
+    const savedSenha = localStorage.getItem('@funcionario_login_senha');
     if (savedId) {
       setFuncionarioId(savedId);
       setRememberLogin(true);
+    }
+    if (savedSenha) {
+      setSenha(savedSenha);
     }
   }, [signed, userType, navigate]);
 
@@ -42,11 +46,13 @@ export default function FuncionarioLoginPage() {
     try {
         await signInFuncionario(funcionarioId, senha);
 
-        // Salvar ou remover login
+        // Salvar ou remover login e senha
         if (rememberLogin) {
           localStorage.setItem('@funcionario_login_id', funcionarioId);
+          localStorage.setItem('@funcionario_login_senha', senha);
         } else {
           localStorage.removeItem('@funcionario_login_id');
+          localStorage.removeItem('@funcionario_login_senha');
         }
 
         // Navegar ao dashboard do funcionário após login bem-sucedido
