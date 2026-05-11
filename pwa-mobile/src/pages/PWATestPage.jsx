@@ -132,7 +132,7 @@ export default function PWATestPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-purple-700 p-4 pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-primary-900 via-primary-800 to-primary-700 p-4 pb-20">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <motion.div
@@ -333,7 +333,7 @@ export default function PWATestPage() {
                 </button>
                 <button
                   onClick={handleToggleCamera}
-                  className="px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all shadow-lg"
+                  className="px-4 py-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all shadow-lg"
                 >
                   🔄
                 </button>

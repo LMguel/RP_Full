@@ -58,7 +58,7 @@ export default function EmpresaLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-purple-700 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary-900 via-primary-800 to-primary-700 flex flex-col items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -87,7 +87,7 @@ export default function EmpresaLoginPage() {
             </svg>
           </motion.div>
           <h1 className="text-3xl font-bold text-white mb-2">Portal Empresa</h1>
-          <p className="text-blue-100">Gestão completa de ponto</p>
+          <p className="text-white/70">Gestão completa de ponto</p>
         </div>
 
         {/* Form */}
@@ -96,7 +96,7 @@ export default function EmpresaLoginPage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
           onSubmit={handleLogin}
-          className="bg-white/10 backdrop-blur-md rounded-3xl p-6 shadow-2xl"
+          className="bg-white/[.08] backdrop-blur-md rounded-2xl p-6 shadow-2xl border border-white/10"
         >
           {error && (
             <motion.div

@@ -46,7 +46,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-purple-700 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary-900 via-primary-800 to-primary-700 flex flex-col items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -64,7 +64,7 @@ export default function HomePage() {
             <img src={logo} alt="REGISTRA.PONTO logo" className="w-28 h-28 object-cover rounded-full" />
           </motion.div>
           <h1 className="text-4xl font-bold text-white mb-2"> REGISTRA.PONTO</h1>
-          <p className="text-blue-100 text-lg">Sistema com Geolocalização e Reconhecimento Facial</p>
+          <p className="text-white/70 text-lg">Sistema com Geolocalização e Reconhecimento Facial</p>
         </div>
 
         {/* Botões de Login ou Acesso */}

@@ -30,7 +30,9 @@ export default function KioskCleanUI() {
   // Estados principais
   const [cameraStream, setCameraStream] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [recognizedPerson, setRecognizedPerson] = useState(null);
+  const [confirmationData, setConfirmationData] = useState(null);
+  const [capturedImageUrl, setCapturedImageUrl] = useState(null);
+  const [pontoCompleto, setPontoCompleto] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [error, setError] = useState('');
@@ -56,9 +58,9 @@ export default function KioskCleanUI() {
     }
   }, [cameraStream]);
 
-  // Garantir que, ao sair dos modais (recognizedPerson/showSuccess), o vídeo volte a tocar
+  // Garantir que, ao sair dos modais, o vídeo volte a tocar
   useEffect(() => {
-    if (!recognizedPerson && !showSuccess && cameraStream && videoRef.current) {
+    if (!confirmationData && !pontoCompleto && !showSuccess && cameraStream && videoRef.current) {
       try {
         videoRef.current.srcObject = cameraStream;
         const playPromise = videoRef.current.play?.();
@@ -69,7 +71,18 @@ export default function KioskCleanUI() {
         console.warn('[KIOSK] Reattach/play failed', e);
       }
     }
-  }, [recognizedPerson, showSuccess, cameraStream]);
+  }, [confirmationData, pontoCompleto, showSuccess, cameraStream]);
+
+  // Auto-dismiss da tela de ponto completo após 4 segundos
+  useEffect(() => {
+    if (!pontoCompleto) return;
+    const timer = setTimeout(() => {
+      if (capturedImageUrl) URL.revokeObjectURL(capturedImageUrl);
+      setCapturedImageUrl(null);
+      setPontoCompleto(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [pontoCompleto]);
 
   // Solicitar fullscreen
   useEffect(() => {
@@ -216,21 +229,13 @@ export default function KioskCleanUI() {
       console.log('[KIOSK] Recognition result:', recognitionResult);
 
       if (recognitionResult.reconhecido) {
-        console.log('[KIOSK] Funcionario data:', recognitionResult.funcionario);
-        console.log('[KIOSK] Funcionario ID:', recognitionResult.funcionario?.funcionario_id);
-
         if (!recognitionResult.funcionario?.funcionario_id) {
-          console.error('[KIOSK] ERROR: Funcionario ID is missing from API response');
           setError('❌ Erro: ID do funcionário não encontrado na resposta da API');
           setTimeout(() => setError(''), 3000);
           return;
         }
 
         // ================= DEFESA EM PROFUNDIDADE: TENANT CHECK =================
-        // O backend já bloqueia cross-tenant (routes/facial.py) — mas validamos
-        // de novo aqui para garantir que, mesmo num cenário onde o backend
-        // estivesse comprometido/desatualizado, o PWA não exiba/registre o
-        // funcionário de outra empresa.
         const matchedCompanyId = recognitionResult.funcionario?.company_id;
         if (!sessionCompanyId) {
           console.error('[KIOSK][TENANT_MISMATCH] Sessão sem company_id; relogue como empresa.');
@@ -239,32 +244,31 @@ export default function KioskCleanUI() {
           return;
         }
         if (matchedCompanyId && matchedCompanyId !== sessionCompanyId) {
-          console.error(
-            '[KIOSK][TENANT_MISMATCH] Backend devolveu funcionário de outra empresa.',
-            { matchedCompanyId, sessionCompanyId }
-          );
+          console.error('[KIOSK][TENANT_MISMATCH] Backend devolveu funcionário de outra empresa.', { matchedCompanyId, sessionCompanyId });
           setError('❌ Funcionário não pertence a esta empresa.');
           setTimeout(() => setError(''), 3000);
           return;
         }
         // =====================================================================
 
-        setRecognizedPerson({
-          id: recognitionResult.funcionario.funcionario_id,
-          companyId: matchedCompanyId || sessionCompanyId,
-          nome: recognitionResult.funcionario.nome,
-          cargo: recognitionResult.funcionario.cargo,
-          sugestedType: recognitionResult.proximo_tipo,
-          sugestedTypeLabel: recognitionResult.proximo_tipo_label || recognitionResult.proximo_tipo
-        });
+        const blobUrl = URL.createObjectURL(blob);
+        setCapturedImageUrl(blobUrl);
 
-        console.log('[KIOSK] Recognized person set:', {
-          id: recognitionResult.funcionario.funcionario_id,
-          nome: recognitionResult.funcionario.nome,
-          cargo: recognitionResult.funcionario.cargo,
-          sugestedType: recognitionResult.proximo_tipo,
-          sugestedTypeLabel: recognitionResult.proximo_tipo_label
-        });
+        if (recognitionResult.ponto_completo) {
+          setPontoCompleto({
+            nome: recognitionResult.funcionario.nome,
+            cargo: recognitionResult.funcionario.cargo,
+          });
+        } else {
+          setConfirmationData({
+            id: recognitionResult.funcionario.funcionario_id,
+            companyId: matchedCompanyId || sessionCompanyId,
+            nome: recognitionResult.funcionario.nome,
+            cargo: recognitionResult.funcionario.cargo,
+            tipo: recognitionResult.proximo_tipo,
+            tipoLabel: recognitionResult.proximo_tipo_label || recognitionResult.proximo_tipo,
+          });
+        }
       } else if (recognitionResult.nenhumRostoDetectado) {
         // Novo caso: nenhum rosto detectado
         setError('Nenhum rosto foi detectado');
@@ -301,20 +305,23 @@ export default function KioskCleanUI() {
   };
 
   // ==================== REGISTRO DE PONTO ====================
-  const handleRegister = async (tipo) => {
-    if (!recognizedPerson || isProcessing) return;
+  const handleCancelConfirmation = () => {
+    if (capturedImageUrl) URL.revokeObjectURL(capturedImageUrl);
+    setCapturedImageUrl(null);
+    setConfirmationData(null);
+  };
 
-    // Defesa em profundidade: nunca permitir registrar ponto se a empresa do
-    // funcionário reconhecido divergir da empresa logada no kiosk. O backend
-    // também valida (routes/facial.py), mas esta checagem evita até a request.
-    if (recognizedPerson.companyId && sessionCompanyId &&
-        recognizedPerson.companyId !== sessionCompanyId) {
+  const handleRegister = async () => {
+    if (!confirmationData || isProcessing) return;
+
+    if (confirmationData.companyId && sessionCompanyId &&
+        confirmationData.companyId !== sessionCompanyId) {
       console.error('[KIOSK][TENANT_MISMATCH] Tentativa de registro cross-tenant bloqueada.', {
-        matchedCompanyId: recognizedPerson.companyId,
+        matchedCompanyId: confirmationData.companyId,
         sessionCompanyId,
       });
       setError('❌ Funcionário não pertence a esta empresa.');
-      setRecognizedPerson(null);
+      handleCancelConfirmation();
       setTimeout(() => setError(''), 3000);
       return;
     }
@@ -322,10 +329,7 @@ export default function KioskCleanUI() {
     setIsProcessing(true);
 
     try {
-      // Obter horário atual de São Paulo
       const dataHoraSP = getSaoPauloDateTime();
-
-      // Criar string no formato que o backend espera
       const ano = dataHoraSP.getFullYear();
       const mes = String(dataHoraSP.getMonth() + 1).padStart(2, '0');
       const dia = String(dataHoraSP.getDate()).padStart(2, '0');
@@ -337,24 +341,27 @@ export default function KioskCleanUI() {
       const horarioFormatado = `${hora}:${minuto}`;
 
       const pontoResult = await apiService.registerPointByFace(
-        recognizedPerson.id,
-        tipo,
+        confirmationData.id,
+        confirmationData.tipo,
         dataHoraString
       );
 
       if (pontoResult.success) {
+        if (capturedImageUrl) URL.revokeObjectURL(capturedImageUrl);
+        setCapturedImageUrl(null);
+        setConfirmationData(null);
+
         setShowSuccess({
-          nome: recognizedPerson.nome,
-          tipo: pontoResult.tipo || tipo,
-          tipo_label: pontoResult.tipo_label || tipo,
+          nome: confirmationData.nome,
+          tipo: pontoResult.tipo || confirmationData.tipo,
+          tipo_label: pontoResult.tipo_label || confirmationData.tipoLabel,
           horario: horarioFormatado
         });
 
-        // Resetar após 1.5 segundos para fluxo mais rápido
-        setTimeout(() => {
-          setShowSuccess(false);
-          setRecognizedPerson(null);
-        }, 1500);
+        setTimeout(() => setShowSuccess(false), 1500);
+      } else if (pontoResult.ponto_completo) {
+        setConfirmationData(null);
+        setPontoCompleto({ nome: confirmationData.nome, cargo: confirmationData.cargo });
       } else {
         throw new Error(pontoResult.error || 'Erro ao registrar ponto');
       }
@@ -372,45 +379,45 @@ export default function KioskCleanUI() {
 
   // Tela de sucesso
   if (showSuccess) {
+    const isEntrada = showSuccess.tipo === 'entrada';
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-green-600 to-green-800 flex items-center justify-center z-50">
-        {/* Vídeo continua rodando em background (invisível) */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="hidden"
-        />
-        
+      <div className={`fixed inset-0 flex items-center justify-center z-50 ${isEntrada ? 'bg-gradient-to-br from-green-700 via-green-600 to-emerald-500' : 'bg-gradient-to-br from-red-700 via-red-600 to-rose-500'}`}>
+        <video ref={videoRef} autoPlay playsInline muted className="hidden" />
+
         <motion.div
-          initial={{ scale: 0.5, opacity: 0 }}
+          initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="text-center text-white px-8"
+          transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+          className="text-center text-white px-8 max-w-lg w-full"
         >
+          {/* Ícone */}
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            transition={{ delay: 0.2 }}
-            className="text-9xl mb-8"
+            transition={{ delay: 0.15, type: 'spring', stiffness: 300 }}
+            className="w-32 h-32 mx-auto mb-8 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center shadow-2xl border border-white/30"
           >
-            ✅
+            {isEntrada ? (
+              <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 16l4-4m0 0l-4-4m4 4H7" />
+              </svg>
+            )}
           </motion.div>
-          
-          <h1 className="text-5xl font-bold mb-4">
-            {getGreeting()}, {showSuccess.nome}!
-          </h1>
-          
-          <div className="text-7xl font-black mb-6">
-            {(() => {
-              const tipo = showSuccess.tipo;
-              const tipoLabel = showSuccess.tipo_label || (tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA');
-              const emoji = tipo === 'entrada' ? '🟢' : '🔴';
-              return `${emoji} ${tipoLabel.toUpperCase()}`;
-            })()}
+
+          <p className="text-white/80 text-2xl mb-2">{getGreeting()},</p>
+          <h1 className="text-5xl font-bold mb-6 leading-tight">{showSuccess.nome}!</h1>
+
+          <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-8 py-5 mb-6 border border-white/20 inline-block">
+            <div className="text-4xl font-black tracking-wider">
+              {(showSuccess.tipo_label || (isEntrada ? 'ENTRADA' : 'SAÍDA')).toUpperCase()}
+            </div>
           </div>
-          
-          <div className="text-6xl font-bold opacity-90">
+
+          <div className="text-7xl font-black tracking-tight">
             {showSuccess.horario}
           </div>
         </motion.div>
@@ -418,87 +425,151 @@ export default function KioskCleanUI() {
     );
   }
 
-  // Tela de seleção de tipo (após reconhecimento)
-  if (recognizedPerson) {
+  // Tela de ponto já registrado completamente
+  if (pontoCompleto) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-gray-900 to-gray-800 flex flex-col">
-        {/* Vídeo continua rodando em background (invisível) */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="hidden"
-        />
-        
-        {/* Header */}
-        <div className="bg-black/30 backdrop-blur-sm py-8 px-6 text-center">
-          <div className="text-white/60 text-xl mb-2">{getSaoPauloDate()}</div>
-          <div className="text-white text-5xl font-bold">{getSaoPauloTime().slice(0, 5)}</div>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-800 via-slate-700 to-slate-600 flex flex-col">
+        <video ref={videoRef} autoPlay playsInline muted className="hidden" />
+
+        <div className="bg-white/[.08] backdrop-blur-md border-b border-white/10 py-6 px-6 text-center">
+          <div className="text-white/60 text-lg mb-1">{getSaoPauloDate()}</div>
+          <div className="text-white text-5xl font-bold tracking-tight">{getSaoPauloTime().slice(0, 5)}</div>
         </div>
 
-        {/* Conteúdo principal */}
         <div className="flex-1 flex flex-col items-center justify-center px-8">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="text-center mb-12"
+            className="text-center mb-8"
           >
-            <div className="text-8xl mb-6">👤</div>
-            <h2 className="text-white text-4xl font-bold mb-2">
-              {getGreeting()}!
-            </h2>
-            <p className="text-white text-5xl font-black mb-2">
-              {recognizedPerson.nome}
-            </p>
-            {recognizedPerson.cargo && (
-              <p className="text-white/70 text-2xl">{recognizedPerson.cargo}</p>
-            )}
+            <div className="w-32 h-32 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/30 shadow-2xl">
+              {capturedImageUrl ? (
+                <img src={capturedImageUrl} alt="Rosto" className="w-full h-full object-cover object-center" />
+              ) : (
+                <div className="w-full h-full bg-white/15 flex items-center justify-center">
+                  <svg className="w-16 h-16 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+
+            <h2 className="text-white text-4xl font-black mb-6">{pontoCompleto.nome}</h2>
+
+            <div className="bg-amber-500/20 border border-amber-400/40 rounded-2xl px-8 py-6 mb-4">
+              <div className="text-6xl mb-3">✅</div>
+              <p className="text-amber-200 text-2xl font-bold">Ponto já registrado hoje!</p>
+              <p className="text-amber-100/70 text-lg mt-2">Entrada e saída já foram registradas.</p>
+            </div>
+
+            <p className="text-white/40 text-base">Voltando automaticamente em alguns segundos...</p>
           </motion.div>
 
-          {/* Botões de registro - ENTRADA e SAÍDA */}
-          <div className="w-full max-w-2xl space-y-6">
-            {/* Botão ENTRADA */}
-            <motion.button
-              initial={{ y: 50, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              onClick={() => handleRegister('entrada')}
-              disabled={isProcessing}
-              className="w-full bg-green-500 hover:bg-green-600 active:bg-green-700 text-white py-14 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
-            >
-              <div className="flex items-center justify-center gap-6">
-                <span className="text-7xl">🟢</span>
-                <span className="text-5xl font-black">ENTRADA</span>
-              </div>
-            </motion.button>
-
-            {/* Botão SAÍDA */}
-            <motion.button
-              initial={{ y: 50, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              onClick={() => handleRegister('saida')}
-              disabled={isProcessing}
-              className="w-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white py-14 rounded-3xl shadow-2xl disabled:opacity-50 transition-all transform hover:scale-105"
-            >
-              <div className="flex items-center justify-center gap-6">
-                <span className="text-7xl">🔴</span>
-                <span className="text-5xl font-black">SAÍDA</span>
-              </div>
-            </motion.button>
-          </div>
-
-          {/* Botão cancelar */}
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            onClick={() => setRecognizedPerson(null)}
-            className="mt-12 text-white/60 hover:text-white text-xl font-medium"
+            transition={{ delay: 0.3 }}
+            onClick={() => {
+              if (capturedImageUrl) URL.revokeObjectURL(capturedImageUrl);
+              setCapturedImageUrl(null);
+              setPontoCompleto(null);
+            }}
+            className="w-full max-w-md bg-white/10 hover:bg-white/20 text-white py-7 rounded-3xl border border-white/20 transition-all"
           >
-            ← Voltar
+            <span className="text-2xl font-bold">← Voltar</span>
           </motion.button>
+        </div>
+      </div>
+    );
+  }
+
+  // Modal de confirmação (após reconhecimento facial)
+  if (confirmationData) {
+    const isEntrada = confirmationData.tipo === 'entrada';
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-primary-900 via-primary-800 to-primary-700 flex flex-col">
+        <video ref={videoRef} autoPlay playsInline muted className="hidden" />
+
+        <div className="bg-white/[.08] backdrop-blur-md border-b border-white/10 py-6 px-6 text-center">
+          <div className="text-white/60 text-lg mb-1">{getSaoPauloDate()}</div>
+          <div className="text-white text-5xl font-bold tracking-tight">{getSaoPauloTime().slice(0, 5)}</div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="text-center mb-8"
+          >
+            {/* Foto do rosto capturado */}
+            <div className="w-32 h-32 mx-auto mb-5 rounded-full overflow-hidden border-4 border-white/30 shadow-2xl">
+              {capturedImageUrl ? (
+                <img src={capturedImageUrl} alt="Rosto reconhecido" className="w-full h-full object-cover object-center" />
+              ) : (
+                <div className="w-full h-full bg-white/15 flex items-center justify-center">
+                  <svg className="w-16 h-16 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+
+            <p className="text-white/70 text-xl mb-2">Confirma que este é você?</p>
+            <h2 className="text-white text-5xl font-black mb-2 leading-tight">{confirmationData.nome}</h2>
+            {confirmationData.cargo && (
+              <p className="text-white/60 text-xl mb-5">{confirmationData.cargo}</p>
+            )}
+
+            {/* Tipo automático */}
+            <div className={`inline-block px-8 py-3 rounded-2xl border ${isEntrada ? 'bg-green-500/20 border-green-400/40' : 'bg-red-500/20 border-red-400/40'}`}>
+              <span className={`text-3xl font-black tracking-wider ${isEntrada ? 'text-green-300' : 'text-red-300'}`}>
+                {(confirmationData.tipoLabel || (isEntrada ? 'ENTRADA' : 'SAÍDA')).toUpperCase()}
+              </span>
+            </div>
+
+            {/* Erro inline */}
+            {error && (
+              <div className="mt-4 bg-red-600/80 px-6 py-3 rounded-2xl">
+                <p className="text-white text-lg font-bold">{error}</p>
+              </div>
+            )}
+          </motion.div>
+
+          <div className="w-full max-w-2xl space-y-4">
+            <motion.button
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.15 }}
+              onClick={handleRegister}
+              disabled={isProcessing}
+              className={`w-full text-white py-10 rounded-3xl shadow-2xl disabled:opacity-50 transition-all ${isEntrada ? 'bg-green-500 hover:bg-green-400 active:bg-green-600' : 'bg-red-500 hover:bg-red-400 active:bg-red-600'}`}
+            >
+              {isProcessing ? (
+                <div className="flex items-center justify-center gap-4">
+                  <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="text-4xl font-black">Registrando...</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-4">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-4xl font-black">Confirmar</span>
+                </div>
+              )}
+            </motion.button>
+
+            <motion.button
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.25 }}
+              onClick={handleCancelConfirmation}
+              disabled={isProcessing}
+              className="w-full bg-white/10 hover:bg-white/20 active:bg-white/5 text-white py-8 rounded-3xl shadow-xl disabled:opacity-50 transition-all border border-white/20"
+            >
+              <span className="text-3xl font-bold">← Cancelar</span>
+            </motion.button>
+          </div>
         </div>
       </div>
     );
@@ -590,9 +661,9 @@ export default function KioskCleanUI() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="bg-blue-600 backdrop-blur-sm px-12 py-6 rounded-3xl flex items-center gap-4 shadow-2xl"
+              className="bg-primary-800/90 backdrop-blur-md px-12 py-6 rounded-3xl flex items-center gap-4 shadow-2xl border border-white/10"
             >
-              <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin" />
               <span className="text-white text-3xl font-bold">Reconhecendo...</span>
             </motion.div>
           )}
