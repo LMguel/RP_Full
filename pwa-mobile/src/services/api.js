@@ -51,14 +51,19 @@ class ApiService {
     return response.data;
   }
 
+  // Consultar próximo tipo de registro (entrada/saida) para o funcionário autenticado
+  async getProximoTipo() {
+    const response = await api.get('/api/proximo_tipo');
+    return response.data;
+  }
+
   // Registros de Ponto - Geolocalização (Funcionário)
+  // tipo é opcional — o backend sempre determina o tipo a partir do último registro do dia.
   async registerPointByLocation(latitude, longitude, tipo, data_hora) {
-    const payload = {
-      latitude,
-      longitude,
-      tipo,
-    };
+    const payload = { latitude, longitude };
     if (data_hora) payload.data_hora = data_hora;
+    // tipo enviado apenas como fallback de segurança; backend determina pelo último registro
+    if (tipo) payload.tipo = tipo;
     const response = await api.post('/api/registrar_ponto_localizacao', payload);
     return response.data;
   }

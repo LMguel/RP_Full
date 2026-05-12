@@ -108,64 +108,73 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     # Ordenar registros por horário
     records.sort(key=lambda x: x.get('data_hora', ''))
     
-    # Extrair entrada/saída e intervalos
-    # Separar horário REAL (exibição) do horário de CÁLCULO (arredondado pela tolerância)
-    entrada = None         # Horário de cálculo (arredondado)
-    entrada_real = None    # Horário real (para exibição)
-    saida = None           # Horário de cálculo (arredondado)
-    saida_real = None      # Horário real (para exibição)
+    # Extrair pares entrada/saída e intervalos explícitos.
+    # Suporta múltiplos pares por dia (ex: almoço): ENTRADA→SAÍDA→ENTRADA→SAÍDA.
+    # Para cada par, usa data_hora_calculo (tolerância) para cálculo e data_hora para exibição.
+    pairs: List[Dict[str, str]] = []   # [{entrada_calc, entrada_real, saida_calc, saida_real}]
+    current_pair: Optional[Dict[str, str]] = None
     breaks: List[Dict[str, str]] = []
     has_location_issues = False
-    
+
     print(f"[DEBUG] Processando {len(records)} registros para {employee_id} em {date_str}")
-    
+
     for record in records:
-        # Suportar todos os nomes de campo: 'type' (novo), 'tipo' (português), 'tipo_registro' (legado)
-        record_type_raw = record.get('type') or record.get('tipo') or record.get('tipo_registro', 'entrada')
-        normalized_type = str(record_type_raw).lower()
-        normalized_type = normalized_type.replace('í', 'i').replace('á', 'a').replace('ã', 'a')
-        normalized_type = normalized_type.replace('-', '_')
-        # Usar data_hora_calculo (arredondado pela tolerância) para cálculos, se disponível
-        dt_str_real = record.get('data_hora', '')
-        dt_str = record.get('data_hora_calculo', '') or dt_str_real
-        
-        print(f"[DEBUG] Registro: tipo={record_type_raw}, data_hora={dt_str[:16] if dt_str else 'N/A'}")
-        
+        # Normalizar tipo: suporta 'type' (novo), 'tipo' (pt), 'tipo_registro' (legado)
+        record_type_raw = record.get('type') or record.get('tipo') or record.get('tipo_registro', '')
+        ntype = str(record_type_raw).lower()
+        ntype = ntype.replace('í', 'i').replace('á', 'a').replace('ã', 'a').replace('-', '_')
+
+        dt_real = record.get('data_hora', '')
+        dt_calc = record.get('data_hora_calculo', '') or dt_real
+
+        print(f"[DEBUG] Registro: tipo={record_type_raw}, data_hora={dt_calc[:16] if dt_calc else 'N/A'}")
+
         if not has_location_issues:
-            location_info = record.get('location') or {}
-            inside_radius = location_info.get('inside_radius')
-            inside_radius_flag = str(inside_radius).lower() if inside_radius is not None else None
-            record_inside = record.get('inside_radius')
-            record_inside_flag = str(record_inside).lower() if record_inside is not None else None
+            loc = record.get('location') or {}
+            ir = loc.get('inside_radius')
+            ri = record.get('inside_radius')
             if (
-                inside_radius is False or inside_radius_flag == 'false' or
-                record_inside is False or record_inside_flag == 'false' or
-                record.get('location_valid') is False or record.get('localizacao_valida') is False
+                ir is False or str(ir).lower() == 'false' or
+                ri is False or str(ri).lower() == 'false' or
+                record.get('location_valid') is False or
+                record.get('localizacao_valida') is False
             ):
                 has_location_issues = True
 
-        if normalized_type in ['entrada', 'in']:
-            if not entrada:
-                entrada = dt_str          # Horário arredondado para cálculo
-                entrada_real = dt_str_real # Horário real para exibição
-                print(f"[DEBUG] Entrada definida: calc={entrada}, real={entrada_real}")
-        elif normalized_type in ['saida', 'saida', 'out']:
-            saida = dt_str          # Horário arredondado para cálculo
-            saida_real = dt_str_real # Horário real para exibição
-            print(f"[DEBUG] Saída definida: calc={saida}, real={saida_real}")
-        elif normalized_type in ['break_start', 'intervalo_inicio', 'pausa_inicio', 'almoco_inicio', 'start_break']:
-            breaks.append({'start': dt_str})
-        elif normalized_type in ['break_end', 'intervalo_fim', 'pausa_fim', 'almoco_fim', 'end_break'] and breaks:
+        if ntype in ('entrada', 'in'):
+            if current_pair is None:
+                current_pair = {'entrada_calc': dt_calc, 'entrada_real': dt_real}
+        elif ntype in ('saida', 'out'):
+            if current_pair is not None:
+                current_pair['saida_calc'] = dt_calc
+                current_pair['saida_real'] = dt_real
+                pairs.append(current_pair)
+                current_pair = None
+        elif ntype in ('break_start', 'intervalo_inicio', 'pausa_inicio', 'almoco_inicio', 'start_break'):
+            breaks.append({'start': dt_calc})
+        elif ntype in ('break_end', 'intervalo_fim', 'pausa_fim', 'almoco_fim', 'end_break') and breaks:
             for br in reversed(breaks):
                 if 'end' not in br:
-                    br['end'] = dt_str
+                    br['end'] = dt_calc
                     break
-    
-    print(f"[DEBUG] Resultado final - Entrada calc: {entrada[:16] if entrada else 'None'}, real: {(entrada_real or '')[:16] or 'None'}, Saída calc: {saida[:16] if saida else 'None'}, real: {(saida_real or '')[:16] or 'None'}")
-    
+
+    # Entrada sem saída correspondente → saída faltando
+    missing_exit = current_pair is not None
+
+    # Entrada e saída para exibição: primeiro par e último par completo
+    entrada = pairs[0]['entrada_calc'] if pairs else None
+    entrada_real = pairs[0]['entrada_real'] if pairs else None
+    saida = pairs[-1]['saida_calc'] if pairs else None
+    saida_real = pairs[-1]['saida_real'] if pairs else None
+
+    print(
+        f"[DEBUG] Pares completos={len(pairs)} missing_exit={missing_exit} "
+        f"entrada={entrada[:16] if entrada else 'None'} saida={saida[:16] if saida else 'None'}"
+    )
+
     # Obter horários esperados
     scheduled_start, scheduled_end = get_employee_schedule(company_id, employee_id, target_date)
-    
+
     # Calcular horas esperadas
     expected_hours = Decimal('0')
     if scheduled_start and scheduled_end:
@@ -173,53 +182,74 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         end_time = parse_time(scheduled_end)
         expected_minutes = time_diff_minutes(start_time, end_time)
         expected_hours = Decimal(expected_minutes) / Decimal('60')
-    
-    # Calcular horas trabalhadas
-    worked_hours = Decimal('0')
-    if entrada and saida:
-        entrada_time = datetime.fromisoformat(entrada.replace('Z', '+00:00'))
-        saida_time = datetime.fromisoformat(saida.replace('Z', '+00:00'))
-        worked_minutes_float = (saida_time - entrada_time).total_seconds() / 60
-        if worked_minutes_float > 0:
-            worked_hours = Decimal(str(worked_minutes_float)) / Decimal('60')
-    
-    # Buscar configurações
+
+    # Buscar configurações da empresa
     config_response = table_config.get_item(Key={'company_id': company_id})
     config = config_response.get('Item', {})
-    
-    # Descontar intervalo automático
-    break_auto = config.get('break_auto', True) or config.get('intervalo_automatico', True)
-    break_duration = config.get('break_duration', 60) or config.get('duracao_intervalo', 60)
-    
-    # Intervalos registrados manualmente
-    break_minutes = Decimal('0')
-    for br in breaks:
-        start_str = br.get('start')
-        end_str = br.get('end')
-        if not start_str or not end_str:
+
+    # intervalo_automatico: apenas descontar quando há UM ÚNICO par (sem almoço explícito).
+    # Quando há múltiplos pares, o intervalo já está excluído pelos gaps entre os pares.
+    # Prioridade: intervalo_automatico (campo da UI) > break_auto (campo do modelo novo).
+    # Tratar explicitamente para evitar que `False or True` retorne True indesejado.
+    if 'intervalo_automatico' in config:
+        break_auto = bool(config['intervalo_automatico'])
+    elif 'break_auto' in config:
+        break_auto = bool(config['break_auto'])
+    else:
+        break_auto = False
+
+    raw_duration = config.get('duracao_intervalo') if config.get('duracao_intervalo') is not None else config.get('break_duration')
+    try:
+        break_duration = int(raw_duration) if raw_duration is not None else 0
+    except (ValueError, TypeError):
+        break_duration = 0
+
+    # Somar horas trabalhadas de cada par completo
+    worked_hours = Decimal('0')
+    for pair in pairs:
+        e_str = pair.get('entrada_calc', '')
+        s_str = pair.get('saida_calc', '')
+        if not e_str or not s_str:
             continue
         try:
-            start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
-            end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
-            minutes_float = (end_dt - start_dt).total_seconds() / 60
-            if minutes_float > 0:
-                break_minutes += Decimal(str(minutes_float))
-        except Exception as interval_error:
-            print(f"[WARN] Erro ao calcular intervalo: {interval_error}")
+            e_dt = datetime.fromisoformat(e_str.replace('Z', '+00:00'))
+            s_dt = datetime.fromisoformat(s_str.replace('Z', '+00:00'))
+            diff_min = (s_dt - e_dt).total_seconds() / 60
+            if diff_min > 0:
+                worked_hours += Decimal(str(diff_min)) / Decimal('60')
+        except Exception as e:
+            print(f"[WARN] Erro ao calcular par de registros: {e}")
 
+    # Descontar intervalos explícitos (break_start/break_end)
     breaks_total_hours = Decimal('0')
+    explicit_break_minutes = Decimal('0')
+    for br in breaks:
+        s_br = br.get('start')
+        e_br = br.get('end')
+        if not s_br or not e_br:
+            continue
+        try:
+            s_dt = datetime.fromisoformat(s_br.replace('Z', '+00:00'))
+            e_dt = datetime.fromisoformat(e_br.replace('Z', '+00:00'))
+            m = (e_dt - s_dt).total_seconds() / 60
+            if m > 0:
+                explicit_break_minutes += Decimal(str(m))
+        except Exception as e:
+            print(f"[WARN] Erro ao calcular intervalo explícito: {e}")
+
     if worked_hours > 0:
-        if break_minutes > 0:
-            breaks_total_hours = break_minutes / Decimal('60')
-            if breaks_total_hours > worked_hours:
-                breaks_total_hours = worked_hours
+        if explicit_break_minutes > 0:
+            # Descontar intervalos registrados manualmente
+            breaks_total_hours = explicit_break_minutes / Decimal('60')
+            breaks_total_hours = min(breaks_total_hours, worked_hours)
             worked_hours -= breaks_total_hours
-        elif break_auto:
-            auto_break_hours = Decimal(break_duration) / Decimal('60')
-            breaks_total_hours = auto_break_hours if auto_break_hours < worked_hours else worked_hours
+        elif break_auto and break_duration > 0 and len(pairs) <= 1:
+            # Descontar intervalo automático apenas quando não há almoço explícito (par único)
+            auto_break_hours = Decimal(str(break_duration)) / Decimal('60')
+            breaks_total_hours = min(auto_break_hours, worked_hours)
             worked_hours -= breaks_total_hours
 
-    if worked_hours < 0:
+    if worked_hours < Decimal('0'):
         worked_hours = Decimal('0')
     
     # Calcular horas extras (remover lógica de atraso/tolerância)
@@ -239,8 +269,8 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     daily_balance = worked_hours - expected_hours
     
     # Determinar status simples (sem interpretação de atraso)
+    # missing_exit já foi calculado acima como current_pair is not None
     status: DayStatus = "normal"
-    missing_exit = saida is None
     if missing_exit and scheduled_end:
         status = "missing_exit"
         daily_balance = Decimal('0')

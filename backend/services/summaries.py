@@ -240,53 +240,53 @@ class SummaryService:
         
         # Sort records by timestamp
         sorted_records = sorted(records, key=lambda r: r.get('data_hora', ''))
-        
-        entrada_records = [r for r in sorted_records if r.get('tipo') in ('entrada', 'entry', 'in')]
-        saida_records = [r for r in sorted_records if r.get('tipo') in ('saida', 'saída', 'exit', 'out')]
-        
-        # Get first entrada and last saida
-        actual_start = entrada_records[0].get('data_hora') if entrada_records else None
-        actual_end = saida_records[-1].get('data_hora') if saida_records else None
-        
+
+        def _get_type(r):
+            raw = r.get('type') or r.get('tipo') or r.get('tipo_registro', '')
+            t = str(raw).lower()
+            t = t.replace('í', 'i').replace('á', 'a')
+            return t
+
+        # Pair up entrada/saida records for correct multi-punch calculation.
+        # ENTRADA → SAÍDA → ENTRADA → SAÍDA alternating (almoço support).
+        pairs = []
+        current_entrada = None
+        for r in sorted_records:
+            t = _get_type(r)
+            dt = r.get('data_hora', '')
+            if t in ('entrada', 'entry', 'in'):
+                if current_entrada is None:
+                    current_entrada = dt
+            elif t in ('saida', 'exit', 'out'):
+                if current_entrada is not None:
+                    pairs.append((current_entrada, dt))
+                    current_entrada = None
+
+        actual_start = pairs[0][0] if pairs else None
+        actual_end = pairs[-1][1] if pairs else None
+
         if not actual_start:
             return None, None, 0
-        
-        # Parse datetimes
+
         try:
-            start_dt = datetime.fromisoformat(actual_start.replace('Z', '+00:00'))
-            
-            if actual_end:
-                end_dt = datetime.fromisoformat(actual_end.replace('Z', '+00:00'))
-            else:
-                # No exit record yet - calculate up to now
-                end_dt = datetime.now()
-            
-            # Total time between start and end
-            total_minutes = int((end_dt - start_dt).total_seconds() / 60)
-            
-            # Calculate break time from gap between pairs
+            # Sum worked minutes across all complete pairs
+            total_minutes = 0
+            for e_str, s_str in pairs:
+                e_dt = datetime.fromisoformat(e_str.replace('Z', '+00:00'))
+                s_dt = datetime.fromisoformat(s_str.replace('Z', '+00:00'))
+                diff = int((s_dt - e_dt).total_seconds() / 60)
+                if diff > 0:
+                    total_minutes += diff
+
+            # Apply interval_auto only when there is a single pair (no explicit lunch punches).
+            # With multiple pairs the gap between them already excludes the break.
             break_minutes = 0
-            
-            # If there are 2+ entradas and 1+ saídas, the gap between 1st saída and 2nd entrada is the break
-            if len(saida_records) >= 1 and len(entrada_records) >= 2:
-                try:
-                    first_saida_dt = datetime.fromisoformat(saida_records[0].get('data_hora').replace('Z', '+00:00'))
-                    second_entrada_dt = datetime.fromisoformat(entrada_records[1].get('data_hora').replace('Z', '+00:00'))
-                    gap_minutes = int((second_entrada_dt - first_saida_dt).total_seconds() / 60)
-                    if gap_minutes > 0:
-                        break_minutes = gap_minutes
-                except Exception:
-                    pass
-            
-            # Apply automatic break if configured
-            if interval_auto and break_duration > 0:
-                break_minutes = max(break_minutes, break_duration)
-            
-            # Worked hours = total - breaks
+            if interval_auto and break_duration > 0 and len(pairs) <= 1:
+                break_minutes = break_duration
+
             worked_minutes = max(0, total_minutes - break_minutes)
-            
             return actual_start, actual_end, worked_minutes
-            
+
         except Exception as e:
             logger.error(f"Error calculating worked hours: {e}")
             return actual_start, actual_end, 0

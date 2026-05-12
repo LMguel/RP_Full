@@ -238,34 +238,32 @@ def reconhecer_rosto(payload):
         cargo = funcionario.get('cargo') or funcionario.get('position') or ''
         foto_url = funcionario.get('foto_url') or funcionario.get('photo_url') or ''
 
-        # 5) Determinar próximo tipo (entrada/saida) com Query tenant-aware.
+        # 5) Determinar próximo tipo baseado no ÚLTIMO registro do dia.
+        # Regra: alternar ENTRADA → SAÍDA → ENTRADA → SAÍDA indefinidamente.
+        # Não há limite diário de registros — suporta almoço e múltiplos intervalos.
         hoje = datetime.now(TZ_SP).strftime('%Y-%m-%d')
         registros_hoje = _registros_do_dia(token_company_id, employee_id, hoje)
 
-        tipos_hoje = set()
-        for r in registros_hoje:
-            t = (r.get('type') or r.get('tipo') or r.get('tipo_registro', '')).lower()
-            if t == 'entrada':
-                tipos_hoje.add('entrada')
-            elif t in ('saida', 'saída'):
-                tipos_hoje.add('saida')
-
-        ponto_completo = 'entrada' in tipos_hoje and 'saida' in tipos_hoje
-
-        if ponto_completo:
-            proximo_tipo = None
-            proximo_tipo_label = None
-        elif 'entrada' not in tipos_hoje:
+        if not registros_hoje:
             proximo_tipo = 'entrada'
             proximo_tipo_label = 'Entrada'
         else:
-            proximo_tipo = 'saida'
-            proximo_tipo_label = 'Saída'
+            ultimo = registros_hoje[-1]
+            ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or ultimo.get('tipo_registro', '')).lower()
+            if ultimo_tipo in ('saida', 'saída'):
+                proximo_tipo = 'entrada'
+                proximo_tipo_label = 'Entrada'
+            else:
+                proximo_tipo = 'saida'
+                proximo_tipo_label = 'Saída'
+
+        # ponto_completo sempre False — o fluxo é livre e sem cap diário.
+        ponto_completo = False
 
         print(
             f"[FACIAL] OK company_id={token_company_id} employee_id={employee_id} "
             f"nome={nome_funcionario} similarity={similarity:.2f}% "
-            f"proximo={proximo_tipo} ponto_completo={ponto_completo}"
+            f"proximo={proximo_tipo} registros_hoje={len(registros_hoje)}"
         )
 
         return jsonify({
@@ -367,29 +365,17 @@ def registrar_ponto_facial(payload):
             print(f"[FACIAL] Aviso: configurações da empresa não obtidas: {e}")
 
         # 3) Determinar entrada/saída via Query tenant-aware.
+        # Regra: baseado no ÚLTIMO registro do dia — alterna ENTRADA → SAÍDA → ENTRADA → SAÍDA.
         agora = datetime.now(TZ_SP)
         hoje = agora.strftime('%Y-%m-%d')
         registros_hoje = _registros_do_dia(token_company_id, funcionario_id, hoje)
 
-        tipos_hoje = set()
-        for r in registros_hoje:
-            t = (r.get('type') or r.get('tipo') or r.get('tipo_registro', '')).lower()
-            if t == 'entrada':
-                tipos_hoje.add('entrada')
-            elif t in ('saida', 'saída'):
-                tipos_hoje.add('saida')
-
-        if 'entrada' in tipos_hoje and 'saida' in tipos_hoje:
-            return jsonify({
-                'success': False,
-                'ponto_completo': True,
-                'error': 'Ponto já registrado completamente hoje. Contate o RH se precisar de ajuste.',
-            }), 409
-
-        if 'entrada' not in tipos_hoje:
+        if not registros_hoje:
             tipo = 'entrada'
         else:
-            tipo = 'saida'
+            ultimo = registros_hoje[-1]
+            ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or ultimo.get('tipo_registro', '')).lower()
+            tipo = 'entrada' if ultimo_tipo in ('saida', 'saída') else 'saida'
 
         tipo_label = {'entrada': 'Entrada', 'saida': 'Saída', 'saída': 'Saída'}.get(tipo, tipo)
 

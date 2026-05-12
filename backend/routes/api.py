@@ -2989,6 +2989,60 @@ def update_company_location(payload):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@routes.route('/proximo_tipo', methods=['GET', 'OPTIONS'])
+@token_required
+def get_proximo_tipo(payload):
+    """
+    Retorna o próximo tipo de registro (entrada/saida) para o funcionário autenticado.
+    Baseado no ÚLTIMO registro do dia atual — alterna ENTRADA → SAÍDA → ENTRADA → SAÍDA.
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    funcionario_id = payload.get('funcionario_id')
+    company_id = payload.get('company_id')
+
+    if not funcionario_id or not company_id:
+        return jsonify({'error': 'Token inválido'}), 401
+
+    hoje = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%Y-%m-%d')
+
+    try:
+        resp = tabela_registros.scan(
+            FilterExpression=(
+                Attr('company_id').eq(company_id) &
+                Attr('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje}")
+            )
+        )
+        registros = sorted(resp.get('Items', []), key=lambda x: x.get('employee_id#date_time', ''))
+        registros = [
+            r for r in registros
+            if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')
+        ]
+    except Exception as e:
+        print(f"[PROXIMO_TIPO] Erro ao consultar registros: {e}")
+        registros = []
+
+    if not registros:
+        proximo = 'entrada'
+        label = 'Entrada'
+    else:
+        ultimo = registros[-1]
+        ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or '').lower()
+        if ultimo_tipo in ('saida', 'saída'):
+            proximo = 'entrada'
+            label = 'Entrada'
+        else:
+            proximo = 'saida'
+            label = 'Saída'
+
+    return jsonify({
+        'proximo_tipo': proximo,
+        'proximo_tipo_label': label,
+        'total_registros_hoje': len(registros),
+    }), 200
+
+
 @routes.route('/registrar_ponto_localizacao', methods=['POST', 'OPTIONS'])
 @token_required
 def registrar_ponto_localizacao(payload):
