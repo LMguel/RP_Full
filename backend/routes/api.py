@@ -927,11 +927,21 @@ def listar_registros(payload):
             print(f"[DEBUG REGISTROS] Erro ao buscar configurações: {e}")
             configuracoes = {}
         
+        def _parse_bool_config(val, default=False):
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.strip().lower() in ('true', '1', 'yes')
+            try:
+                return bool(int(val))
+            except Exception:
+                return default
+
         # Valores padrão para cálculos
         tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
-        intervalo_automatico = configuracoes.get('intervalo_automatico', False)
+        intervalo_automatico = _parse_bool_config(configuracoes.get('intervalo_automatico', False))
         duracao_intervalo = int(configuracoes.get('duracao_intervalo', 60))
-        
+
         funcionarios_map = {}  # Cache de funcionários para evitar múltiplas queries
         funcionarios_filtrados = []
         
@@ -1265,9 +1275,19 @@ def listar_registros_resumo(payload):
         except Exception:
             print(f"[DEBUG RESUMO] Valor de arredondamento inválido: {arredondamento_raw}, usando padrão 5")
             arredondamento_horas_extras = 5
-        intervalo_automatico = configuracoes.get('intervalo_automatico', False)
+        def _parse_bool_config(val, default=False):
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.strip().lower() in ('true', '1', 'yes')
+            try:
+                return bool(int(val))
+            except Exception:
+                return default
+
+        intervalo_automatico = _parse_bool_config(configuracoes.get('intervalo_automatico', False))
         duracao_intervalo = int(configuracoes.get('duracao_intervalo', 60))
-        
+
         funcionarios_filtrados = []
         
         # Buscar funcionários da empresa
@@ -1453,8 +1473,8 @@ def listar_registros_resumo(payload):
 
                     for reg in regs_do_dia:
                         reg_tipo = _normalize_type(reg.get('tipo') or reg.get('type') or '')
-                        is_entry = reg_tipo in ('entrada', 'in') or reg_tipo.startswith('entrada') or 'entry' in reg_tipo
-                        is_exit = reg_tipo in ('saida', 'saida', 'out') or reg_tipo.startswith('saida') or 'out' in reg_tipo
+                        is_entry = reg_tipo in ('entrada', 'in', 'retorno_almoco') or reg_tipo.startswith('entrada') or 'entry' in reg_tipo
+                        is_exit = reg_tipo in ('saida', 'out', 'saida_almoco', 'saida_antecipada') or reg_tipo.startswith('saida') or 'out' in reg_tipo
 
                         hora_para_calculo = reg.get('data_hora_calculo') or reg.get('data_hora', '')
 
@@ -1466,10 +1486,18 @@ def listar_registros_resumo(payload):
                             all_saidas.append(hora_para_calculo)
                             saida = hora_para_calculo
                     
-                    # Para funcionários sem intervalo_emp: o gap entre 1ª saída e 2ª entrada É o intervalo
-                    # Requer 2+ entradas E 2+ saídas (ciclo completo: E-S-E-S)
-                    break_start_hora = all_saidas[0] if len(all_saidas) >= 2 and len(all_entradas) >= 2 else None
-                    break_end_hora = all_entradas[1] if len(all_entradas) >= 2 and len(all_saidas) >= 2 else None
+                    # Posição cronológica define o papel de cada batida:
+                    # Se a última batida é uma entrada (mais entradas que saídas),
+                    # o dia está incompleto: 2ª batida=saída intervalo, 3ª=volta, sem saída final.
+                    if not intervalo_automatico and len(all_entradas) > len(all_saidas):
+                        # 3-batidas: entrada, saída-intervalo, volta — sem saída final
+                        saida = None
+                        break_start_hora = all_saidas[0] if all_saidas else None
+                        break_end_hora = all_entradas[1] if len(all_entradas) >= 2 else None
+                    else:
+                        # Dia completo (2 ou 4 batidas)
+                        break_start_hora = all_saidas[0] if len(all_saidas) >= 1 and len(all_entradas) >= 2 else None
+                        break_end_hora = all_entradas[1] if len(all_entradas) >= 2 and len(all_saidas) >= 1 else None
                     
                     if entrada and saida:
                         try:
@@ -1557,11 +1585,16 @@ def listar_registros_resumo(payload):
                                     minutos_trabalhados = int((fim_efetivo - inicio_efetivo).total_seconds() / 60)
                                     
                                     # Descontar intervalo
-                                    # Funcionário COM intervalo → desconta fixo
-                                    # Funcionário SEM intervalo → desconta gap real das batidas
+                                    # intervalo_automatico (empresa) → desconta duração padrão automaticamente
+                                    # Funcionário COM intervalo_emp → desconta fixo
+                                    # Funcionário SEM intervalo_emp → desconta gap real das batidas
                                     func_tem_intervalo, func_intervalo_val = _emp_tem_intervalo(funcionario)
-                                    
-                                    if func_tem_intervalo and func_intervalo_val > 0:
+
+                                    if intervalo_automatico:
+                                        # Almoço automático: desconta duração padrão, ignora registros intermediários
+                                        if duracao_intervalo > 0 and minutos_trabalhados > duracao_intervalo:
+                                            minutos_trabalhados -= duracao_intervalo
+                                    elif func_tem_intervalo and func_intervalo_val > 0:
                                         if minutos_trabalhados > func_intervalo_val:
                                             minutos_trabalhados -= func_intervalo_val
                                     elif not func_tem_intervalo and break_start_hora and break_end_hora:
@@ -1594,7 +1627,10 @@ def listar_registros_resumo(payload):
                                     # Fallback: calcular bruto
                                     horas_brutas_min = int((saida_dt - entrada_dt).total_seconds() / 60)
                                     fb_tem_intervalo, fb_intervalo_val = _emp_tem_intervalo(funcionario)
-                                    if fb_tem_intervalo and fb_intervalo_val > 0:
+                                    if intervalo_automatico:
+                                        if duracao_intervalo > 0:
+                                            horas_brutas_min = max(0, horas_brutas_min - duracao_intervalo)
+                                    elif fb_tem_intervalo and fb_intervalo_val > 0:
                                         horas_brutas_min = max(0, horas_brutas_min - fb_intervalo_val)
                                     elif not fb_tem_intervalo and break_start_hora and break_end_hora:
                                         try:
@@ -1610,7 +1646,10 @@ def listar_registros_resumo(payload):
                                 # Sem horários esperados: calcular bruto
                                 horas_brutas_min = int((saida_dt - entrada_dt).total_seconds() / 60)
                                 nh_tem_intervalo, nh_intervalo_val = _emp_tem_intervalo(funcionario)
-                                if nh_tem_intervalo and nh_intervalo_val > 0:
+                                if intervalo_automatico:
+                                    if duracao_intervalo > 0:
+                                        horas_brutas_min = max(0, horas_brutas_min - duracao_intervalo)
+                                elif nh_tem_intervalo and nh_intervalo_val > 0:
                                     horas_brutas_min = max(0, horas_brutas_min - nh_intervalo_val)
                                 elif not nh_tem_intervalo and break_start_hora and break_end_hora:
                                     try:
@@ -3029,7 +3068,7 @@ def get_proximo_tipo(payload):
     else:
         ultimo = registros[-1]
         ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or '').lower()
-        if ultimo_tipo in ('saida', 'saída'):
+        if ultimo_tipo in ('saida', 'saída', 'saida_almoco', 'saida_antecipada'):
             proximo = 'entrada'
             label = 'Entrada'
         else:
@@ -3199,7 +3238,7 @@ def registrar_ponto_localizacao(payload):
                 tipo = 'entrada'
             else:
                 ultimo_tipo_loc = registros_dia_loc[-1].get('type', registros_dia_loc[-1].get('tipo', 'saida'))
-                tipo = 'entrada' if ultimo_tipo_loc in ('saida', 'saída') else 'saida'
+                tipo = 'entrada' if ultimo_tipo_loc in ('saida', 'saída', 'saida_almoco', 'saida_antecipada') else 'saida'
         except Exception as e:
             print(f"[REGISTRO LOCATION] Erro ao determinar tipo: {e}")
             tipo = tipo_solicitado  # fallback para o tipo enviado pelo client

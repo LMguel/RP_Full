@@ -23,13 +23,15 @@ import {
 import { apiService } from '../services/api';
 import { Employee } from '../types';
 
+type TipoRegistroManual = 'entrada' | 'saída' | 'dia_inteiro';
+
 interface TimeRecordFormProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (data: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída' | 'dia_inteiro';
+    tipo: TipoRegistroManual;
     justificativa: string;
   }) => Promise<void>;
   loading?: boolean;
@@ -48,7 +50,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     data_hora: '',
     date: '', // YYYY-MM-DD
     time: '', // HH:MM
-    tipo: 'entrada' as 'entrada' | 'saída' | 'dia_inteiro',
+    tipo: 'entrada' as TipoRegistroManual,
     justificativa: '',
   });
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -204,19 +206,6 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         // Ignorar registros invalidados ou ajustados nas verificações de conflito
         const INVALID_STATUSES = ['INVALIDADO', 'AJUSTADO', 'invalidado', 'ajustado'];
         recordsToCheck = recordsToCheck.filter((r: any) => !INVALID_STATUSES.includes(r.status));
-        // Verificar se já existe um registro do mesmo tipo no mesmo dia
-        const sameTypeRecords = recordsToCheck.filter((record: any) => 
-          (record.type || record.tipo) === formData.tipo && 
-          record.data_hora && 
-          record.data_hora.includes(dateStr)
-        );
-        if (sameTypeRecords.length > 0) {
-          setErrors(prev => ({
-            ...prev,
-            tipo: `Já existe um registro de ${formData.tipo} para este funcionário hoje`
-          }));
-          return;
-        }
         // Para registros de dia inteiro, não faz checagem de proximidade
         if (formData.tipo !== 'dia_inteiro') {
           // Verificar se não há conflito de horários próximos (menos de 30 minutos)
@@ -267,7 +256,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       data_hora: '',
       date: '',
       time: '',
-      tipo: 'entrada',
+      tipo: 'entrada' as TipoRegistroManual,
       justificativa: '',
     });
     setEmployeeInput('');
@@ -545,7 +534,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                   name="tipo"
                   value={formData.tipo}
                   onChange={(event) => {
-                    const value = event.target.value as 'entrada' | 'saída' | 'dia_inteiro';
+                    const value = event.target.value as TipoRegistroManual;
                     setFormData(prev => ({
                       ...prev,
                       tipo: value,
@@ -571,9 +560,24 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                     }
                   }}
                 >
-                  <MenuItem value="entrada">Entrada</MenuItem>
-                  <MenuItem value="saída">Saída</MenuItem>
-                  <MenuItem value="dia_inteiro">Dia inteiro (Atestado/Afastamento)</MenuItem>
+                  <MenuItem value="entrada">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#22c55e', flexShrink: 0 }} />
+                      Entrada
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="saída">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#ef4444', flexShrink: 0 }} />
+                      Saída
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="dia_inteiro">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#6b7280', flexShrink: 0 }} />
+                      Dia inteiro (Atestado/Afastamento)
+                    </Box>
+                  </MenuItem>
                 </Select>
                 {errors.tipo && (
                   <Typography variant="caption" sx={{ color: '#ef4444', mt: 1 }}>

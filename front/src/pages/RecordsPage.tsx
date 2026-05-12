@@ -281,7 +281,7 @@ const RecordsSummaryPage: React.FC = () => {
             const status = String(reg.status || 'ATIVO').toUpperCase();
             if (status !== 'ATIVO') return;
             const tipo = String(reg.type || reg.tipo || '').toLowerCase();
-            if (tipo !== 'saida' && tipo !== 'saída') return;
+            if (!['saida', 'saída', 'saida_almoco', 'saida_antecipada'].includes(tipo)) return;
             if (!isWithinRange(reg.data_hora)) return;
             const extraMin = Number(reg.horas_extras_minutos || 0);
             if (!Number.isFinite(extraMin)) return;
@@ -488,8 +488,12 @@ const RecordsSummaryPage: React.FC = () => {
         [...records].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime()).forEach(r => {
           const tipo = (r.type||r.tipo||'').toLowerCase();
           const dt = parseDataHora(r.data_hora||'');
-          if (tipo === 'entrada') { entrada = dt; }
-          else if (['saida','saída','saida_final','saída_final','checkout'].includes(tipo) && entrada) {
+          const knownEntry = ['entrada','retorno_almoco'].includes(tipo);
+          const knownExit = ['saida','saída','saida_final','saída_final','checkout','saida_almoco','saida_antecipada'].includes(tipo);
+          const isEntradaPos = !knownEntry && !knownExit && !entrada;
+          const isSaidaPos = !knownEntry && !knownExit && !!entrada;
+          if (knownEntry || isEntradaPos) { if (!entrada) entrada = dt; }
+          else if ((knownExit || isSaidaPos) && entrada) {
             total += (dt.getTime() - (entrada as Date).getTime()) / 60000;
             entrada = null;
           }

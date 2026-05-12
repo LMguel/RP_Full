@@ -114,16 +114,55 @@ const getStatusText = (tipo: string) => {
     'entrada': 'Entrada',
     'saida': 'Saída',
     'saída': 'Saída',
+    'saida_almoco': 'Saída Almoço',
+    'retorno_almoco': 'Retorno Almoço',
     'intervalo_inicio': 'Saída Intervalo',
     'intervalo_fim': 'Volta Intervalo',
     'retorno': 'Volta Intervalo',
     'saida_antecipada': 'Saída Antecipada',
+    'dia_inteiro': 'Dia Inteiro',
   };
-  return labels[tipo.toLowerCase()] || (tipo === 'entrada' ? 'Entrada' : 'Saída');
+  return labels[tipo.toLowerCase()] || tipo;
+};
+
+// Retorna label e cor baseados na posição cronológica do registro no dia
+const getPositionInfo = (record: TimeRecord, allRecords: TimeRecord[], intervaloAutomatico: boolean): { label: string; color: string; bg: string; border: string } => {
+  const POSITION_LABELS_MANUAL = ['Entrada', 'Saída Intervalo', 'Volta Intervalo', 'Saída'];
+  const POSITION_COLORS_MANUAL = ['#22c55e', '#f97316', '#06b6d4', '#ef4444'];
+  const POSITION_BGAS_MANUAL = ['rgba(34,197,94,0.2)', 'rgba(249,115,22,0.2)', 'rgba(6,182,212,0.2)', 'rgba(239,68,68,0.2)'];
+  const POSITION_BORDERS_MANUAL = ['rgba(34,197,94,0.3)', 'rgba(249,115,22,0.3)', 'rgba(6,182,212,0.3)', 'rgba(239,68,68,0.3)'];
+
+  if (record.data_hora && allRecords.length > 0) {
+    const recDate = record.data_hora.includes('T') ? record.data_hora.split('T')[0] : (record.data_hora.split(' ')[0] || '');
+    const dayPunches = allRecords
+      .filter(r => {
+        if (r.funcionario_id !== record.funcionario_id || !r.data_hora) return false;
+        const rDate = r.data_hora.includes('T') ? r.data_hora.split('T')[0] : (r.data_hora.split(' ')[0] || '');
+        return rDate === recDate && (r.type || r.tipo || '').toLowerCase() !== 'dia_inteiro';
+      })
+      .sort((a, b) => (a.data_hora || '') < (b.data_hora || '') ? -1 : 1);
+    const idx = dayPunches.findIndex(r => r.data_hora === record.data_hora && r.funcionario_id === record.funcionario_id);
+    if (idx !== -1) {
+      if (!intervaloAutomatico) {
+        const label = POSITION_LABELS_MANUAL[idx] ?? (idx % 2 === 0 ? 'Entrada' : 'Saída');
+        const color = POSITION_COLORS_MANUAL[idx] ?? (idx % 2 === 0 ? '#22c55e' : '#ef4444');
+        const bg = POSITION_BGAS_MANUAL[idx] ?? (idx % 2 === 0 ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
+        const border = POSITION_BORDERS_MANUAL[idx] ?? (idx % 2 === 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)');
+        return { label, color, bg, border };
+      }
+      // intervalo_automatico=true: only 2 positions (entrada/saída)
+      const isE = idx % 2 === 0;
+      return { label: isE ? 'Entrada' : 'Saída', color: isE ? '#22c55e' : '#ef4444', bg: isE ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', border: isE ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)' };
+    }
+  }
+  // Fallback: use stored tipo
+  const rt = (record.type || record.tipo || '').toLowerCase();
+  const isE = rt === 'entrada' || rt === 'retorno_almoco';
+  return { label: getStatusText(rt), color: isE ? '#22c55e' : '#ef4444', bg: isE ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', border: isE ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)' };
 };
 
 // Função para determinar o status detalhado do registro
-const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySettings: any) => {
+const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySettings: any, allRecords: TimeRecord[] = []) => {
   const statuses: Array<{ text: string; color: string }> = [];
 
   // Entrada antecipada
@@ -194,7 +233,43 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
   // Garantir número finito
   if (!Number.isFinite(toleranciaAtraso)) toleranciaAtraso = 0;
   const isEntrada = (record.type || record.tipo || '').toLowerCase() === 'entrada';
-  const isSaida = (record.type || record.tipo || '').toLowerCase() === 'saída' || (record.type || record.tipo || '').toLowerCase() === 'saida' || (record.type || record.tipo || '').toLowerCase() === 'saida_antecipada' || (record.type || record.tipo || '').toLowerCase() === 'saida';
+  const isSaida = (record.type || record.tipo || '').toLowerCase() === 'saída' || (record.type || record.tipo || '').toLowerCase() === 'saida' || (record.type || record.tipo || '').toLowerCase() === 'saida_antecipada';
+
+  // Determine position of this record within the day's punch sequence (chronological).
+  // Rules (purely position-based, ignoring tipo stored in DB):
+  //   pos 0 = entrada oficial   → can check atraso
+  //   pos 1 = saída intervalo   → no atraso, no saída antecipada
+  //   pos 2 = volta intervalo   → no atraso, no saída antecipada
+  //   pos 3 = saída final       → can check saída antecipada
+  // isLastSaidaOfDay: last punch AND at an odd position (pos 1, 3...)
+  let isFirstEntradaOfDay = true;
+  let isLastSaidaOfDay = true;
+
+  if (allRecords.length > 0 && record.data_hora) {
+    const recDate = record.data_hora.includes('T')
+      ? record.data_hora.split('T')[0]
+      : (record.data_hora.split(' ')[0] || '');
+
+    const allDayPunches = allRecords
+      .filter(r => {
+        if (r.funcionario_id !== record.funcionario_id || !r.data_hora) return false;
+        const rDate = r.data_hora.includes('T') ? r.data_hora.split('T')[0] : (r.data_hora.split(' ')[0] || '');
+        const rt = (r.type || r.tipo || '').toLowerCase();
+        return rDate === recDate && rt !== 'dia_inteiro';
+      })
+      .sort((a, b) => (a.data_hora || '') < (b.data_hora || '') ? -1 : 1);
+
+    const recordIndex = allDayPunches.findIndex(
+      r => r.data_hora === record.data_hora && r.funcionario_id === record.funcionario_id
+    );
+
+    if (recordIndex !== -1) {
+      isFirstEntradaOfDay = recordIndex === 0;
+      // isLastSaidaOfDay: this is the last punch AND at an odd position (exit role)
+      isLastSaidaOfDay =
+        recordIndex === allDayPunches.length - 1 && recordIndex % 2 !== 0;
+    }
+  }
 
   // Extrair horário real: preferir campo `horario_real`, senão tentar parsear `data_hora` (ISO, espaço ou timestamp)
   let horarioReal: string | null = null;
@@ -236,6 +311,7 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
 
   if (
     isEntrada &&
+    isFirstEntradaOfDay &&
     horarioEntrada &&
     horarioReal &&
     Number.isFinite(toleranciaAtraso)
@@ -270,8 +346,8 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
     }
   }
 
-  // Tratar registros de saída: verificar saída antecipada em relação ao horário de saída
-  if (isSaida && horarioSaida && horarioReal) {
+  // Tratar saída antecipada: APENAS para a última saída do dia (não saída do almoço)
+  if (isSaida && isLastSaidaOfDay && horarioSaida && horarioReal) {
     const [saidaH, saidaM] = horarioSaida.split(':').map(Number);
     const [realH2, realM2] = horarioReal.split(':').map(Number);
     const saidaMin = (Number.isFinite(saidaH) ? saidaH : 0) * 60 + (Number.isFinite(saidaM) ? saidaM : 0);
@@ -614,7 +690,7 @@ const RecordsDetailedPage: React.FC = () => {
       }
 
       // Status detalhado
-      let statusList = getDetailedStatus(record, employees, companySettings).map(s => s.text);
+      let statusList = getDetailedStatus(record, employees, companySettings, filteredRecords).map(s => s.text);
 
       return {
         'ID Registro': record.registro_id,
@@ -997,21 +1073,14 @@ const RecordsDetailedPage: React.FC = () => {
                           </TableCell>
                           <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                             {(() => {
-                              const recordType = (record.type || record.tipo || '').toLowerCase();
-                              const isEntrada = recordType === 'entrada';
-                              const chipColor = isEntrada ? '#22c55e' : '#ef4444';
-                              const chipBg = isEntrada ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)';
-                              const chipBorder = isEntrada ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+                              const ia = companySettings?.intervalo_automatico === true || companySettings?.intervalo_automatico === 'true';
+                              const { label, color, bg, border } = getPositionInfo(record, filteredRecords, ia);
                               return (
-                            <Chip
-                              label={getStatusText(recordType)}
-                              size="small"
-                              sx={{ 
-                                background: chipBg,
-                                color: chipColor,
-                                border: `1px solid ${chipBorder}`
-                              }}
-                            />
+                                <Chip
+                                  label={label}
+                                  size="small"
+                                  sx={{ background: bg, color, border: `1px solid ${border}` }}
+                                />
                               );
                             })()}
                           </TableCell>
@@ -1099,7 +1168,7 @@ const RecordsDetailedPage: React.FC = () => {
                                   />
                                 );
                               })()}
-                              {getDetailedStatus(record, employees, companySettings).map((status, idx) => (
+                              {getDetailedStatus(record, employees, companySettings, filteredRecords).map((status, idx) => (
                                 <Chip
                                   key={idx}
                                   label={status.text}

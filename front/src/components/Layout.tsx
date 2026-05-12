@@ -35,7 +35,6 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { apiService } from '../services/api';
 
 const logoUrl = new URL('../image/logo.png', import.meta.url).href;
 
@@ -50,7 +49,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [backendVersion, setBackendVersion] = useState<string>('');
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
@@ -341,30 +339,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadVersion = async () => {
-      try {
-        const response = await apiService.get('/api/version');
-        const version = response?.version || 'unknown';
-        const commit = response?.commit || '';
-        const display = commit ? `Backend v${version} (${commit})` : `Backend v${version}`;
-        if (isMounted) {
-          setBackendVersion(display);
-        }
-      } catch {
-        if (isMounted) {
-          setBackendVersion('Backend vunknown');
-        }
-      }
-    };
-
-    loadVersion();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   return (
     <Box 
@@ -543,17 +517,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </motion.div>
             </AnimatePresence>
           </Container>
-          <Box
-            component="footer"
-            sx={{
-              py: 2,
-              textAlign: 'center',
-              color: 'rgba(255, 255, 255, 0.6)',
-              fontSize: '12px',
-            }}
-          >
-            {backendVersion || 'Backend vunknown'}
-          </Box>
         </Box>
       </Box>
 

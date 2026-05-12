@@ -73,8 +73,8 @@ export interface TimeRecord {
   registro_id: string;
   funcionario_id: string;
   data_hora: string;
-  tipo?: 'dia_inteiro' | 'entrada' | 'saída';
-  type?: 'entrada' | 'saida' | 'saída';  // Novo campo padronizado
+  tipo?: 'dia_inteiro' | 'entrada' | 'saída' | 'saida_almoco' | 'retorno_almoco';
+  type?: 'entrada' | 'saida' | 'saída' | 'saida_almoco' | 'retorno_almoco';  // Novo campo padronizado
   method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL' | 'AJUSTE';  // Método de registro
   status?: RecordStatus;  // ATIVO, AJUSTADO, INVALIDADO
   empresa_id: string;   // mantém compatibilidade

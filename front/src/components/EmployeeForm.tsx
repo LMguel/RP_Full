@@ -39,6 +39,7 @@ interface EmployeeFormProps {
   employee?: Employee | null;
   loading?: boolean;
   existingCargos?: string[];
+  companySettings?: any;
 }
 
 const EmployeeForm: React.FC<EmployeeFormProps> = ({
@@ -48,6 +49,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   employee,
   loading = false,
   existingCargos = [],
+  companySettings,
 }) => {
   const [formData, setFormData] = useState({
     nome: employee?.nome || '',
@@ -909,7 +911,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           </Box>
         </DialogContent>
 
-        {/* Intervalo Personalizado Section */}
+        {/* Intervalo Personalizado Section — oculto quando empresa usa almoço manual */}
+        {(companySettings?.intervalo_automatico === true || companySettings?.intervalo_automatico === 'true') && (
         <Box sx={{ px: 3, pb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <input
@@ -945,6 +948,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </Box>
           )}
         </Box>
+        )}
 
         <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
           <Button

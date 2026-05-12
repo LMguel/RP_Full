@@ -178,12 +178,20 @@ const EmployeeRecordsPage: React.FC = () => {
     return new Date(iso);
   };
 
+  const TIPOS_SAIDA = ['saida', 'saída', 'saida_final', 'saida_almoco', 'saida_antecipada'];
+  const TIPOS_ENTRADA = ['entrada', 'retorno_almoco'];
+
   const calcularTotalHoras = (registros: TimeRecord[]): string => {
     let total = 0; let entrada: Date | null = null;
-    [...registros].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime()).forEach(r => {
-      const tipo = (r.type||r.tipo||'').toLowerCase(); const dt = parseDataHora(r.data_hora||'');
-      if (tipo==='entrada') { entrada=dt; }
-      else if ((['saida','saída','saida_final'].includes(tipo)) && entrada) { total += (dt.getTime()-entrada.getTime())/1000; entrada=null; }
+    const sorted = [...registros].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime());
+    sorted.forEach(r => {
+      const tipo = (r.type||r.tipo||'').toLowerCase();
+      const dt = parseDataHora(r.data_hora||'');
+      const known = TIPOS_ENTRADA.includes(tipo) || TIPOS_SAIDA.includes(tipo) || tipo === 'dia_inteiro';
+      const isEntradaPos = !known && !entrada;
+      const isSaidaPos = !known && !!entrada;
+      if (TIPOS_ENTRADA.includes(tipo) || isEntradaPos) { if (!entrada) entrada = dt; }
+      else if ((TIPOS_SAIDA.includes(tipo) || isSaidaPos) && entrada) { total += (dt.getTime()-entrada.getTime())/1000; entrada=null; }
     });
     const h = Math.floor(total/3600); const min = Math.floor((total%3600)/60);
     return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
@@ -200,7 +208,18 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   const getStatusText = (tipo: string) => {
-    const labels: Record<string,string> = { entrada: 'Entrada', saida: 'Saida', 'saída': 'Saida', intervalo_inicio: 'Saida Intervalo', intervalo_fim: 'Volta Intervalo', retorno: 'Volta Intervalo', saida_antecipada: 'Saida Antecipada' };
+    const labels: Record<string,string> = {
+      entrada: 'Entrada',
+      saida: 'Saída',
+      'saída': 'Saída',
+      saida_almoco: 'Saída Almoço',
+      retorno_almoco: 'Retorno Almoço',
+      intervalo_inicio: 'Saída Intervalo',
+      intervalo_fim: 'Volta Intervalo',
+      retorno: 'Volta Intervalo',
+      saida_antecipada: 'Saída Antecipada',
+      dia_inteiro: 'Dia Inteiro',
+    };
     return labels[tipo.toLowerCase()] || tipo;
   };
 
@@ -305,10 +324,10 @@ const EmployeeRecordsPage: React.FC = () => {
       } else if (isWorkday && isPast) {
         status='FALTA'; cor='vermelho';
       }
-      const entRec = records.find(r => (r.type||r.tipo||'').toLowerCase()==='entrada');
+      const entRec = records.find(r => TIPOS_ENTRADA.includes((r.type||r.tipo||'').toLowerCase()));
       const saiIntRec = records.find(r => ['intervalo_inicio','saida_intervalo','intervalo_saida'].includes((r.type||r.tipo||'').toLowerCase()));
       const voltaIntRec = records.find(r => ['intervalo_fim','volta_intervalo','retorno','intervalo_volta'].includes((r.type||r.tipo||'').toLowerCase()));
-      const saiRec = [...records].reverse().find(r => ['saida','saída','saida_final','saída_final','checkout'].includes((r.type||r.tipo||'').toLowerCase()));
+      const saiRec = [...records].reverse().find(r => TIPOS_SAIDA.includes((r.type||r.tipo||'').toLowerCase()));
       const horasPrevisvasStr = isWorkday && !isHoliday ? toHHMM(previstoMinDia) : undefined;
       // Calcula horas trabalhadas descontando intervalo quando não há registros explícitos de intervalo
       let horasTrabalhadasStr: string | undefined = undefined;

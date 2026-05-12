@@ -254,10 +254,10 @@ class SummaryService:
         for r in sorted_records:
             t = _get_type(r)
             dt = r.get('data_hora', '')
-            if t in ('entrada', 'entry', 'in'):
+            if t in ('entrada', 'entry', 'in', 'retorno_almoco'):
                 if current_entrada is None:
                     current_entrada = dt
-            elif t in ('saida', 'exit', 'out'):
+            elif t in ('saida', 'exit', 'out', 'saida_almoco'):
                 if current_entrada is not None:
                     pairs.append((current_entrada, dt))
                     current_entrada = None

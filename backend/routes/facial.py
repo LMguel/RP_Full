@@ -250,7 +250,7 @@ def reconhecer_rosto(payload):
         else:
             ultimo = registros_hoje[-1]
             ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or ultimo.get('tipo_registro', '')).lower()
-            if ultimo_tipo in ('saida', 'saída'):
+            if ultimo_tipo in ('saida', 'saída', 'saida_almoco'):
                 proximo_tipo = 'entrada'
                 proximo_tipo_label = 'Entrada'
             else:
@@ -375,7 +375,7 @@ def registrar_ponto_facial(payload):
         else:
             ultimo = registros_hoje[-1]
             ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or ultimo.get('tipo_registro', '')).lower()
-            tipo = 'entrada' if ultimo_tipo in ('saida', 'saída') else 'saida'
+            tipo = 'entrada' if ultimo_tipo in ('saida', 'saída', 'saida_almoco') else 'saida'
 
         tipo_label = {'entrada': 'Entrada', 'saida': 'Saída', 'saída': 'Saída'}.get(tipo, tipo)
 

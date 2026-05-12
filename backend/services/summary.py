@@ -141,10 +141,10 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
             ):
                 has_location_issues = True
 
-        if ntype in ('entrada', 'in'):
+        if ntype in ('entrada', 'in', 'retorno_almoco'):
             if current_pair is None:
                 current_pair = {'entrada_calc': dt_calc, 'entrada_real': dt_real}
-        elif ntype in ('saida', 'out'):
+        elif ntype in ('saida', 'out', 'saida_almoco'):
             if current_pair is not None:
                 current_pair['saida_calc'] = dt_calc
                 current_pair['saida_real'] = dt_real

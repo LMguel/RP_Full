@@ -465,13 +465,12 @@ const EmployeesPage: React.FC = () => {
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">
                             {(() => {
-                              if (employee.intervalo_personalizado && employee.intervalo_emp != null) {
-                                return `${employee.intervalo_emp} min`;
+                              const ia = companySettings?.intervalo_automatico === true || companySettings?.intervalo_automatico === 'true';
+                              if (!ia) {
+                                // Almoço manual: intervalo calculado pelas batidas, não exibir valor fixo
+                                return 'Manual';
                               }
-                              if (employee.intervalo_emp != null) {
-                                return `${employee.intervalo_emp} min`;
-                              }
-                              if (companySettings?.intervalo_automatico && companySettings?.duracao_intervalo != null) {
+                              if (companySettings?.duracao_intervalo != null) {
                                 return `${companySettings.duracao_intervalo} min`;
                               }
                               return '-';
@@ -539,6 +538,7 @@ const EmployeesPage: React.FC = () => {
         employee={editingEmployee}
         loading={submitting}
         existingCargos={existingCargos}
+        companySettings={companySettings}
       />
 
       {/* Action Menu */}
