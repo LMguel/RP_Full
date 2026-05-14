@@ -99,10 +99,11 @@ def parse_external_image_id(external_id):
 def reconhecer_funcionario(caminho_foto, expected_company_id=None):
     """Procura o rosto na collection do Rekognition.
 
-    Quando `expected_company_id` é fornecido, qualquer match cujo ExternalImageId
-    NÃO pertença a essa company é descartado e a função retorna
-    `{'status': 'TENANT_MISMATCH', ...}` — garantindo isolamento multi-tenant
-    no nível do backend, independentemente do que o frontend envie.
+    Quando `expected_company_id` é fornecido, itera por todos os matches
+    retornados para encontrar o melhor que pertença a essa empresa — permitindo
+    que funcionários vinculados a múltiplas empresas sejam reconhecidos
+    corretamente em cada kiosk. Só retorna TENANT_MISMATCH quando nenhum
+    match pertence à empresa esperada (person genuinamente não cadastrada aqui).
 
     Retorna um dict com pelo menos a chave `status`:
       - {'status': 'NO_MATCH'}
@@ -122,10 +123,12 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
         # Threshold configurável via variável de ambiente (padrão: 85)
         threshold = int(os.environ.get('REKOGNITION_THRESHOLD', '85'))
 
+        # MaxFaces=10 permite encontrar o match correto mesmo quando o funcionário
+        # está cadastrado em múltiplas empresas (cada uma com seu próprio ExternalImageId).
         response = rekognition.search_faces_by_image(
             CollectionId=COLLECTION,
             Image={'Bytes': image_bytes},
-            MaxFaces=1,
+            MaxFaces=10,
             FaceMatchThreshold=threshold,
         )
 
@@ -134,32 +137,66 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
             print("[REKOGNITION] Nenhum rosto correspondente encontrado")
             return {'status': 'NO_MATCH'}
 
-        face_match = matches[0]
-        external_id = face_match['Face']['ExternalImageId']
+        # Rekognition já retorna por similaridade decrescente; garantir a ordem.
+        matches.sort(key=lambda m: m['Similarity'], reverse=True)
+
+        company_match = None   # melhor match pertencente a expected_company_id
+        other_match = None     # melhor match de outra empresa (para TENANT_MISMATCH)
+        first_invalid_id = None
+
+        for face_match in matches:
+            external_id = face_match['Face']['ExternalImageId']
+            similarity = face_match['Similarity']
+            print(f"[REKOGNITION] Candidato: ExternalImageId={external_id}, Similarity={similarity:.2f}%")
+
+            matched_company_id, employee_id = parse_external_image_id(external_id)
+
+            if not matched_company_id or not employee_id:
+                if first_invalid_id is None:
+                    first_invalid_id = external_id
+                continue
+
+            if expected_company_id:
+                if matched_company_id == expected_company_id:
+                    company_match = (face_match, matched_company_id, employee_id)
+                    break  # encontrou o melhor match para esta empresa
+                elif other_match is None:
+                    other_match = (face_match, matched_company_id, employee_id)
+            else:
+                # Sem filtro de empresa — pega o melhor match válido
+                company_match = (face_match, matched_company_id, employee_id)
+                break
+
+        if company_match is None:
+            if other_match is not None:
+                # Rosto reconhecido, mas pertence apenas a outra(s) empresa(s)
+                face_match, matched_company_id, _ = other_match
+                external_id = face_match['Face']['ExternalImageId']
+                print(
+                    f"[REKOGNITION][TENANT_MISMATCH] nenhum match para company_id={expected_company_id}. "
+                    f"Melhor match pertence a company_id={matched_company_id}."
+                )
+                return {
+                    'status': 'TENANT_MISMATCH',
+                    'matched_company_id': matched_company_id,
+                    'expected_company_id': expected_company_id,
+                    'external_image_id': external_id,
+                }
+            if first_invalid_id is not None:
+                print(f"[REKOGNITION] ExternalImageId em formato inválido (não 'uuid_employeeid'): {first_invalid_id}")
+                return {
+                    'status': 'INVALID_EXTERNAL_ID',
+                    'external_image_id': first_invalid_id,
+                }
+            return {'status': 'NO_MATCH'}
+
+        face_match, matched_company_id, employee_id = company_match
         similarity = face_match['Similarity']
-        print(f"[REKOGNITION] Match bruto: ExternalImageId={external_id}, Similarity={similarity}%")
-
-        matched_company_id, employee_id = parse_external_image_id(external_id)
-        if not matched_company_id or not employee_id:
-            print(f"[REKOGNITION] ExternalImageId em formato inválido (não 'uuid_employeeid'): {external_id}")
-            return {
-                'status': 'INVALID_EXTERNAL_ID',
-                'external_image_id': external_id,
-            }
-
-        if expected_company_id and matched_company_id != expected_company_id:
-            # Bloqueio defensivo: rosto pertence a outra empresa.
-            print(
-                f"[REKOGNITION][TENANT_MISMATCH] match externo pertence a "
-                f"company_id={matched_company_id}, mas kiosk autenticado é {expected_company_id}. "
-                f"Rejeitando reconhecimento."
-            )
-            return {
-                'status': 'TENANT_MISMATCH',
-                'matched_company_id': matched_company_id,
-                'expected_company_id': expected_company_id,
-                'external_image_id': external_id,
-            }
+        external_id = face_match['Face']['ExternalImageId']
+        print(
+            f"[REKOGNITION] Match OK: company_id={matched_company_id} "
+            f"employee_id={employee_id} similarity={similarity:.2f}%"
+        )
 
         return {
             'status': 'OK',

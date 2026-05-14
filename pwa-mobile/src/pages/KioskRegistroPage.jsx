@@ -286,13 +286,13 @@ export default function KioskCleanUI() {
 
     } catch (err) {
       console.error('Erro no reconhecimento:', err);
-      // Trata erro do Rekognition: "There are no faces in the image. Should be at least 1."
       if (err && (err.message?.includes('There are no faces in the image') || (typeof err === 'string' && err.includes('There are no faces in the image')))) {
         setError('Nenhum rosto foi detectado');
         setIsProcessing(false);
-        setTimeout(() => {
-          setError('');
-        }, 1500);
+        setTimeout(() => setError(''), 1500);
+      } else if (err?.response?.status === 403 && err?.response?.data?.error) {
+        setError(`❌ ${err.response.data.error}`);
+        setTimeout(() => setError(''), 3000);
       } else {
         setError('❌ Não foi possível reconhecer o rosto. Tente novamente.');
         setTimeout(() => setError(''), 3000);
