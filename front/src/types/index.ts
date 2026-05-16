@@ -26,6 +26,7 @@ export interface Employee {
   tolerancia_atraso?: number;
   intervalo_personalizado?: boolean;
   intervalo_emp?: number;
+  carga_horaria_mensal?: number; // horas/mês, cadastro manual para banco de horas
 }
 
 export type DiaSemana = 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' | 'domingo';

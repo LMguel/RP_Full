@@ -238,6 +238,10 @@ class Employee:
     # Intervalo personalizado por funcionário
     intervalo_personalizado: bool = False
     intervalo_emp: Optional[int] = None  # minutos - valor efetivo usado nos cálculos
+
+    # Carga horária mensal (horas/mês) — cadastro manual, nullable para compatibilidade
+    # Usado no cálculo do banco de horas: expected = carga * 60 / total_dias * dias_passados
+    carga_horaria_mensal: Optional[float] = None
     
     def to_dynamodb(self) -> Dict:
         """Converte para DynamoDB"""

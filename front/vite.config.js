@@ -1,13 +1,30 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import legacy from '@vitejs/plugin-legacy'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  // Use absolute asset paths so built assets are resolved from the site root (fixes nested-route 404s)
   base: '/',
   plugins: [
     react(),
+
+    // Gera um bundle legado (ES5 + polyfills) para browsers antigos.
+    // Windows 7: Chrome 66–109 e Firefox 60–116 são cobertos por esses targets.
+    legacy({
+      targets: [
+        'Chrome >= 66',
+        'Firefox >= 60',
+        'Safari >= 11',
+        'Edge >= 18',
+      ],
+      // Polyfills incluídos no bundle legado
+      additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
+      renderLegacyChunks: true,
+      polyfills: true,
+      modernPolyfills: true,
+    }),
+
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'logo.png', 'icon-192x192.png', 'icon-512x512.png'],
@@ -16,7 +33,7 @@ export default defineConfig({
         short_name: 'RP',
         description: 'Sistema de controle de ponto eletrônico',
         theme_color: '#1e40af',
-        background_color: '#ffffff',
+        background_color: '#1e40af',
         display: 'standalone',
         start_url: '/',
         scope: '/',
@@ -27,8 +44,6 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        // Increase maximum file size to precache (defaults to 2 MiB).
-        // Set to 10 MiB to allow larger built chunks to be precached.
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
       },
       devOptions: {
@@ -42,7 +57,24 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false,
+    target: 'es2015',
+    cssTarget: 'chrome66',
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: false,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          mui: ['@mui/material', '@mui/icons-material'],
+          motion: ['framer-motion'],
+        },
+      },
+    },
   },
   define: {
     global: 'globalThis',

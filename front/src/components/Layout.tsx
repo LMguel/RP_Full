@@ -116,112 +116,99 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   const drawer = (
-    <Box 
+    <Box
       sx={{
         height: '100%',
-        background: 'rgba(255, 255, 255, 0.08)',
+        background: 'rgba(255,255,255,0.06)',
         backdropFilter: 'blur(20px)',
-        borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderRight: '1px solid rgba(255,255,255,0.09)',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      <Box sx={{ p: drawerCollapsed ? 1.5 : 3, flex: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4, justifyContent: drawerCollapsed ? 'center' : 'flex-start' }}>
-            <Box
-              sx={{
-                width: drawerCollapsed ? 40 : 48,
-                height: drawerCollapsed ? 40 : 48,
-                minWidth: drawerCollapsed ? 40 : 48,
-                backgroundColor: 'white',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
-                transition: 'all 0.3s ease',
-              }}
-            >
-              <img 
-                src={logoUrl} 
-                alt="RP Logo"
-                style={{
-                  width: '200%',
-                  height: '200%',
-                  objectFit: 'contain',
-                }}
-              />
-            </Box>
+      <Box sx={{ p: drawerCollapsed ? 1.5 : '24px 20px', flex: 1 }}>
+        {/* Logo + nome */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3.5, justifyContent: drawerCollapsed ? 'center' : 'flex-start' }}>
+          <Box
+            sx={{
+              width: drawerCollapsed ? 38 : 44,
+              height: drawerCollapsed ? 38 : 44,
+              minWidth: drawerCollapsed ? 38 : 44,
+              backgroundColor: 'white',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.25)',
+            }}
+          >
+            <img src={logoUrl} alt="RP Logo" style={{ width: '200%', height: '200%', objectFit: 'contain' }} />
+          </Box>
           {!drawerCollapsed && (
             <Box>
-              <Typography 
-                variant="h6" 
-                sx={{ 
-                  fontWeight: 600, 
-                  color: 'white',
-                  fontSize: '16px',
-                  whiteSpace: 'nowrap',
-                }}
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 700, color: 'white', fontSize: '15px', letterSpacing: '0.02em', whiteSpace: 'nowrap', lineHeight: 1.2 }}
               >
                 REGISTRA.PONTO
               </Typography>
-              <Typography 
-                variant="caption" 
-                sx={{ 
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  fontSize: '12px'
-                }}
-              >
-                Sistema de Ponto
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
+                Controle de Ponto
               </Typography>
             </Box>
           )}
         </Box>
-        
-        <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)', mb: 3 }} />
-        
-        <List>
+
+        <Divider sx={{ borderColor: 'rgba(255,255,255,0.09)', mb: 2.5 }} />
+
+        <List disablePadding>
           {menuItems.map((item) => {
             const isActive = location.pathname === item.path;
             const isRecordsSection = location.pathname.startsWith('/records');
             const hasSubmenu = item.submenu && item.submenu.length > 0;
-            
+            const highlighted = isActive || (hasSubmenu && isRecordsSection);
+
             return (
               <React.Fragment key={item.text}>
-                <ListItem disablePadding sx={{ mb: 1 }}>
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
                   <ListItemButton
                     onClick={() => {
                       if (hasSubmenu && item.text === 'Registros') {
-                        if (drawerCollapsed) {
-                          setDrawerCollapsed(false);
-                          setRecordsSubmenuOpen(true);
-                        } else {
-                          setRecordsSubmenuOpen(!recordsSubmenuOpen);
-                        }
+                        if (drawerCollapsed) { setDrawerCollapsed(false); setRecordsSubmenuOpen(true); }
+                        else { setRecordsSubmenuOpen(!recordsSubmenuOpen); }
                       } else {
                         handleNavigation(item.path);
                       }
                     }}
                     sx={{
-                      borderRadius: '8px',
-                      mx: drawerCollapsed ? 0 : 1,
+                      borderRadius: '9px',
+                      mx: 0,
                       justifyContent: drawerCollapsed ? 'center' : 'flex-start',
-                      px: drawerCollapsed ? 1.5 : 2,
-                      color: (isActive || (hasSubmenu && isRecordsSection)) ? 'white' : 'rgba(255, 255, 255, 0.7)',
-                      background: (isActive || (hasSubmenu && isRecordsSection)) ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                      px: drawerCollapsed ? 1.5 : 1.5,
+                      py: 1.1,
+                      color: highlighted ? 'white' : 'rgba(255,255,255,0.65)',
+                      background: highlighted
+                        ? 'rgba(255,255,255,0.12)'
+                        : 'transparent',
+                      borderLeft: highlighted ? '3px solid rgba(255,255,255,0.75)' : '3px solid transparent',
                       '&:hover': {
-                        background: 'rgba(255, 255, 255, 0.05)',
+                        background: 'rgba(255,255,255,0.08)',
                         color: 'white',
+                        borderLeft: highlighted ? '3px solid rgba(255,255,255,0.75)' : '3px solid rgba(255,255,255,0.3)',
                       },
-                      transition: 'all 0.2s ease',
+                      transition: 'all 0.18s ease',
                     }}
                     title={drawerCollapsed ? item.text : undefined}
                   >
                     <ListItemIcon
                       sx={{
-                        color: (isActive || (hasSubmenu && isRecordsSection)) ? 'white' : 'rgba(255, 255, 255, 0.7)',
-                        minWidth: drawerCollapsed ? 0 : 40,
+                        color: highlighted ? 'white' : 'rgba(255,255,255,0.6)',
+                        minWidth: drawerCollapsed ? 0 : 36,
                         justifyContent: 'center',
+                        '& svg': { fontSize: '20px' },
                       }}
                     >
                       {item.icon}
@@ -231,18 +218,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                         primary={item.text}
                         sx={{
                           '& .MuiListItemText-primary': {
-                            fontWeight: (isActive || (hasSubmenu && isRecordsSection)) ? 500 : 400,
-                            fontSize: '14px'
+                            fontWeight: highlighted ? 600 : 400,
+                            fontSize: '13.5px',
+                            letterSpacing: '0.01em',
                           }
                         }}
                       />
                     )}
                   </ListItemButton>
                 </ListItem>
-                
+
                 {/* Submenu de Registros */}
                 {hasSubmenu && item.text === 'Registros' && recordsSubmenuOpen && !drawerCollapsed && (
-                  <Box sx={{ pl: 2, mb: 1 }}>
+                  <Box sx={{ pl: 2.5, mb: 0.5 }}>
                     {item.submenu.map((subItem) => {
                       const isSubActive = location.pathname === subItem.path;
                       return (
@@ -250,25 +238,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                           key={subItem.path}
                           onClick={() => handleNavigation(subItem.path)}
                           sx={{
-                            mx: 1,
-                            py: 0.75,
-                            color: isSubActive ? 'white' : 'rgba(255, 255, 255, 0.6)',
-                            background: isSubActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                            borderRadius: '7px',
+                            py: 0.7,
+                            px: 1.5,
+                            mb: 0.25,
+                            color: isSubActive ? 'white' : 'rgba(255,255,255,0.55)',
+                            background: isSubActive ? 'rgba(255,255,255,0.09)' : 'transparent',
+                            borderLeft: isSubActive ? '2px solid rgba(255,255,255,0.6)' : '2px solid transparent',
                             '&:hover': {
-                              background: 'rgba(255, 255, 255, 0.05)',
-                              color: 'white',
+                              background: 'rgba(255,255,255,0.06)',
+                              color: 'rgba(255,255,255,0.9)',
                             },
-                            transition: 'all 0.2s ease',
+                            transition: 'all 0.15s ease',
                           }}
                         >
-                          <Typography 
-                            variant="caption" 
-                            sx={{ 
-                              fontSize: '13px',
-                              fontWeight: isSubActive ? 500 : 400
-                            }}
-                          >
-                            • {subItem.text}
+                          <Typography variant="caption" sx={{ fontSize: '12.5px', fontWeight: isSubActive ? 600 : 400 }}>
+                            {subItem.text}
                           </Typography>
                         </ListItemButton>
                       );
@@ -281,42 +266,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </List>
       </Box>
 
-      {/* Botão de colapsar/expandir no rodapé da sidebar */}
-      <Box sx={{ p: 1, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+      {/* Botão colapsar */}
+      <Box sx={{ p: 1.5, borderTop: '1px solid rgba(255,255,255,0.09)' }}>
         <ListItemButton
           onClick={handleDrawerCollapse}
           sx={{
-            borderRadius: '8px',
+            borderRadius: '9px',
             justifyContent: drawerCollapsed ? 'center' : 'flex-start',
-            px: drawerCollapsed ? 1.5 : 2,
-            color: 'rgba(255, 255, 255, 0.7)',
-            '&:hover': {
-              background: 'rgba(255, 255, 255, 0.05)',
-              color: 'white',
-            },
-            transition: 'all 0.2s ease',
+            px: 1.5,
+            py: 0.9,
+            color: 'rgba(255,255,255,0.5)',
+            '&:hover': { background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.85)' },
+            transition: 'all 0.18s ease',
           }}
           title={drawerCollapsed ? 'Expandir menu' : 'Recolher menu'}
         >
-          <ListItemIcon
-            sx={{
-              color: 'rgba(255, 255, 255, 0.7)',
-              minWidth: drawerCollapsed ? 0 : 40,
-              justifyContent: 'center',
-            }}
-          >
+          <ListItemIcon sx={{ color: 'inherit', minWidth: drawerCollapsed ? 0 : 36, justifyContent: 'center', '& svg': { fontSize: '18px' } }}>
             {drawerCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           </ListItemIcon>
           {!drawerCollapsed && (
-            <ListItemText
-              primary="Recolher menu"
-              sx={{
-                '& .MuiListItemText-primary': {
-                  fontSize: '13px',
-                  fontWeight: 400,
-                }
-              }}
-            />
+            <ListItemText primary="Recolher" sx={{ '& .MuiListItemText-primary': { fontSize: '12.5px', fontWeight: 400 } }} />
           )}
         </ListItemButton>
       </Box>
@@ -352,84 +321,59 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     >
       <AppBar
         position="fixed"
+        elevation={0}
         sx={{
           width: { md: `calc(100% - ${currentDrawerWidth}px)` },
           ml: { md: `${currentDrawerWidth}px` },
           transition: 'width 0.3s ease, margin-left 0.3s ease',
-          background: 'rgba(255, 255, 255, 0.08)',
+          background: 'rgba(255,255,255,0.07)',
           backdropFilter: 'blur(20px)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          WebkitBackdropFilter: 'blur(20px)',
+          boxShadow: 'none',
+          borderBottom: '1px solid rgba(255,255,255,0.09)',
         }}
       >
-        <Toolbar>
+        <Toolbar sx={{ minHeight: { xs: 56, sm: 60 }, px: { xs: 2, md: 3 } }}>
           <IconButton
             color="inherit"
-            aria-label="open drawer"
             edge="start"
             onClick={handleDrawerToggle}
-            sx={{ 
-              mr: 2, 
-              display: { md: 'none' },
-              color: 'white'
-            }}
+            sx={{ mr: 1.5, display: { md: 'none' }, color: 'white', borderRadius: '8px' }}
           >
             <MenuIcon />
           </IconButton>
-          
-          <Typography 
-            variant="h6" 
-            noWrap 
-            component="div" 
-            sx={{ 
-              flexGrow: 1,
-              color: 'white',
-              fontWeight: 500
-            }}
+
+          <Typography
+            variant="body1"
+            noWrap
+            component="div"
+            sx={{ flexGrow: 1, color: 'white', fontWeight: 600, fontSize: '15px', letterSpacing: '0.01em' }}
           >
             {menuItems.find(item => item.path === location.pathname || (item.path === '/records' && location.pathname.startsWith('/records')))?.text || 'Dashboard'}
           </Typography>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Box sx={{ textAlign: 'right', display: { xs: 'none', sm: 'block' } }}>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  fontWeight: 500, 
-                  color: 'white',
-                  fontSize: '14px'
-                }}
-              >
+              <Typography variant="body2" sx={{ fontWeight: 600, color: 'white', fontSize: '13px', lineHeight: 1.3 }}>
                 {user?.empresa_nome}
               </Typography>
-              <Typography 
-                variant="caption" 
-                sx={{ 
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  fontSize: '12px'
-                }}
-              >
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '11px' }}>
                 {user?.usuario_id}
               </Typography>
             </Box>
-            
+
             <IconButton
-              size="large"
-              edge="end"
-              aria-label="account of current user"
-              aria-controls="primary-search-account-menu"
-              aria-haspopup="true"
               onClick={handleProfileMenuOpen}
-              sx={{ color: 'white' }}
+              sx={{
+                p: 0.5,
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.15)',
+                '&:hover': { background: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.3)' },
+                transition: 'all 0.2s ease',
+              }}
             >
-              <Avatar 
-                sx={{ 
-                  width: 32, 
-                  height: 32, 
-                  background: 'rgba(255, 255, 255, 0.2)' 
-                }}
-              >
-                <AccountCircleIcon sx={{ color: 'white' }} />
+              <Avatar sx={{ width: 30, height: 30, background: 'rgba(255,255,255,0.18)', fontSize: '14px' }}>
+                <AccountCircleIcon sx={{ color: 'white', fontSize: '18px' }} />
               </Avatar>
             </IconButton>
           </Box>

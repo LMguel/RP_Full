@@ -30,6 +30,8 @@ interface EmployeeSummary {
   funcionario_nome: string;
   horas_trabalhadas: number; // minutos
   horas_extras: number;      // minutos
+  saldo: number;             // minutos (pode ser negativo)
+  variavel: boolean;         // horário variável: sem previsto/banco
   atrasos: number;           // minutos
   total_registros?: number;
 }
@@ -76,11 +78,20 @@ const RecordsSummaryPage: React.FC = () => {
   // Função para formatar minutos em HH:MM
   const formatMinutesToHHMM = (minutes: number): string => {
     if (minutes === 0) return '00:00';
-    
+
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    
+
     return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  };
+
+  // Formata saldo (pode ser negativo) em ±HH:MM
+  const formatSaldo = (minutes: number): string => {
+    const sign = minutes < 0 ? '-' : '+';
+    const abs = Math.abs(minutes);
+    const h = Math.floor(abs / 60);
+    const m = abs % 60;
+    return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   };
 
   // Função atualizada para formatar horas trabalhadas - INCLUINDO MINUTOS
@@ -181,129 +192,51 @@ const RecordsSummaryPage: React.FC = () => {
       setEmployeeSummaries([]);
       return;
     }
-    
+
     setLoading(true);
     setError(null);
 
     try {
-      const params: {
-        inicio?: string;
-        fim?: string;
-        funcionario_id?: string;
-      } = {};
+      // Usar /api/registros-diarios — mesmo motor canônico do espelho de ponto
+      const params: Record<string, string> = { page_size: '2000' };
+      if (dateRange.start_date) params.start_date = dateRange.start_date;
+      if (dateRange.end_date) params.end_date = dateRange.end_date;
+      if (selectedEmployee?.id) params.employee_id = selectedEmployee.id;
 
-      // Enviar datas no formato ISO YYYY-MM-DD (mesmo formato salvo no banco)
-      if (dateRange.start_date) params.inicio = dateRange.start_date;
-      if (dateRange.end_date) params.fim = dateRange.end_date;
-      if (selectedEmployee?.id) params.funcionario_id = selectedEmployee.id;
+      const response = await apiService.get('/api/registros-diarios', params);
+      const dailyList: any[] = response?.summaries || [];
 
-      // Usar o novo endpoint de resumo que calcula tudo no backend
-      console.log('📊 [API] Buscando resumo com params:', params);
-      const response = await apiService.getTimeRecordsSummary(params);
-      console.log('📊 [API] Resposta do resumo:', response);
-      
-      // Função auxiliar simplificada para converter para número
-      const toNumber = (value: any): number => {
-        if (typeof value === 'number') return value;
-        if (typeof value === 'string') {
-          const normalized = value.replace(',', '.');
-          const parsed = parseFloat(normalized);
-          return Number.isFinite(parsed) ? parsed : 0;
+      // Agregar por funcionário
+      const byEmployee: Record<string, { nome: string; minTrabalhados: number; minPrevistos: number; saldoMin: number; variavel: boolean }> = {};
+      for (const day of dailyList) {
+        const empId = String(day.employee_id || '');
+        if (!empId) continue;
+        if (!byEmployee[empId]) {
+          byEmployee[empId] = { nome: day.nome || empId, minTrabalhados: 0, minPrevistos: 0, saldoMin: 0, variavel: false };
         }
-        return 0;
-      };
-
-      // Função para converter HH:MM em minutos
-      const parseHHMMToMinutes = (val: any): number => {
-        if (typeof val === 'string' && /^\d{1,3}:\d{2}$/.test(val)) {
-          const [h, m] = val.split(':').map(Number);
-          return h * 60 + m;
-        }
-        return 0;
-      };
-
-      let summaries: EmployeeSummary[] = [];
-
-      // Processar resposta do endpoint de resumo (SIMPLIFICADO)
-      if (Array.isArray(response)) {
-        console.log('📊 [RESUMO] Resposta da API:', response);
-        
-        summaries = response.map((item: any) => {
-          // Backend retorna valores já calculados em minutos
-          const horasTrabalhadas = item.horas_trabalhadas_minutos != null 
-            ? toNumber(item.horas_trabalhadas_minutos)
-            : parseHHMMToMinutes(item.horas_trabalhadas);
-
-          const horasExtras = item.horas_extras_minutos != null
-            ? toNumber(item.horas_extras_minutos)
-            : parseHHMMToMinutes(item.horas_extras);
-
-          const atrasos = item.atraso_minutos != null
-            ? toNumber(item.atraso_minutos)
-            : 0;
-
-          const totalRegistros = toNumber(item.total_registros || 0);
-
-          const employeeId = item.funcionario_id || item.employee_id || '';
-          const funcName = item.funcionario_nome || item.funcionario || 'Desconhecido';
-
-          console.log(`📊 [RESUMO] ${funcName}: trabalhadas=${horasTrabalhadas}min, extras=${horasExtras}min`);
-
-          return {
-            employee_id: employeeId,
-            funcionario: funcName,
-            funcionario_nome: funcName,
-            horas_trabalhadas: horasTrabalhadas,
-            horas_extras: horasExtras,
-            atrasos,
-            total_registros: totalRegistros,
-          };
-        });
+        byEmployee[empId].minTrabalhados += Number(day.horas_trabalhadas_min || 0);
+        byEmployee[empId].minPrevistos   += Number(day.horas_previstas_min   || 0);
+        byEmployee[empId].saldoMin       += Number(day.banco_horas_dia       || 0);
+        if (day.horario_variavel) byEmployee[empId].variavel = true;
       }
-      
-      if (dateRange.start_date && dateRange.end_date) {
-        try {
-          const registrosResponse = await apiService.getTimeRecords(params);
-          const registrosList = Array.isArray(registrosResponse) ? registrosResponse : [];
-          const extrasByEmployee: Record<string, number> = {};
 
-          const isWithinRange = (value?: string) => {
-            if (!value || !dateRange.start_date || !dateRange.end_date) return false;
-            const raw = value.includes('T') ? value.split('T')[0] : value.split(' ')[0];
-            const parts = raw.split('-');
-            const iso = parts[0]?.length === 4 ? raw : `${parts[2]}-${parts[1]}-${parts[0]}`;
-            return iso >= dateRange.start_date && iso <= dateRange.end_date;
-          };
+      const summaries: EmployeeSummary[] = Object.entries(byEmployee).map(([empId, data]) => ({
+        employee_id:       empId,
+        funcionario:       data.nome,
+        funcionario_nome:  data.nome,
+        horas_trabalhadas: data.minTrabalhados,
+        horas_extras:      Math.max(0, data.saldoMin),
+        saldo:             data.saldoMin,
+        variavel:          data.variavel,
+        atrasos:           0,
+        total_registros:   0,
+      }));
 
-          registrosList.forEach((reg: any) => {
-            const empId = String(reg.funcionario_id || reg.employee_id || '');
-            if (!empId) return;
-            const status = String(reg.status || 'ATIVO').toUpperCase();
-            if (status !== 'ATIVO') return;
-            const tipo = String(reg.type || reg.tipo || '').toLowerCase();
-            if (!['saida', 'saída', 'saida_almoco', 'saida_antecipada'].includes(tipo)) return;
-            if (!isWithinRange(reg.data_hora)) return;
-            const extraMin = Number(reg.horas_extras_minutos || 0);
-            if (!Number.isFinite(extraMin)) return;
-            extrasByEmployee[empId] = (extrasByEmployee[empId] || 0) + extraMin;
-          });
-
-          summaries = summaries.map((item) => {
-            const empId = String(item.employee_id || '');
-            if (!empId) return item;
-            return {
-              ...item,
-              horas_extras: extrasByEmployee[empId] ?? 0,
-            };
-          });
-        } catch (err) {
-          console.error('Erro ao recalcular horas extras por periodo:', err);
-        }
-      }
+      summaries.sort((a, b) => (a.funcionario_nome || '').localeCompare(b.funcionario_nome || ''));
 
       console.log('📊 [RESUMO] Summaries processados:', summaries);
       setEmployeeSummaries(summaries);
-      
+
     } catch (err: any) {
       console.error('❌ Erro ao buscar resumo:', err);
       setError('Erro ao carregar resumo. Tente novamente.');
@@ -553,11 +486,11 @@ const RecordsSummaryPage: React.FC = () => {
       const resumoAoa: any[][] = [
         ['RESUMO GERAL DE PONTO', '', '', ''],
         ['Período: ' + periodo, '', '', ''],
-        ['Funcionário', 'H. Trabalhadas', 'H. Extras', ''],
+        ['Funcionário', 'H. Trabalhadas', 'Saldo', ''],
         ...employeeSummaries.map(s => [
           s.funcionario_nome || s.funcionario,
           formatMinutesToHHMM(s.horas_trabalhadas || 0),
-          formatMinutesToHHMM(s.horas_extras || 0),
+          s.variavel ? '—' : formatSaldo(s.saldo ?? 0),
           '',
         ]),
       ];
@@ -723,7 +656,7 @@ const RecordsSummaryPage: React.FC = () => {
                     <TableRow>
                       <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Funcionário</TableCell>
                       <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Horas Trabalhadas</TableCell>
-                      <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Horas Extras</TableCell>
+                      <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>Saldo</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -771,15 +704,22 @@ const RecordsSummaryPage: React.FC = () => {
                             </Typography>
                           </TableCell>
                           <TableCell align="right" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                            <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                fontWeight: 500,
-                                color: summary.horas_extras > 0 ? '#10b981' : 'rgba(255, 255, 255, 0.6)'
-                              }}
-                            >
-                              {summary.horas_extras > 0 ? formatMinutesToHHMM(summary.horas_extras) : '00:00'}
-                            </Typography>
+                            {summary.variavel ? (
+                              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.3)', fontStyle: 'italic' }}>
+                                —
+                              </Typography>
+                            ) : (
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontWeight: 700,
+                                  color: summary.saldo > 0 ? '#10b981' : summary.saldo < 0 ? '#ef4444' : 'rgba(255, 255, 255, 0.5)',
+                                  fontFamily: 'monospace',
+                                }}
+                              >
+                                {formatSaldo(summary.saldo)}
+                              </Typography>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))

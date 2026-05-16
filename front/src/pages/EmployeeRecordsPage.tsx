@@ -26,6 +26,10 @@ import {
   Alert,
   TableSortLabel,
   Collapse,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -44,6 +48,9 @@ import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
   Warning as WarningIcon,
+  Add as AddIcon,
+  CameraAlt as CameraIcon,
+  EditNote as EditNoteIcon,
 } from '@mui/icons-material';
 import { Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
@@ -87,7 +94,9 @@ const EmployeeRecordsPage: React.FC = () => {
 
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithRecords | null>(null);
   const [selectedEmployeeRecords, setSelectedEmployeeRecords] = useState<TimeRecord[]>([]);
-  const [summaryExtraMinutes, setSummaryExtraMinutes] = useState(0);
+  // Resumos diários do backend (fonte única de verdade para cálculos)
+  const [dailySummaries, setDailySummaries] = useState<Record<string, any>>({});
+  const [cargaHorariaMensal, setCargaHorariaMensal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -110,6 +119,10 @@ const EmployeeRecordsPage: React.FC = () => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'warning' | 'info'>('success');
   const [activeHolidayMap, setActiveHolidayMap] = useState<Record<string, string>>({});
+  const [isVariableSchedule, setIsVariableSchedule] = useState(false);
+  const [addRecordOpen, setAddRecordOpen] = useState(false);
+  const [addRecordData, setAddRecordData] = useState({ date: '', time: '', tipo: 'entrada', justificativa: '' });
+  const [addRecordSubmitting, setAddRecordSubmitting] = useState(false);
 
   // Horário do funcionário (buscado da API)
   const [funcionarioSchedule, setFuncionarioSchedule] = useState<{
@@ -118,6 +131,7 @@ const EmployeeRecordsPage: React.FC = () => {
     intervalo_min: number;
   }>({ horario_entrada: '08:00', horario_saida: '17:00', intervalo_min: 60 });
   const [customSchedule, setCustomSchedule] = useState<WeeklyScheduleMap | null>(null);
+  const [companyWeeklySchedule, setCompanyWeeklySchedule] = useState<WeeklyScheduleMap | null>(null);
 
   const getFirstDayOfMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); return `${y}-${String(m).padStart(2,'0')}-01`; };
   const getLastDayOfMonth = (ym: string) => { const [y, m] = ym.split('-').map(Number); const l = new Date(y,m,0).getDate(); return `${y}-${String(m).padStart(2,'0')}-${String(l).padStart(2,'0')}`; };
@@ -144,26 +158,36 @@ const EmployeeRecordsPage: React.FC = () => {
     return `${sign}${String(Math.floor(abs/60)).padStart(2,'0')}:${String(abs%60).padStart(2,'0')}`;
   };
 
-  // Calcula os minutos previstos por dia com base no horário do funcionário
+  // Calcula minutos previstos por dia. Usado APENAS como fallback para dias sem resumo do backend.
+  // Prioridade: custom_schedule do funcionário > weekly_schedule da empresa > padrão Seg-Sex.
   const minutosPrevistosDia = (schedule: typeof funcionarioSchedule, dateISO?: string): number => {
-    const parseHHMM = (s: string) => { const [h,m] = s.split(':').map(Number); return h*60+(m||0); };
+    const parseHHMM = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0); };
     let entrada = schedule.horario_entrada;
     let saida = schedule.horario_saida;
 
-    if (dateISO && customSchedule) {
-      const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(dateISO + 'T12:00:00').getDay()];
-      const daySchedule = customSchedule[dayKey as keyof WeeklyScheduleMap];
-      if (daySchedule?.active === false) {
-        return 0;
+    if (dateISO) {
+      const dow = new Date(dateISO + 'T12:00:00').getDay(); // 0=Dom, 6=Sab
+      const dayKey = (['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const)[dow];
+
+      if (customSchedule) {
+        // 1. Horário específico do funcionário
+        const ds = customSchedule[dayKey];
+        if (ds?.active === false) return 0;
+        entrada = ds?.start || entrada;
+        saida = ds?.end || saida;
+      } else if (companyWeeklySchedule) {
+        // 2. Horário semanal da empresa
+        const ds = companyWeeklySchedule[dayKey];
+        if (ds?.active === false) return 0;
+        if (ds?.start && ds?.end) { entrada = ds.start; saida = ds.end; }
+        else if (!ds) return 0; // dia não configurado = não trabalha
+      } else {
+        // 3. Fallback legado: padrão Seg-Sex; Sáb/Dom = não trabalha
+        if (dow === 0 || dow === 6) return 0;
       }
-      entrada = daySchedule?.start || entrada;
-      saida = daySchedule?.end || saida;
     }
 
-    if (!entrada || !saida) {
-      return 0;
-    }
-
+    if (!entrada || !saida) return 0;
     return Math.max(0, parseHHMM(saida) - parseHHMM(entrada) - schedule.intervalo_min);
   };
 
@@ -181,21 +205,6 @@ const EmployeeRecordsPage: React.FC = () => {
   const TIPOS_SAIDA = ['saida', 'saída', 'saida_final', 'saida_almoco', 'saida_antecipada'];
   const TIPOS_ENTRADA = ['entrada', 'retorno_almoco'];
 
-  const calcularTotalHoras = (registros: TimeRecord[]): string => {
-    let total = 0; let entrada: Date | null = null;
-    const sorted = [...registros].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime());
-    sorted.forEach(r => {
-      const tipo = (r.type||r.tipo||'').toLowerCase();
-      const dt = parseDataHora(r.data_hora||'');
-      const known = TIPOS_ENTRADA.includes(tipo) || TIPOS_SAIDA.includes(tipo) || tipo === 'dia_inteiro';
-      const isEntradaPos = !known && !entrada;
-      const isSaidaPos = !known && !!entrada;
-      if (TIPOS_ENTRADA.includes(tipo) || isEntradaPos) { if (!entrada) entrada = dt; }
-      else if ((TIPOS_SAIDA.includes(tipo) || isSaidaPos) && entrada) { total += (dt.getTime()-entrada.getTime())/1000; entrada=null; }
-    });
-    const h = Math.floor(total/3600); const min = Math.floor((total%3600)/60);
-    return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
-  };
 
   const formatDateTime = (s: string) => {
     if (!s) return { date: '-', time: '-' };
@@ -235,130 +244,102 @@ const EmployeeRecordsPage: React.FC = () => {
     if (!employeeId) return;
     try {
       setLoading(true);
-      const params: any = { funcionario_id: employeeId, employee_id: employeeId };
-      if (dateFrom) params.inicio = dateFrom;
-      if (dateTo) params.fim = dateTo;
-      const response = await apiService.getTimeRecords(params);
-      const records: TimeRecord[] = Array.isArray(response) ? response : [];
-      const sorted = [...records].sort((a,b) => parseDataHora(a.data_hora||'').getTime()-parseDataHora(b.data_hora||'').getTime());
+      const recordsParams: any = { funcionario_id: employeeId, employee_id: employeeId };
+      if (dateFrom) recordsParams.inicio = dateFrom;
+      if (dateTo) recordsParams.fim = dateTo;
+
+      const summaryParams: any = { employee_id: employeeId, page_size: 200 };
+      if (dateFrom) summaryParams.start_date = dateFrom;
+      if (dateTo) summaryParams.end_date = dateTo;
+
+      const [recordsResp, summariesResp] = await Promise.all([
+        apiService.getTimeRecords(recordsParams),
+        apiService.get('/api/registros-diarios', summaryParams).catch(() => null),
+      ]);
+
+      const records: TimeRecord[] = Array.isArray(recordsResp) ? recordsResp : [];
+      const sorted = [...records].sort((a, b) => parseDataHora(a.data_hora || '').getTime() - parseDataHora(b.data_hora || '').getTime());
       setSelectedEmployeeRecords(sorted);
-      setSelectedEmployee({ id: employeeId, nome: employeeName||'Funcionario', cargo:'', foto_url:'', face_id:'', empresa_nome:'', empresa_id:'', data_cadastro: new Date().toISOString(), registros: sorted, totalHoras: calcularTotalHoras(sorted), ultimoRegistro: sorted[sorted.length-1] });
+      setSelectedEmployee({ id: employeeId, nome: employeeName || 'Funcionario', cargo: '', foto_url: '', face_id: '', empresa_nome: '', empresa_id: '', data_cadastro: new Date().toISOString(), registros: sorted, ultimoRegistro: sorted[sorted.length - 1] });
 
-      const horasExtrasMin = calcularHorasExtrasPeriodo(sorted, dateFrom, dateTo);
-      setSummaryExtraMinutes(horasExtrasMin);
+      const summaryList: any[] = summariesResp?.summaries || [];
+      const map: Record<string, any> = {};
+      summaryList.forEach((s: any) => {
+        const key = s.data || s.date;
+        if (key) map[key] = s;
+      });
+      setDailySummaries(map);
     } catch {
-      setSummaryExtraMinutes(0);
       showSnackbar('Erro ao carregar historico', 'error');
+    } finally {
+      setLoading(false);
     }
-    finally { setLoading(false); }
   }, [employeeId, employeeName, dateFrom, dateTo]);
-
-  const calcularHorasExtrasPeriodo = (records: TimeRecord[], startDate?: string, endDate?: string) => {
-    const isWithinRange = (value?: string) => {
-      if (!value || !startDate || !endDate) return true;
-      const raw = value.includes('T') ? value.split('T')[0] : value.split(' ')[0];
-      const parts = raw.split('-');
-      const iso = parts[0]?.length === 4 ? raw : `${parts[2]}-${parts[1]}-${parts[0]}`;
-      return iso >= startDate && iso <= endDate;
-    };
-
-    const extrasByDate: Record<string, number> = {};
-    records.forEach((r) => {
-      const status = String((r as any).status || 'ATIVO').toUpperCase();
-      if (status !== 'ATIVO') return;
-      const tipo = String((r as any).type || (r as any).tipo || '').toLowerCase();
-      if (tipo !== 'saida' && tipo !== 'saída') return;
-      if (!isWithinRange((r as any).data_hora)) return;
-      const extra = Number((r as any).horas_extras_minutos || 0);
-      if (!Number.isFinite(extra) || extra <= 0) return;
-      const raw = (r as any).data_hora.includes('T') ? (r as any).data_hora.split('T')[0] : (r as any).data_hora.split(' ')[0];
-      const parts = raw.split('-');
-      const iso = parts[0]?.length === 4 ? raw : `${parts[2]}-${parts[1]}-${parts[0]}`;
-      extrasByDate[iso] = Math.max(extrasByDate[iso] || 0, extra);
-    });
-
-    return Object.values(extrasByDate).reduce((acc, value) => acc + value, 0);
-  };
-
-  useEffect(() => {
-    if (!selectedEmployeeRecords.length) return;
-    const horasExtrasMin = calcularHorasExtrasPeriodo(selectedEmployeeRecords, dateFrom, dateTo);
-    setSummaryExtraMinutes(horasExtrasMin);
-  }, [selectedEmployeeRecords, dateFrom, dateTo]);
 
   const buildCalendar = (): RegistroDia[] => {
     if (!selectedMonth) return [];
     const [year, month] = selectedMonth.split('-').map(Number);
     const lastDay = new Date(year, month, 0).getDate();
-    const todayISO = new Date().toISOString().slice(0,10);
-    const grouped: Record<string,TimeRecord[]> = {};
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const grouped: Record<string, TimeRecord[]> = {};
     selectedEmployeeRecords.forEach(r => {
       if (!r.data_hora) return;
       const raw = r.data_hora.includes('T') ? r.data_hora.split('T')[0] : r.data_hora.split(' ')[0];
       if (!raw) return;
-      // Backend retorna DD-MM-YYYY; normalizar para YYYY-MM-DD
       const segs = raw.split('-');
       const key = segs[0].length === 4 ? raw : `${segs[2]}-${segs[1]}-${segs[0]}`;
       grouped[key] = grouped[key] || [];
       grouped[key].push(r);
     });
     const days: RegistroDia[] = [];
-    for (let d=1; d<=lastDay; d++) {
-      const dateObj = new Date(year, month-1, d);
-      const iso = dateObj.toISOString().slice(0,10);
+    for (let d = 1; d <= lastDay; d++) {
+      const dateObj = new Date(year, month - 1, d);
+      const iso = dateObj.toISOString().slice(0, 10);
       const records = grouped[iso] || [];
-      const dow = dateObj.getDay(); // 0=Dom, 6=Sab
+      const dow = dateObj.getDay();
       const isPast = iso <= todayISO;
       const feriadoNome = activeHolidayMap[iso];
       const isHoliday = Boolean(feriadoNome);
-      const previstoMinDia = minutosPrevistosDia(funcionarioSchedule, iso);
-      const isWorkday = previstoMinDia > 0;
+      const summary = dailySummaries[iso];
+
+      // Expected minutes: backend summary is primary, local fallback for FALTA detection only.
+      // Horário variável: nunca gera falta (sem jornada definida).
+      const previstoMin = summary
+        ? Number(summary.horas_previstas_min ?? 0)
+        : minutosPrevistosDia(funcionarioSchedule, iso);
+      const isWorkday = !isVariableSchedule && previstoMin > 0;
+
       let status: RegistroDia['status'] = 'SEM_REGISTRO';
       let cor: RegistroDia['cor'] = 'cinza';
       if (isHoliday) {
         status = 'FERIADO';
         cor = 'azul';
       } else if (records.length > 0) {
-        const hasAtraso = records.some(r => (r.atraso_minutos||0) > 0);
-        if (hasAtraso) { status='ATRASO'; cor='laranja'; } else { status='PRESENTE'; cor='verde'; }
+        const hasAtraso = summary
+          ? Number(summary.atraso_minutos || 0) > 0
+          : records.some(r => (r.atraso_minutos || 0) > 0);
+        if (hasAtraso) { status = 'ATRASO'; cor = 'laranja'; } else { status = 'PRESENTE'; cor = 'verde'; }
       } else if (isWorkday && isPast) {
-        status='FALTA'; cor='vermelho';
+        status = 'FALTA'; cor = 'vermelho';
       }
-      const entRec = records.find(r => TIPOS_ENTRADA.includes((r.type||r.tipo||'').toLowerCase()));
-      const saiIntRec = records.find(r => ['intervalo_inicio','saida_intervalo','intervalo_saida'].includes((r.type||r.tipo||'').toLowerCase()));
-      const voltaIntRec = records.find(r => ['intervalo_fim','volta_intervalo','retorno','intervalo_volta'].includes((r.type||r.tipo||'').toLowerCase()));
-      const saiRec = [...records].reverse().find(r => TIPOS_SAIDA.includes((r.type||r.tipo||'').toLowerCase()));
-      const horasPrevisvasStr = isWorkday && !isHoliday ? toHHMM(previstoMinDia) : undefined;
-      // Calcula horas trabalhadas descontando intervalo quando não há registros explícitos de intervalo
-      let horasTrabalhadasStr: string | undefined = undefined;
-      let horasExtrasStr: string | undefined = undefined;
-      if (records.length) {
-        const rawStr = calcularTotalHoras(records);
-        const [rh, rm] = rawStr.split(':').map(Number);
-        const rawMin = rh * 60 + (rm || 0);
-        const hasIntervalRecords = !!(saiIntRec || voltaIntRec);
-        const finalMin = hasIntervalRecords ? rawMin : Math.max(0, rawMin - funcionarioSchedule.intervalo_min);
-        horasTrabalhadasStr = toHHMM(finalMin);
 
-        const minutosExtrasDia = records.reduce((acc, r) => {
-          const extraMin = Number((r as any).horas_extras_minutos || 0);
-          return acc + (Number.isFinite(extraMin) ? extraMin : 0);
-        }, 0);
-        horasExtrasStr = toHHMM(Math.max(0, minutosExtrasDia));
-      }
+      const horasPrevisrasStr = isWorkday && !isHoliday
+        ? (summary?.horas_previstas_str || toHHMM(previstoMin))
+        : undefined;
+
       days.push({
         data: iso,
         dia_numero: d,
-        dia_semana: ['dom','seg','ter','qua','qui','sex','sab'][dow],
+        dia_semana: ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][dow],
         feriado_nome: feriadoNome,
-        horas_previstas: horasPrevisvasStr,
-        entrada: entRec ? formatDateTime(entRec.data_hora||'').time : undefined,
-        saida_intervalo: saiIntRec ? formatDateTime(saiIntRec.data_hora||'').time : undefined,
-        volta_intervalo: voltaIntRec ? formatDateTime(voltaIntRec.data_hora||'').time : undefined,
-        saida: saiRec ? formatDateTime(saiRec.data_hora||'').time : undefined,
-        horas_trabalhadas: horasTrabalhadasStr,
-        horas_extras: horasExtrasStr,
-        status, cor, registros: records
+        horas_previstas: horasPrevisrasStr,
+        entrada: summary?.hora_entrada || undefined,
+        saida_intervalo: summary?.intervalo_saida || undefined,
+        volta_intervalo: summary?.intervalo_volta || undefined,
+        saida: summary?.hora_saida || undefined,
+        horas_trabalhadas: summary?.horas_trabalhadas_str || undefined,
+        horas_extras: summary?.banco_horas_dia_str || undefined,
+        status, cor, registros: records,
       });
     }
     return days;
@@ -369,34 +350,26 @@ const EmployeeRecordsPage: React.FC = () => {
   const diasSorted = [...diasTrabalhados].sort((a,b) => { const c=a.data.localeCompare(b.data); return sortDir==='asc'?c:-c; });
 
   const resumo = (() => {
-    const todayISO = new Date().toISOString().slice(0,10);
-    const presentes = calendarDays.filter(d => d.status==='PRESENTE'||d.status==='ATRASO').length;
-    const faltas = calendarDays.filter(d => d.status==='FALTA').length;
-    const atrasos = calendarDays.filter(d => d.status==='ATRASO').length;
-    const minutosExtras = summaryExtraMinutes;
-    // Dias úteis passados ou hoje no mês = dias previstos
-    const diasUteisPrevistosAteHoje = calendarDays.filter(d => d.data <= todayISO && d.status !== 'FERIADO' && (d.horas_previstas && d.horas_previstas !== '00:00')).length;
-    const totalMinPrevistos = calendarDays.reduce((acc, day) => {
-      if (day.data > todayISO) return acc;
-      if (day.status === 'FERIADO') return acc;
-      if (!day.horas_previstas) return acc;
-      const [h, m] = day.horas_previstas.split(':').map(Number);
-      return acc + h * 60 + (m || 0);
-    }, 0);
-    // Horas trabalhadas reais: soma das horas de cada dia
-    const totalMinTrabalhados = diasTrabalhados.reduce((acc, day) => {
-      if (day.status === 'FERIADO') return acc;
-      if (!day.horas_trabalhadas) return acc;
-      const [h,m] = day.horas_trabalhadas.split(':').map(Number);
-      return acc + h*60 + (m||0);
-    }, 0);
-    const saldoMin = totalMinTrabalhados - totalMinPrevistos;
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const presentes = calendarDays.filter(d => d.status === 'PRESENTE' || d.status === 'ATRASO').length;
+    const faltas = calendarDays.filter(d => d.status === 'FALTA').length;
+    const atrasos = calendarDays.filter(d => d.status === 'ATRASO').length;
+    const diasUteisPrevistosAteHoje = calendarDays.filter(d => d.data <= todayISO && d.status !== 'FERIADO' && d.horas_previstas && d.horas_previstas !== '00:00').length;
+
+    // Agregar valores do backend (source of truth), apenas dias <= hoje
+    let totalMinTrabalhados = 0;
+    let totalMinPrevistos = 0;
+    let saldoMin = 0;
+    Object.entries(dailySummaries).forEach(([iso, s]) => {
+      if (iso > todayISO) return;
+      totalMinTrabalhados += Number(s.horas_trabalhadas_min || 0);
+      totalMinPrevistos += Number(s.horas_previstas_min || 0);
+      saldoMin += Number(s.banco_horas_dia || 0);
+    });
+
     return {
       presentes, faltas, atrasos,
-      totalMinExtras: minutosExtras,
-      horas_extras: toHHMM(minutosExtras),
-      totalHoras: selectedEmployee?.totalHoras||'00:00',
-      percent: Math.round((presentes/(diasUteisPrevistosAteHoje||1))*100),
+      percent: Math.round((presentes / (diasUteisPrevistosAteHoje || 1)) * 100),
       totalMinPrevistos,
       totalMinTrabalhados,
       saldoMin,
@@ -420,6 +393,63 @@ const EmployeeRecordsPage: React.FC = () => {
     setRecordToAdjust(record);
     setAdjustData({ date, time, tipo: (tipo==='saida'||tipo==='saida')?'saida':'entrada', justificativa:'' });
     setAdjustDialogOpen(true);
+  };
+
+  // Adicionar novo registro manual
+  const openAddRecord = (date?: string) => {
+    const today = new Date().toISOString().slice(0, 10);
+    setAddRecordData({ date: date || today, time: '', tipo: 'entrada', justificativa: '' });
+    setAddRecordOpen(true);
+  };
+
+  const handleAddRecordConfirm = async () => {
+    if (!employeeId || !addRecordData.justificativa.trim() || !addRecordData.date) return;
+    if (addRecordData.tipo !== 'dia_inteiro' && !addRecordData.time) return;
+    setAddRecordSubmitting(true);
+    try {
+      const dataHora = addRecordData.tipo === 'dia_inteiro'
+        ? `${addRecordData.date} 00:00:00`
+        : `${addRecordData.date} ${addRecordData.time}:00`;
+      await apiService.registerTimeManual({
+        employee_id: employeeId,
+        data_hora: dataHora,
+        tipo: addRecordData.tipo as any,
+        justificativa: addRecordData.justificativa.trim(),
+      });
+      showSnackbar('Registro adicionado!', 'success');
+      setAddRecordOpen(false);
+      setAddRecordData({ date: '', time: '', tipo: 'entrada', justificativa: '' });
+      buscarRegistrosFuncionario();
+    } catch (err: any) {
+      showSnackbar(err?.response?.data?.error || 'Erro ao adicionar registro', 'error');
+    } finally {
+      setAddRecordSubmitting(false);
+    }
+  };
+
+  // Badge visual: método de registro (câmera vs manual)
+  const getMethodBadge = (method?: string, status?: string) => {
+    const m = (method || '').toUpperCase();
+    const isManual = m === 'MANUAL' || m === 'AJUSTE';
+    const isAjuste = status === 'AJUSTADO' || m === 'AJUSTE';
+    if (isAjuste) return (
+      <Tooltip title="Ajuste manual">
+        <Chip icon={<EditNoteIcon sx={{ fontSize: '11px !important' }} />} label="Ajuste" size="small"
+          sx={{ height: 18, fontSize: 10, pl: 0.3, background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.4)', color: '#eab308', '& .MuiChip-icon': { color: '#eab308' } }} />
+      </Tooltip>
+    );
+    if (isManual) return (
+      <Tooltip title="Registro manual (admin)">
+        <Chip icon={<EditNoteIcon sx={{ fontSize: '11px !important' }} />} label="Manual" size="small"
+          sx={{ height: 18, fontSize: 10, pl: 0.3, background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)', color: '#f59e0b', '& .MuiChip-icon': { color: '#f59e0b' } }} />
+      </Tooltip>
+    );
+    return (
+      <Tooltip title="Registro automático (câmera/facial)">
+        <Chip icon={<CameraIcon sx={{ fontSize: '11px !important' }} />} label="Auto" size="small"
+          sx={{ height: 18, fontSize: 10, pl: 0.3, background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: 'rgba(255,255,255,0.45)', '& .MuiChip-icon': { color: 'rgba(255,255,255,0.4)' } }} />
+      </Tooltip>
+    );
   };
 
   const handleAdjustConfirm = async () => {
@@ -480,8 +510,8 @@ const EmployeeRecordsPage: React.FC = () => {
     const aoa: any[][] = [
       ['ESPELHO DE PONTO — ' + selectedEmployee.nome.toUpperCase(), '', '', '', '', '', '', ''],
       ['Período: ' + (dateFrom || '—') + ' a ' + (dateTo || '—'), '', '', '', '', '', '', ''],
-      ['Dias Trabalhados', 'Faltas', 'H. Trabalhadas', 'H. Previstas', 'Hora Extra', '% de Cumprimento', '', ''],
-      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, resumo.horas_extras, pct + '%', '', ''],
+      ['Dias Trabalhados', 'Faltas', 'H. Trabalhadas', 'H. Previstas', 'Banco de Horas', '% de Cumprimento', '', ''],
+      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, resumo.saldo, pct + '%', '', ''],
       ['', '', '', '', '', '', '', ''],
       ['Data', 'Dia', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas'],
     ];
@@ -505,7 +535,7 @@ const EmployeeRecordsPage: React.FC = () => {
     styleRow(2, () => sMeta);
     styleRow(3, (ci) => ci < 6 ? sHdr() : sEmpty);
     styleRow(4, (ci) => {
-      if (ci === 4) return sResumo(resumo.totalMinExtras > 0);
+      if (ci === 4) return sResumo(resumo.saldoMin >= 0);
       if (ci === 5) return sCell(true);
       if (ci >= 6)  return sEmpty;
       return sCell();
@@ -579,6 +609,8 @@ const EmployeeRecordsPage: React.FC = () => {
         const [year] = selectedMonth.split('-');
         const cfg = await apiService.get('/api/configuracoes');
         const uf = cfg?.empresa_uf || '';
+        // Salvar weekly_schedule da empresa (usado no fallback de jornada)
+        setCompanyWeeklySchedule(cfg?.weekly_schedule || null);
         const resp = await apiService.get('/api/feriados', { ano: year, uf });
         const list = Array.isArray(resp) ? resp : [];
         const map: Record<string, string> = {};
@@ -600,11 +632,16 @@ const EmployeeRecordsPage: React.FC = () => {
   useEffect(() => {
     if (!employeeId) return;
     apiService.getEmployee(employeeId).then((emp: any) => {
-      const entrada = emp?.horario_entrada || '08:00';
-      const saida   = emp?.horario_saida   || '17:00';
+      const rawEntrada = emp?.horario_entrada;
+      const rawSaida   = emp?.horario_saida;
+      // Detectar horário variável antes de aplicar defaults
+      setIsVariableSchedule(!rawEntrada || !rawSaida);
+      const entrada = rawEntrada || '08:00';
+      const saida   = rawSaida   || '17:00';
       const intervalo = Number(emp?.intervalo_emp ?? emp?.duracao_intervalo ?? 60);
       setFuncionarioSchedule({ horario_entrada: entrada, horario_saida: saida, intervalo_min: intervalo });
       setCustomSchedule(emp?.custom_schedule || null);
+      setCargaHorariaMensal(emp?.carga_horaria_mensal ? Number(emp.carga_horaria_mensal) : null);
     }).catch(() => {});
   }, [employeeId]);
 
@@ -641,31 +678,35 @@ const EmployeeRecordsPage: React.FC = () => {
         <Box sx={{ display:'grid', gridTemplateColumns:{ xs:'1fr 1fr', sm:'repeat(4,1fr)' }, gap:2, mb:4 }}>
           {[
             { icon:<CheckCircleIcon sx={{ color:'#10b981', fontSize:28 }} />, label:'Presentes', value:`${resumo.presentes} dias`, sub:`${resumo.percent}% dos dias úteis` },
-            { icon:<CancelIcon sx={{ color:'#ef4444', fontSize:28 }} />, label:'Faltas', value:`${resumo.faltas} dias`, sub: resumo.atrasos>0?`${resumo.atrasos} atraso(s)`:'Sem faltas' },
+            { icon:<CancelIcon sx={{ color:'#ef4444', fontSize:28 }} />, label:'Faltas', value:`${resumo.faltas} dias`, sub: isVariableSchedule ? 'Horário variável' : (resumo.atrasos>0?`${resumo.atrasos} atraso(s)`:'Sem faltas') },
             {
               icon:<AccessTimeIcon sx={{ color:'#3b82f6', fontSize:28 }} />,
               label:'Horas Trabalhadas',
               value: (
-                <Box>
-                  <Typography variant="h5" sx={{ color:'white', fontWeight:800 }}>{resumo.trabalhado}</Typography>
-                  <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)', fontSize:11 }}>
-                    de {resumo.previsto} previsto
-                  </Typography>
-                </Box>
+                <Typography variant="h5" sx={{ color:'white', fontWeight:800 }}>
+                  {resumo.trabalhado}
+                  {!isVariableSchedule && (
+                    <Typography component="span" sx={{ color:'rgba(255,255,255,0.35)', fontWeight:400, fontSize:'0.78em' }}>
+                      {' / '}{resumo.previsto}
+                    </Typography>
+                  )}
+                </Typography>
               ),
-              sub: `${Math.round((resumo.totalMinTrabalhados/(resumo.totalMinPrevistos||1))*100)}% de cumprimento`,
+              sub: isVariableSchedule ? 'Horas registradas' : `${Math.round(((resumo.totalMinPrevistos + resumo.saldoMin)/(resumo.totalMinPrevistos||1))*100)}% de cumprimento`,
             },
             {
-              icon: <WarningIcon sx={{ color: resumo.totalMinExtras > 0 ? '#10b981' : 'rgba(255,255,255,0.55)', fontSize:28 }} />,
-              label: 'Hora Extra',
-              value: (
-                <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
-                  <Typography variant="h5" sx={{ fontWeight:800, color: resumo.totalMinExtras > 0 ? '#10b981' : 'rgba(255,255,255,0.85)' }}>
-                    {resumo.horas_extras}
+              icon: <WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.saldoMin >= 0 ? '#10b981' : '#ef4444'), fontSize: 28 }} />,
+              label: 'Banco de Horas',
+              value: isVariableSchedule ? (
+                <Typography variant="h5" sx={{ fontWeight: 800, color: 'rgba(255,255,255,0.3)' }}>—</Typography>
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: resumo.saldoMin >= 0 ? '#10b981' : '#ef4444' }}>
+                    {resumo.saldo}
                   </Typography>
                 </Box>
               ),
-              sub: 'Total acumulado no período',
+              sub: isVariableSchedule ? 'Horário variável' : (resumo.saldoMin >= 0 ? 'Saldo positivo acumulado' : 'Saldo negativo acumulado'),
             },
           ].map((card,i) => (
             <Card key={i} sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2 }}>
@@ -690,13 +731,19 @@ const EmployeeRecordsPage: React.FC = () => {
               <CalendarIcon sx={{ color:'rgba(255,255,255,0.7)', fontSize:20 }} />
               <Typography sx={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>Calendário do Mês</Typography>
             </Box>
-            <Tooltip title={`Horario base: ${funcionarioSchedule.horario_entrada} – ${funcionarioSchedule.horario_saida} (intervalo ${funcionarioSchedule.intervalo_min}min)`}>
-              <Typography sx={{ color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'default' }}>
-                Jornada diaria: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{toHHMM(minutosPrevistosDia(funcionarioSchedule))}h</strong>
-                &nbsp;|&nbsp;
-                {funcionarioSchedule.horario_entrada} → {funcionarioSchedule.horario_saida} (-{funcionarioSchedule.intervalo_min}min intervalo)
+            {isVariableSchedule ? (
+              <Typography sx={{ color:'rgba(255,255,255,0.45)', fontSize:12, fontStyle:'italic' }}>
+                Horário variável
               </Typography>
-            </Tooltip>
+            ) : (
+              <Tooltip title={`Horario base: ${funcionarioSchedule.horario_entrada} – ${funcionarioSchedule.horario_saida} (intervalo ${funcionarioSchedule.intervalo_min}min)`}>
+                <Typography sx={{ color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'default' }}>
+                  Jornada diaria: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{toHHMM(minutosPrevistosDia(funcionarioSchedule))}h</strong>
+                  &nbsp;|&nbsp;
+                  {funcionarioSchedule.horario_entrada} → {funcionarioSchedule.horario_saida} (-{funcionarioSchedule.intervalo_min}min intervalo)
+                </Typography>
+              </Tooltip>
+            )}
           </Box>
           <Box sx={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:0.5, mb:1 }}>
             {['Dom','Seg','Ter','Qua','Qui','Sex','Sab'].map(d => (<Typography key={d} sx={{ textAlign:'center', color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, py:0.5 }}>{d}</Typography>))}
@@ -766,6 +813,10 @@ const EmployeeRecordsPage: React.FC = () => {
                 </Typography>
               </Box>
               <Box sx={{ display:'flex', gap:1, alignItems:'center' }}>
+                <Button size="small" startIcon={<AddIcon />} onClick={() => openAddRecord()}
+                  sx={{ background:'rgba(59,130,246,0.15)', border:'1px solid rgba(59,130,246,0.35)', color:'#60a5fa', fontWeight:700, fontSize:12, px:1.5, '&:hover':{ background:'rgba(59,130,246,0.25)' } }}>
+                  Adicionar
+                </Button>
                 <TextField label="De" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value&&dateTo) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:140, ...dialogFieldSx }} />
                 <TextField label="Ate" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (dateFrom&&e.target.value) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:140, ...dialogFieldSx }} />
                 <IconButton onClick={() => { const c=getCurrentMonth(); setSelectedMonth(c); setDateFrom(getFirstDayOfMonth(c)); setDateTo(getLastDayOfMonth(c)); }} size="small" sx={{ color:'rgba(255,255,255,0.6)' }}><ClearIcon fontSize="small" /></IconButton>
@@ -777,7 +828,7 @@ const EmployeeRecordsPage: React.FC = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  {['Data','Entrada','Saída Int.','Volta Int.','Saída','Trabalhado','Previsto','Hora Extra',''].map((h,i) => (
+                  {['Data','Entrada','Saída Int.','Volta Int.','Saída','Trabalhado','Previsto','Banco Horas',''].map((h,i) => (
                     <TableCell key={i} align={i===0?'left':'center'} sx={{ fontWeight:700, color:'rgba(255,255,255,0.7)', fontSize:11, textTransform:'uppercase', letterSpacing:0.4, borderBottom:'1px solid rgba(255,255,255,0.1)', py:1.5, px:i===0?2:1, whiteSpace:'nowrap' }}>
                       {i===0 ? <TableSortLabel active direction={sortDir} onClick={() => setSortDir(p => p==='asc'?'desc':'asc')} sx={{ color:'rgba(255,255,255,0.7) !important', '& .MuiTableSortLabel-icon':{ color:'rgba(255,255,255,0.4) !important' } }}>{h}</TableSortLabel> : h}
                     </TableCell>
@@ -815,8 +866,8 @@ const EmployeeRecordsPage: React.FC = () => {
                         <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ fontWeight:700, fontSize:12, fontFamily:'monospace', color:'white' }}>{day.horas_trabalhadas||'—'}</Typography></TableCell>
                         {/* Previsto */}
                         <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.5)' }}>{day.horas_previstas||'—'}</Typography></TableCell>
-                        {/* Hora Extra */}
-                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ fontSize:12, fontFamily:'monospace', color:day.horas_extras&&day.horas_extras!=='00:00'?'#10b981':'rgba(255,255,255,0.5)', fontWeight:700 }}>{day.horas_extras||'00:00'}</Typography></TableCell>
+                        {/* Banco de Horas */}
+                        <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ fontSize:12, fontFamily:'monospace', color: day.horas_extras ? (day.horas_extras.startsWith('-') ? '#ef4444' : '#10b981') : 'rgba(255,255,255,0.5)', fontWeight:700 }}>{day.horas_extras||'00:00'}</Typography></TableCell>
                         {/* Expand */}
                         <TableCell align="center" sx={{ py:1, px:1 }}><IconButton size="small" sx={{ color:'rgba(255,255,255,0.5)', p:0.5 }}>{isOpen?<ExpandMoreIcon sx={{ fontSize:18 }} />:<ExpandLessIcon sx={{ fontSize:18 }} />}</IconButton></TableCell>
                       </TableRow>
@@ -824,10 +875,16 @@ const EmployeeRecordsPage: React.FC = () => {
                           <TableCell colSpan={9} sx={{ p:0, borderBottom:isOpen?'1px solid rgba(255,255,255,0.06)':'none' }}>
                           <Collapse in={isOpen} timeout="auto" unmountOnExit>
                             <Box sx={{ background:'rgba(0,0,0,0.15)', px:4, py:2 }}>
-                              <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, mb:1, textTransform:'uppercase', letterSpacing:1 }}>Marcacoes — {day.registros.length} registro(s)</Typography>
+                              <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between', mb:1 }}>
+                                <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:1 }}>Marcações — {day.registros.length} registro(s)</Typography>
+                                <Button size="small" startIcon={<AddIcon sx={{ fontSize:14 }} />} onClick={e => { e.stopPropagation(); openAddRecord(day.data); }}
+                                  sx={{ color:'#60a5fa', fontSize:11, px:1, py:0.25, minHeight:0, background:'rgba(59,130,246,0.1)', border:'1px solid rgba(59,130,246,0.25)', '&:hover':{ background:'rgba(59,130,246,0.2)' } }}>
+                                  + Registro
+                                </Button>
+                              </Box>
                               <Table size="small">
                                 <TableHead>
-                                  <TableRow>{['Hora','Tipo','Status','Justificativa','Acoes'].map(h => (<TableCell key={h} sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, borderBottom:'1px solid rgba(255,255,255,0.08)', py:0.5 }}>{h}</TableCell>))}</TableRow>
+                                  <TableRow>{['Hora','Fonte','Tipo','Status','Justificativa','Ações'].map(h => (<TableCell key={h} sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, borderBottom:'1px solid rgba(255,255,255,0.08)', py:0.5 }}>{h}</TableCell>))}</TableRow>
                                 </TableHead>
                                 <TableBody>
                                   {day.registros.map((r,idx) => {
@@ -838,9 +895,10 @@ const EmployeeRecordsPage: React.FC = () => {
                                     return (
                                       <TableRow key={r.registro_id||idx} sx={{ '& td':{ borderBottom:'none' } }}>
                                         <TableCell sx={{ color:'white', fontFamily:'monospace', fontSize:13 }}>{time}</TableCell>
+                                        <TableCell>{getMethodBadge((r as any).method, recStatus)}</TableCell>
                                         <TableCell><Chip label={getStatusText(r.type||r.tipo||'entrada')} size="small" color={(r.type||r.tipo||'')==='entrada'?'success':'error'} /></TableCell>
                                         <TableCell><Chip label={recStatus} size="small" onClick={e => { if ((r as any).justificativa&&isInactive) { setJustificativaTexto((r as any).justificativa); setJustificativaAnchorEl(e.currentTarget); } }} sx={{ background:`${sCol}22`, border:`1px solid ${sCol}`, color:sCol, fontWeight:700, fontSize:11, cursor:isInactive?'pointer':'default' }} /></TableCell>
-                                        <TableCell sx={{ color:'rgba(255,255,255,0.5)', fontSize:12 }}>{(r as any).justificativa||'—'}</TableCell>
+                                        <TableCell sx={{ color:'rgba(255,255,255,0.5)', fontSize:12, maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{(r as any).justificativa||'—'}</TableCell>
                                         <TableCell>
                                           <Box sx={{ display:'flex', gap:0.5 }}>
                                             <Tooltip title="Ajustar"><span><IconButton size="small" disabled={isInactive||!r.registro_id} onClick={() => handleAdjustClick(r)} sx={{ color:isInactive?'rgba(255,255,255,0.15)':'#3b82f6' }}><EditIcon sx={{ fontSize:16 }} /></IconButton></span></Tooltip>
@@ -919,6 +977,61 @@ const EmployeeRecordsPage: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setEmailDialogOpen(false)} disabled={emailEnviando} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
           <Button onClick={enviarPorEmail} disabled={emailEnviando||!emailDestino} variant="contained" startIcon={emailEnviando?<CircularProgress size={18} color="inherit" />:<EmailIcon />}>{emailEnviando?'Enviando...':'Enviar'}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DIALOG ADICIONAR REGISTRO */}
+      <Dialog open={addRecordOpen} onClose={() => !addRecordSubmitting && setAddRecordOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+            <AddIcon sx={{ fontSize:20, color:'#60a5fa' }} />
+            Adicionar Registro
+          </Box>
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.5)', fontWeight:400 }}>
+            {selectedEmployee?.nome || employeeName}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mb:2 }}>
+            Registro manual — ficará marcado como <strong style={{ color:'#f59e0b' }}>Manual</strong> para auditoria.
+          </Typography>
+          <Box sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
+            <Box sx={{ display:'flex', gap:2 }}>
+              <TextField label="Data" type="date" value={addRecordData.date}
+                onChange={e => setAddRecordData(p => ({...p, date: e.target.value}))}
+                InputLabelProps={{ shrink:true }} sx={{ flex:1, ...dialogFieldSx }} />
+              <TextField label="Horário" type="time" value={addRecordData.time}
+                onChange={e => setAddRecordData(p => ({...p, time: e.target.value}))}
+                InputLabelProps={{ shrink:true }}
+                disabled={addRecordData.tipo === 'dia_inteiro'}
+                sx={{ flex:1, ...dialogFieldSx }} />
+            </Box>
+            <FormControl sx={{ '& .MuiInputLabel-root':{ color:'rgba(255,255,255,0.6)' }, '& .MuiOutlinedInput-root':{ color:'white', '& fieldset':{ borderColor:'rgba(255,255,255,0.25)' }, '&:hover fieldset':{ borderColor:'rgba(255,255,255,0.45)' } }, '& .MuiSelect-icon':{ color:'rgba(255,255,255,0.5)' } }}>
+              <InputLabel>Tipo</InputLabel>
+              <Select value={addRecordData.tipo} label="Tipo"
+                onChange={e => setAddRecordData(p => ({...p, tipo: e.target.value}))}
+                MenuProps={{ PaperProps: { sx: { background:'rgba(15,23,42,0.97)', color:'white' } } }}>
+                <MenuItem value="entrada" sx={{ color:'white' }}>Entrada</MenuItem>
+                <MenuItem value="saída" sx={{ color:'white' }}>Saída</MenuItem>
+                <MenuItem value="saida_almoco" sx={{ color:'white' }}>Saída Almoço</MenuItem>
+                <MenuItem value="retorno_almoco" sx={{ color:'white' }}>Retorno Almoço</MenuItem>
+                <MenuItem value="dia_inteiro" sx={{ color:'white' }}>Dia Inteiro (Atestado)</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField label="Justificativa *" placeholder="Motivo do registro manual"
+              value={addRecordData.justificativa}
+              onChange={e => setAddRecordData(p => ({...p, justificativa: e.target.value}))}
+              multiline rows={3} sx={dialogFieldSx} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddRecordOpen(false)} disabled={addRecordSubmitting} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleAddRecordConfirm} variant="contained" disabled={addRecordSubmitting || !addRecordData.justificativa.trim() || !addRecordData.date || (addRecordData.tipo !== 'dia_inteiro' && !addRecordData.time)}
+            startIcon={addRecordSubmitting ? <CircularProgress size={18} color="inherit" /> : <AddIcon />}
+            sx={{ background:'#2563eb','&:hover':{ background:'#1d4ed8' } }}>
+            {addRecordSubmitting ? 'Salvando...' : 'Adicionar'}
+          </Button>
         </DialogActions>
       </Dialog>
 

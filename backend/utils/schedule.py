@@ -96,6 +96,10 @@ def get_schedule_for_date(
             return day_schedule.get("start"), day_schedule.get("end")
 
     if isinstance(employee, dict):
+        # Legacy fallback: apply only for Mon-Fri (standard work week).
+        # Companies that work on weekends must configure weekly_schedule explicitly.
+        if target_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            return None, None
         return employee.get("horario_entrada"), employee.get("horario_saida")
 
     return None, None

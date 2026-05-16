@@ -367,22 +367,6 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
     }
   }
 
-  // Hora extra
-  if (record.horas_extras_minutos && record.horas_extras_minutos > 0) {
-    statuses.push({
-      text: `+${record.horas_extras_minutos} min extra`,
-      color: '#10b981' // verde
-    });
-  }
-
-  // Saída antecipada
-  if (record.saida_antecipada_minutos && record.saida_antecipada_minutos > 0) {
-    statuses.push({
-      text: `Saiu ${record.saida_antecipada_minutos} min antes`,
-      color: '#f59e0b' // laranja
-    });
-  }
-
   // Remover statuses duplicados (mesmo texto), mantendo a primeira ocorrência
   const uniqueStatuses = statuses.filter((s, idx, self) => idx === self.findIndex(x => x.text === s.text));
 

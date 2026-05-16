@@ -1,82 +1,201 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @import "tailwindcss";
 
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  
-  --color-primary-50: #eff6ff;
+
+  --color-primary-50:  #eff6ff;
   --color-primary-100: #dbeafe;
   --color-primary-500: #3b82f6;
   --color-primary-600: #2563eb;
   --color-primary-700: #1d4ed8;
-  
-  --color-success-50: #f0fdf4;
+
+  --color-success-50:  #f0fdf4;
   --color-success-500: #22c55e;
   --color-success-600: #16a34a;
-  
-  --color-warning-50: #fffbeb;
+
+  --color-warning-50:  #fffbeb;
   --color-warning-500: #f59e0b;
   --color-warning-600: #d97706;
-  
-  --color-error-50: #fef2f2;
+
+  --color-error-50:  #fef2f2;
   --color-error-500: #ef4444;
   --color-error-600: #dc2626;
 }
 
-* {
+/* ─── Reset base ─────────────────────────────────────────── */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+html {
+  /* Fallback sólido para browsers sem suporte a gradiente */
+  background-color: #1e40af;
+  /* Prefixos para compatibilidade (Chrome <26, Safari <6.1) */
+  background: -webkit-linear-gradient(315deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+  background:    -moz-linear-gradient(315deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+  background:         linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+  min-height: 100%;
 }
 
 body {
   margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
+    'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f8fafc;
+  background-color: #1e40af;
+  background: -webkit-linear-gradient(315deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+  background:    -moz-linear-gradient(315deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+  background:         linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%);
+  background-attachment: fixed;
+  color: #1e293b;
+  line-height: 1.5;
 }
 
 #root {
   min-height: 100vh;
 }
 
-/* Custom scrollbar */
+/* ─── Vendor-prefixed backdrop-filter ─────────────────────── */
+/* MUI aplica backdrop-filter via sx props — aqui garantimos
+   o prefixo -webkit- para Chrome < 76 e Safari < 9       */
+.MuiAppBar-root,
+.MuiDrawer-paper,
+.MuiPaper-root,
+.MuiCard-root,
+[style*="backdrop-filter"] {
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Fallback sólido quando backdrop-filter não é suportado */
+@supports not (backdrop-filter: blur(1px)) {
+  .MuiAppBar-root {
+    background: rgba(30, 58, 138, 0.97) !important;
+  }
+  .MuiDrawer-paper {
+    background: #1e3a8a !important;
+  }
+  .MuiPaper-root,
+  .MuiCard-root {
+    background: rgba(255, 255, 255, 0.12) !important;
+  }
+}
+
+/* ─── Scrollbar personalizado ──────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  -webkit-transition: background 0.2s ease;
+          transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: rgba(255, 255, 255, 0.35);
 }
 
-/* Smooth transitions */
-button, a {
-  transition: all 0.2s ease-in-out;
+/* ─── Transições globais ───────────────────────────────────── */
+button,
+a {
+  -webkit-transition: all 0.2s ease;
+          transition: all 0.2s ease;
 }
 
-/* Garantir que Tailwind funcione */
+/* ─── Focus acessível ─────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.7);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Seleção de texto ────────────────────────────────────── */
+::selection {
+  background: rgba(59, 130, 246, 0.35);
+  color: white;
+}
+
+/* ─── Tailwind utilities extras ────────────────────────────── */
 @layer utilities {
   .animate-spin {
-    animation: spin 1s linear infinite;
+    -webkit-animation: spin 1s linear infinite;
+            animation: spin 1s linear infinite;
   }
-  
+
+  @-webkit-keyframes spin {
+    from { -webkit-transform: rotate(0deg); transform: rotate(0deg); }
+    to   { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
+  }
+
   @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
   }
+
+  /* Glass card — helper class reutilizável */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.07);
+    -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+  }
+
+  /* Row hover nas tabelas escuras */
+  .dark-table-row:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+}
+
+/* ─── MUI overrides globais ──────────────────────────────── */
+
+/* TableRow hover mais visível */
+.MuiTableRow-root.MuiTableRow-hover:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Chip mais nítido em fundo escuro */
+.MuiChip-root {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Input outlined em fundo escuro */
+.MuiOutlinedInput-notchedOutline {
+  -webkit-transition: border-color 0.2s ease;
+          transition: border-color 0.2s ease;
+}
+
+/* Snackbar acima do sidebar */
+.MuiSnackbar-root {
+  z-index: 9999 !important;
+}
+
+/* Dialog mais nítido */
+.MuiDialog-paper {
+  -webkit-backdrop-filter: blur(24px);
+          backdrop-filter: blur(24px);
+}
+
+/* Tooltip dark premium */
+.MuiTooltip-tooltip {
+  background: rgba(15, 23, 42, 0.96) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  font-size: 12px !important;
+  border-radius: 6px !important;
+  -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(12px);
 }

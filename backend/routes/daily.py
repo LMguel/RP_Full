@@ -7,6 +7,17 @@ from utils.auth import verify_token
 from functools import wraps
 from utils.aws import dynamodb
 from utils.schedule import get_schedule_for_date
+from services.calculation_engine import (
+    calculate_worked_minutes as eng_worked,
+    get_display_times as eng_display,
+    calculate_expected_minutes as eng_expected,
+    calculate_delay_minutes as eng_delay,
+    calculate_early_departure_minutes as eng_early_dep,
+    apply_bank_tolerance,
+    minutes_to_hhmm,
+    count_valid_punches,
+    get_actual_break_minutes,
+)
 import boto3
 
 # Tabelas DynamoDB
@@ -136,8 +147,10 @@ def calculate_daily_summary(company_id, employee_id, date, records):
             target_date = datetime.strptime(date, '%Y-%m-%d').date()
         except Exception:
             target_date = None
+        cfg_r = table_config.get_item(Key={'company_id': company_id})
+        emp_cfg = cfg_r.get('Item', {})
         if target_date:
-            h_entry, h_exit = get_schedule_for_date(emp_item, target_date)
+            h_entry, h_exit = get_schedule_for_date(emp_item, target_date, emp_cfg)
         else:
             h_entry = emp_item.get('horario_entrada')
             h_exit = emp_item.get('horario_saida')
@@ -288,12 +301,15 @@ def get_daily_summaries():
             # Buscar registros com scan (necessário pois não temos índice por data)
             filter_expr = Attr('company_id').eq(company_id)
             
-            response = table_records.scan(
-                FilterExpression=filter_expr,
-                Limit=3000,
-                Select='ALL_ATTRIBUTES'
-            )
-            all_records = response.get('Items', [])
+            all_records = []
+            scan_kwargs = {'FilterExpression': filter_expr, 'Select': 'ALL_ATTRIBUTES'}
+            while True:
+                response = table_records.scan(**scan_kwargs)
+                all_records.extend(response.get('Items', []))
+                last_key = response.get('LastEvaluatedKey')
+                if not last_key:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = last_key
             
             print(f"[DEBUG] Registros encontrados (bruto): {len(all_records)}")
             
@@ -350,91 +366,27 @@ def get_daily_summaries():
                     return s[11:16]
                 return None
 
-            # ── CLASSIFICAÇÃO PURAMENTE POSICIONAL ──────────────────────────────
-            # Independente do tipo salvo no banco, a posição cronológica determina:
-            #   intervalo_automatico=True  → 1ª=entrada, última=saída (2 batidas)
-            #   intervalo_automatico=False → 1ª=entrada, 2ª=saída intervalo,
-            #                               3ª=volta intervalo, 4ª=saída final (4 batidas)
-            #                               OU 1ª=entrada, 2ª=saída (2 batidas sem almoço)
+            # Classificação posicional via motor canônico
             grouped_items = sorted(grouped.items(), key=lambda kv: kv[0].split('#')[1], reverse=True)
             for key, records in grouped_items:
                 emp_id, date_str = key.split('#')
-
-                # IMPORTANTE: Ordenar registros cronologicamente antes de processar
                 records = sorted(records, key=lambda r: r.get('data_hora', '') or r.get('timestamp', ''))
 
-                # Filtrar atestados e ordenar cronologicamente
-                punch_records = []
-                for rec in records:
-                    tipo_r = str(rec.get('tipo', '') or rec.get('type', '') or '').lower().strip()
-                    if tipo_r == 'dia_inteiro':
-                        continue
-                    dt = rec.get('data_hora', '') or rec.get('timestamp', '')
-                    dt_calc = rec.get('data_hora_calculo', '') or dt
-                    hora = _extract_time(dt)
-                    hora_calc = _extract_time(dt_calc) or hora
-                    if hora:
-                        punch_records.append((hora, hora_calc))
+                hora_entrada_disp, break_start_disp, break_end_disp, hora_saida_disp = eng_display(
+                    records, intervalo_automatico
+                )
 
-                n = len(punch_records)
-                first_entry = punch_records[0][0] if n >= 1 else None
-                first_entry_calc = punch_records[0][1] if n >= 1 else None
-
-                if intervalo_automatico:
-                    # Fluxo 2 batidas: 1ª=entrada, última=saída (sem registrar intervalo)
-                    last_exit = punch_records[-1][0] if n >= 2 else None
-                    last_exit_calc = punch_records[-1][1] if n >= 2 else None
-                    first_break_start = None
-                    first_break_start_calc = None
-                    first_break_end = None
-                    first_break_end_calc = None
-                else:
-                    # Fluxo 4 batidas: pos0=entrada, pos1=saída intervalo,
-                    # pos2=volta intervalo, pos3=saída final
-                    # Batidas incompletas (1,2,3) = dia em andamento
-                    first_break_start = punch_records[1][0] if n >= 2 else None
-                    first_break_start_calc = punch_records[1][1] if n >= 2 else None
-                    first_break_end = punch_records[2][0] if n >= 3 else None
-                    first_break_end_calc = punch_records[2][1] if n >= 3 else None
-                    last_exit = punch_records[3][0] if n >= 4 else None
-                    last_exit_calc = punch_records[3][1] if n >= 4 else None
-
-                # Calcular horas totais brutas (entrada→saída, sem descontar intervalo aqui)
-                worked_hours = 0
-                if first_entry_calc and last_exit_calc:
-                    try:
-                        h1, m1 = map(int, first_entry_calc.split(':'))
-                        h2, m2 = map(int, last_exit_calc.split(':'))
-                        minutes_worked = (h2 * 60 + m2) - (h1 * 60 + m1)
-                        worked_hours = round(minutes_worked / 60, 2)
-                    except Exception:
-                        pass
-
-                print(f"[DEBUG FIRST PASS] emp={emp_id} date={date_str} punches={n} ia={intervalo_automatico} "
-                      f"entry={first_entry} break_start={first_break_start} break_end={first_break_end} exit={last_exit}")
-                
-                summary_dict = {
+                items.append({
                     'company_id': company_id,
                     'employee_id': emp_id,
                     'date': date_str,
-                    'actual_start': first_entry,
-                    'actual_end': last_exit,
-                    'actual_start_calc': first_entry_calc,
-                    'actual_end_calc': last_exit_calc,
-                    'break_start': first_break_start,
-                    'break_start_calc': first_break_start_calc,
-                    'break_end': first_break_end,
-                    'break_end_calc': first_break_end_calc,
-                    'worked_hours': worked_hours,
-                    'expected_hours': 8,
-                    'status': 'presente' if first_entry else 'ausente',
-                    'delay_minutes': 0,
-                    'extra_hours': 0,
-                    'overtime_minutes': 0,
-                    'daily_balance': 0,
-                    'records_count': len(records)
-                }
-                items.append(summary_dict)
+                    'actual_start': hora_entrada_disp,
+                    'actual_end': hora_saida_disp,
+                    'break_start': break_start_disp,
+                    'break_end': break_end_disp,
+                    'records': records,
+                    'records_count': len(records),
+                })
             
             print(f"[DEBUG] Sumários processados: {len(items)}")
         except Exception as query_error:
@@ -449,12 +401,16 @@ def get_daily_summaries():
             try:
                 print(f"[DEBUG] Buscando dados de funcionários para {len(items)} items")
                 
-                # Otimização: usar scan com limite
-                emp_response = table_employees.scan(
-                    FilterExpression=Attr('company_id').eq(company_id),
-                    Limit=100  # Limitar para evitar timeout
-                )
-                for emp in emp_response.get('Items', []):
+                emp_kwargs = {'FilterExpression': Attr('company_id').eq(company_id)}
+                all_emps = []
+                while True:
+                    emp_response = table_employees.scan(**emp_kwargs)
+                    all_emps.extend(emp_response.get('Items', []))
+                    emp_last = emp_response.get('LastEvaluatedKey')
+                    if not emp_last:
+                        break
+                    emp_kwargs['ExclusiveStartKey'] = emp_last
+                for emp in all_emps:
                     # Pegar intervalo do funcionário (intervalo_emp)
                     # IMPORTANTE: preservar None quando não tem intervalo definido
                     intervalo_raw = emp.get('intervalo_emp')
@@ -480,230 +436,113 @@ def get_daily_summaries():
             except Exception as e:
                 print(f"[AVISO] Erro ao buscar dados funcionários: {e}")
         
-        # Aplicar filtros adicionais
+        # Enriquecer com dados dos funcionários e calcular via motor canônico
         summaries = []
         for item in items:
-            # Filtro por funcionário
             if employee_id_filter and item.get('employee_id') != employee_id_filter:
                 continue
+
             emp_id = item.get('employee_id')
-            actual_start = item.get('actual_start')
-            actual_end = item.get('actual_end')
-            actual_start_calc = item.get('actual_start_calc')
-            actual_end_calc = item.get('actual_end_calc')
-            
-            # Obter dados do funcionário
+            date_str = item.get('date')
+            records = item.get('records', [])
+
+            if emp_id not in employee_data:
+                print(f"[SECURITY] Rejecting record for unknown employee '{emp_id}' in company {company_id} — possible cross-tenant leak")
+                continue
+
             emp_info = employee_data.get(emp_id, {})
             emp_nome = emp_info.get('nome', emp_id)
+
             try:
-                target_date = datetime.strptime(item.get('date'), '%Y-%m-%d').date()
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
             except Exception:
                 target_date = None
 
             if target_date:
-                emp_horario_entrada, emp_horario_saida = get_schedule_for_date(emp_info, target_date)
+                scheduled_start, scheduled_end = get_schedule_for_date(emp_info, target_date, config_data)
             else:
-                emp_horario_entrada = emp_info.get('horario_entrada')
-                emp_horario_saida = emp_info.get('horario_saida')
-            emp_intervalo_raw = emp_info.get('intervalo')  # None = sem intervalo pré-definido
-            
-            # Verificar se funcionário tem intervalo pré-definido
-            funcionario_tem_intervalo = emp_intervalo_raw is not None
-            emp_intervalo = emp_intervalo_raw if funcionario_tem_intervalo else 0
+                scheduled_start = emp_info.get('horario_entrada')
+                scheduled_end = emp_info.get('horario_saida')
 
-            def extract_time_only(dt_str):
-                if not dt_str:
-                    return None
-                dt_str = str(dt_str)
-                if ' ' in dt_str:
-                    return dt_str.split(' ')[1][:5]
-                if 'T' in dt_str:
-                    return dt_str.split('T')[1][:5]
-                return dt_str[:5] if len(dt_str) >= 5 else dt_str
+            # Funcionário de horário variável: sem horario_entrada ou horario_saida definidos.
+            # Não gera previsto, banco, atraso, extra nem falta.
+            variavel = (
+                not emp_info.get('horario_entrada')
+                or not emp_info.get('horario_saida')
+            )
 
-            def time_to_minutes(t_str):
-                """Converte HH:MM para minutos"""
-                if not t_str:
-                    return None
-                try:
-                    h, m = map(int, t_str.split(':'))
-                    return h * 60 + m
-                except:
-                    return None
+            # Intervalo efetivo: funcionário sobrepõe empresa quando configurado
+            emp_break = emp_info.get('intervalo')
+            break_duration = int(emp_break) if emp_break is not None else duracao_intervalo_padrao
 
-            def minutes_to_hhmm(mins):
-                """Converte minutos para formato XhYYmin"""
-                if mins is None or mins < 0:
-                    return None
-                if mins == 0:
-                    return "0h"
-                horas = mins // 60
-                minutos = mins % 60
-                if minutos > 0:
-                    return f"{horas}h{minutos:02d}min"
-                return f"{horas}h"
+            # ── Motor canônico: todos os cálculos passam por aqui ──
+            worked_min, first_iso, last_iso = eng_worked(
+                records, intervalo_automatico, break_duration
+            )
 
-            # Horários REAIS para exibição
-            hora_entrada = extract_time_only(actual_start) if actual_start else None
-            hora_saida = extract_time_only(actual_end) if actual_end else None
-            
-            # Horários de cálculo (já arredondados pelo registro)
-            hora_entrada_calc = extract_time_only(actual_start_calc) if actual_start_calc else hora_entrada
-            hora_saida_calc = extract_time_only(actual_end_calc) if actual_end_calc else hora_saida
-            
-            # Recuperar dados de intervalo do summary_dict
-            item_break_start = item.get('break_start')  # 1ª saída (saída para intervalo)
-            item_break_end = item.get('break_end')      # 2ª entrada (volta do intervalo)
-            
-            # ============================================================
-            # CÁLCULO DE HORAS TOTAIS E HORAS EXTRAS COM TOLERÂNCIA
-            # ============================================================
-            # Regra:
-            # - Entrada dentro da tolerância → arredonda para horario_entrada
-            # - Entrada além da tolerância → usa horário real (horas totais começa do real)
-            # - Saída dentro da tolerância → arredonda para horario_saida
-            # - Saída além da tolerância → horas totais até horario_saida,
-            #   excedente = hora extra
-            # ============================================================
-            
-            horas_trabalhadas = None
-            horas_trabalhadas_str = None
-            horas_extras_min = 0
-            horas_extras_str = None
-            atraso_min = 0
-            saida_antecipada_min = 0
-            
-            if hora_entrada_calc and hora_saida_calc:
-                entrada_min = time_to_minutes(hora_entrada_calc)
-                saida_min = time_to_minutes(hora_saida_calc)
-                entrada_padrao_min = time_to_minutes(emp_horario_entrada) if emp_horario_entrada else None
-                saida_padrao_min = time_to_minutes(emp_horario_saida) if emp_horario_saida else None
-                
-                if entrada_min is not None and saida_min is not None:
-                    # Determinar horário de início efetivo para cálculo
-                    inicio_efetivo = entrada_min
-                    if entrada_padrao_min is not None:
-                        diff_entrada = entrada_min - entrada_padrao_min  # positivo = atrasado
-                        if abs(diff_entrada) <= tolerancia_atraso:
-                            # Dentro da tolerância: arredondar para horário padrão
-                            inicio_efetivo = entrada_padrao_min
-                        # Se além da tolerância (atrasado): usa entrada_min real
-                        # Se antecipado além da tolerância: usa entrada_min real (conta como adiantado)
-                    
-                    # Determinar horário de fim efetivo para cálculo
-                    fim_efetivo = saida_min
-                    if saida_padrao_min is not None:
-                        diff_saida = saida_min - saida_padrao_min  # positivo = saiu depois
-                        if abs(diff_saida) <= tolerancia_atraso:
-                            # Dentro da tolerância: arredondar para horário padrão
-                            fim_efetivo = saida_padrao_min
-                        # else: usa saida_min real (independente de ser cedo ou tarde)
-                    
-                    # Calcular minutos totais trabalhados
-                    minutos_totais = fim_efetivo - inicio_efetivo
-                    
-                    # Descontar intervalo
-                    # intervalo_automatico=True  → desconta duracao_intervalo_padrao fixo da empresa
-                    # intervalo_automatico=False → calcula gap REAL da 2ª→3ª batida (posição)
-                    #   funcionario_tem_intervalo é IGNORADO quando intervalo_automatico=False
-                    intervalo_descontado_min = 0
-                    if intervalo_automatico:
-                        if duracao_intervalo_padrao > 0 and minutos_totais > duracao_intervalo_padrao:
-                            intervalo_descontado_min = duracao_intervalo_padrao
-                            minutos_trabalhados = minutos_totais - duracao_intervalo_padrao
-                        else:
-                            minutos_trabalhados = minutos_totais
-                    elif item_break_start and item_break_end:
-                        # Almoço manual: desconta gap real entre 2ª e 3ª batida
-                        try:
-                            bs_h, bs_m = map(int, item_break_start.split(':'))
-                            be_h, be_m = map(int, item_break_end.split(':'))
-                            break_real_min = (be_h * 60 + be_m) - (bs_h * 60 + bs_m)
-                            if break_real_min > 0 and break_real_min < minutos_totais:
-                                intervalo_descontado_min = break_real_min
-                                minutos_trabalhados = minutos_totais - break_real_min
-                            else:
-                                minutos_trabalhados = minutos_totais
-                        except Exception as break_err:
-                            print(f"[WARN] Erro ao calcular intervalo real: {break_err}")
-                            minutos_trabalhados = minutos_totais
-                    else:
-                        minutos_trabalhados = minutos_totais
-                    
-                    if minutos_trabalhados < 0:
-                        minutos_trabalhados = 0
-                    
-                    # Hora extra = total trabalhado ACIMA do total previsto
-                    if entrada_padrao_min is not None and saida_padrao_min is not None:
-                        previsto_bruto_dia = saida_padrao_min - entrada_padrao_min
-                        # Deduzir intervalo previsto do dia (usa o mesmo lógica do cálculo real)
-                        if intervalo_automatico and duracao_intervalo_padrao > 0:
-                            previsto_min_dia = max(0, previsto_bruto_dia - duracao_intervalo_padrao)
-                        elif not intervalo_automatico and intervalo_descontado_min > 0:
-                            previsto_min_dia = max(0, previsto_bruto_dia - intervalo_descontado_min)
-                        elif funcionario_tem_intervalo and emp_intervalo and emp_intervalo > 0:
-                            previsto_min_dia = max(0, previsto_bruto_dia - emp_intervalo)
-                        else:
-                            previsto_min_dia = previsto_bruto_dia
-                        horas_extras_min = max(0, minutos_trabalhados - previsto_min_dia)
-                    else:
-                        horas_extras_min = 0
-                    
-                    horas_trabalhadas = round(minutos_trabalhados / 60, 2)
-                    horas_trabalhadas_str = minutes_to_hhmm(minutos_trabalhados)
+            # Regra de break por quantidade de batidas (intervalo_automatico=False):
+            #   n=2  → sem desconto (funcionário não registrou intervalo)
+            #   n=3  → desconta break configurado (estimativa: foi ao intervalo sem volta)
+            #   n>=4 → desconta break real (gap entre batida[1] e batida[2])
+            #   auto → sempre desconta break configurado
+            if intervalo_automatico:
+                effective_break = break_duration
+            else:
+                n_punches = count_valid_punches(records)
+                if n_punches <= 2:
+                    effective_break = 0
+                elif n_punches == 3:
+                    effective_break = break_duration
+                else:
+                    actual_gap = get_actual_break_minutes(records)
+                    effective_break = actual_gap if actual_gap is not None else break_duration
 
-                    if horas_extras_min > 0:
-                        horas_extras_str = minutes_to_hhmm(horas_extras_min)
+            if variavel:
+                expected_min = None
+                atraso_min = None
+                saida_antecipada_min = None
+                banco_horas_dia = None
+                horas_extras_min = None
+            else:
+                expected_min = eng_expected(
+                    scheduled_start, scheduled_end,
+                    intervalo_automatico, effective_break
+                )
+                atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
+                saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
+                banco_horas_dia = apply_bank_tolerance(worked_min - expected_min, tolerancia_atraso)
+                horas_extras_min = max(0, banco_horas_dia) if expected_min > 0 else 0
 
-                    # Atraso: APENAS para a primeira entrada do dia vs horário previsto
-                    if entrada_padrao_min is not None:
-                        diff_atraso = entrada_min - entrada_padrao_min
-                        if diff_atraso > tolerancia_atraso:
-                            atraso_min = diff_atraso
-
-                    # Saída antecipada: APENAS para a última saída do dia vs horário previsto
-                    if saida_padrao_min is not None:
-                        diff_saida_ant = saida_padrao_min - saida_min  # positivo = saiu antes do previsto
-                        if diff_saida_ant > tolerancia_atraso:
-                            saida_antecipada_min = diff_saida_ant
-
-                    print(f"[DEBUG DAILY] {emp_nome}: entrada_real={hora_entrada}, saida_real={hora_saida}, "
-                          f"entrada_calc={hora_entrada_calc}, saida_calc={hora_saida_calc}, "
-                          f"padrao={emp_horario_entrada}-{emp_horario_saida}, tol={tolerancia_atraso}, "
-                          f"inicio_efetivo={inicio_efetivo}, fim_efetivo={fim_efetivo}, "
-                          f"total={minutos_trabalhados}min, extras={horas_extras_min}min, "
-                          f"atraso={atraso_min}min, saida_ant={saida_antecipada_min}min")
-
-            # Dia da semana em português abreviado
             try:
-                wd = datetime.strptime(item.get('date'), '%Y-%m-%d').weekday()
+                wd = datetime.strptime(date_str, '%Y-%m-%d').weekday()
                 dias = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
                 dia_semana = dias[wd]
             except Exception:
                 dia_semana = None
 
-            # Quando intervalo_automatico=True a empresa não registra batidas de almoço;
-            # ocultar intervalo_saida/intervalo_volta para não exibir marcações intermediárias indevidas.
-            intervalo_saida_exib = None if intervalo_automatico else item.get('break_start')
-            intervalo_volta_exib = None if intervalo_automatico else item.get('break_end')
-
             summary_obj = {
                 'nome': emp_nome,
                 'employee_id': emp_id,
                 'dia_semana': dia_semana,
-                'data': item.get('date'),
-                'hora_entrada': hora_entrada,
-                'intervalo_saida': intervalo_saida_exib,
-                'intervalo_volta': intervalo_volta_exib,
-                'hora_saida': hora_saida,
-                'horas_trabalhadas': horas_trabalhadas,
-                'horas_trabalhadas_str': horas_trabalhadas_str,
-                'intervalo_descontado': intervalo_descontado_min if (hora_entrada_calc and hora_saida_calc) else (emp_intervalo if funcionario_tem_intervalo else 0),
-                'intervalo_automatico': intervalo_automatico,  # True = almoço automático (empresa), False = batidas manuais
+                'data': date_str,
+                'hora_entrada': item.get('actual_start'),
+                'intervalo_saida': None if intervalo_automatico else item.get('break_start'),
+                'intervalo_volta': None if intervalo_automatico else item.get('break_end'),
+                'hora_saida': item.get('actual_end'),
+                'horas_trabalhadas': round(worked_min / 60, 2),
+                'horas_trabalhadas_min': worked_min,
+                'horas_trabalhadas_str': minutes_to_hhmm(worked_min),
+                'horas_previstas': round(expected_min / 60, 2) if expected_min is not None else None,
+                'horas_previstas_min': expected_min,
+                'horas_previstas_str': minutes_to_hhmm(expected_min) if expected_min is not None else None,
                 'horas_extras': horas_extras_min,
-                'horas_extras_str': horas_extras_str,
+                'horas_extras_str': minutes_to_hhmm(horas_extras_min) if horas_extras_min is not None and horas_extras_min > 0 else None,
+                'banco_horas_dia': banco_horas_dia,
+                'banco_horas_dia_str': minutes_to_hhmm(banco_horas_dia) if banco_horas_dia is not None else None,
                 'atraso_minutos': atraso_min,
                 'saida_antecipada_minutos': saida_antecipada_min,
+                'intervalo_automatico': intervalo_automatico,
+                'horario_variavel': variavel,
             }
 
             summaries.append(summary_obj)

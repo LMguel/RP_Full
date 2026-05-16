@@ -1031,14 +1031,14 @@ def listar_registros(payload):
                     target_date = None
 
                 if target_date:
-                    horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
+                    horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date, configuracoes)
                 else:
                     horario_entrada_esperado = funcionario.get('horario_entrada')
                     horario_saida_esperado = funcionario.get('horario_saida')
-                
+
                 if not horario_entrada_esperado or not horario_saida_esperado:
                     continue
-                
+
                 # Encontrar entrada e saída do dia
                 entrada_reg = None
                 saida_reg = None
@@ -1510,7 +1510,7 @@ def listar_registros_resumo(payload):
                                     target_date = None
 
                             if target_date:
-                                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
+                                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date, configuracoes)
                             else:
                                 horario_entrada_esperado = funcionario.get('horario_entrada')
                                 horario_saida_esperado = funcionario.get('horario_saida')
@@ -1977,7 +1977,7 @@ def registrar_ponto_manual(payload):
         except Exception:
             target_date = None
         if target_date:
-            horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date)
+            horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date, configuracoes)
         else:
             horario_entrada_esperado = funcionario.get('horario_entrada')
         tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
@@ -2045,15 +2045,15 @@ def registrar_ponto_manual(payload):
                 target_date = None
 
             if target_date:
-                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date)
+                horario_entrada_esperado, horario_saida_esperado = get_schedule_for_date(funcionario, target_date, configuracoes)
             else:
                 horario_entrada_esperado = funcionario.get('horario_entrada')
                 horario_saida_esperado = funcionario.get('horario_saida')
-            
+
             # Buscar registros do mesmo dia para encontrar a entrada
             data_registro = data_hora.split(' ')[0]  # YYYY-MM-DD
             response_registros = tabela_registros.scan(
-                FilterExpression=Attr('employee_id').eq(employee_id) & Attr('data_hora').begins_with(data_registro)
+                FilterExpression=Attr('company_id').eq(empresa_id) & Attr('employee_id').eq(employee_id) & Attr('data_hora').begins_with(data_registro)
             )
             registros_do_dia = sorted(response_registros.get('Items', []), key=lambda x: x['data_hora'])
             
@@ -2326,18 +2326,18 @@ def login_funcionario():
         
         funcionario_id = (data.get('funcionario_id') or data.get('id') or '').strip()
         senha = data.get('senha') or ''
-        
+        company_id_login = (data.get('company_id') or '').strip()
+
         if not funcionario_id or not senha:
             return jsonify({'error': 'ID do funcionário e senha são obrigatórios'}), 400
-        
-        # Buscar funcionário por ID usando scan (já que não temos company_id no login)
+
         print(f"[LOGIN FUNC] Buscando funcionário com ID: {funcionario_id}")
-        
+
         try:
-            # Usar scan porque no login mobile não temos o company_id
-            response = tabela_funcionarios.scan(
-                FilterExpression=Attr('id').eq(funcionario_id)
-            )
+            login_filter = Attr('id').eq(funcionario_id)
+            if company_id_login:
+                login_filter = login_filter & Attr('company_id').eq(company_id_login)
+            response = tabela_funcionarios.scan(FilterExpression=login_filter)
             items = response.get('Items', [])
             funcionario = items[0] if items else None
         except Exception as e:
@@ -3254,10 +3254,10 @@ def registrar_ponto_localizacao(payload):
             except Exception:
                 target_date = None
             if target_date:
-                horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date)
+                horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date, config)
             else:
                 horario_entrada_esperado = funcionario.get('horario_entrada')
-            
+
             if horario_entrada_esperado:
                 try:
                     data_str = data_hora_atual.split(' ')[0]  # YYYY-MM-DD
