@@ -1,42 +1,42 @@
 import React, { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
-import { Tablet, Smartphone, BarChart2, FileSpreadsheet, Users, Headphones } from 'lucide-react'
+import { Camera, Clock, BarChart2, Shield, Zap, Headphones } from 'lucide-react'
 
 const features = [
   {
-    icon: Tablet,
-    title: 'Tablet com facial',
-    description: 'Terminal fixo na entrada da empresa com foto capturada em cada registro.',
+    icon: Camera,
+    title: 'Reconhecimento facial moderno',
+    description: 'Terminal tablet fixo na entrada com foto capturada em cada registro. Rápido, seguro e sem necessidade de cartão.',
     color: 'blue',
   },
   {
-    icon: Smartphone,
-    title: 'Mobile com GPS',
-    description: 'Colaboradores externos registram o ponto no celular com geolocalização.',
+    icon: Clock,
+    title: 'Controle automático de ponto',
+    description: 'Entradas, saídas e intervalos registrados automaticamente. Sem planilhas manuais e sem margem para erros.',
     color: 'cyan',
   },
   {
     icon: BarChart2,
-    title: 'Dashboard completo',
-    description: 'Painel em tempo real com presenças, ausências e horas extras da equipe.',
+    title: 'Relatórios em tempo real',
+    description: 'Painel completo com presenças, ausências e horas extras. Exporte em Excel pronto para o departamento pessoal.',
     color: 'blue',
   },
   {
-    icon: FileSpreadsheet,
-    title: 'Exportação Excel',
-    description: 'Espelho de ponto exportado em .xlsx pronto para o departamento pessoal.',
+    icon: Shield,
+    title: 'Redução de erros manuais',
+    description: 'Elimine fraudes e inconsistências. Cada registro tem foto e horário preciso, em conformidade com a CLT.',
     color: 'green',
   },
   {
-    icon: Users,
-    title: 'Gestão de equipe',
-    description: 'Cadastro de colaboradores, jornadas, turnos e histórico completo.',
+    icon: Zap,
+    title: 'Implantação rápida',
+    description: 'Sistema configurado e funcionando no mesmo dia. Levamos o tablet pronto, fazemos a instalação e o treinamento.',
     color: 'cyan',
   },
   {
     icon: Headphones,
-    title: 'Suporte incluso',
-    description: 'Implantação e suporte incluso em todos os planos. Respondemos em 24h.',
+    title: 'Suporte local e dedicado',
+    description: 'Suporte técnico incluso em todos os planos. Atendimento próximo, com resposta rápida quando você precisar.',
     color: 'green',
   },
 ]
@@ -94,7 +94,7 @@ export default function Features() {
             transition={{ duration: 0.4 }}
             className="section-label"
           >
-            Tudo que você precisa
+            Benefícios
           </motion.span>
           <motion.h2
             initial={{ opacity: 0, y: 18 }}
@@ -103,7 +103,8 @@ export default function Features() {
             transition={{ duration: 0.55, delay: 0.1 }}
             className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight mt-2 mb-4"
           >
-            Uma plataforma. Todas as modalidades.
+            Por que escolher o{' '}
+            <span className="gradient-text">REGISTRA.PONTO</span>?
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 18 }}
@@ -112,7 +113,7 @@ export default function Features() {
             transition={{ duration: 0.55, delay: 0.2 }}
             className="text-slate-400 text-lg max-w-2xl mx-auto"
           >
-            Do tablet fixo ao celular em campo — controle completo da jornada de trabalho da sua equipe em um único sistema.
+            Sistema completo, fácil de usar e com suporte local dedicado para empresas de qualquer porte.
           </motion.p>
         </div>
 

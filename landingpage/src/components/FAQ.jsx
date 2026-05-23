@@ -4,32 +4,40 @@ import { Plus, Minus } from 'lucide-react'
 
 const faqs = [
   {
-    q: 'O tablet está incluso no plano Tablet?',
-    a: 'O tablet não está incluso — ele deve ser fornecido pelo cliente ou pode ser cotado à parte. Utilizamos tablets Android comuns (a partir de R$ 600), sem necessidade de equipamento proprietário ou contrato de hardware.',
+    q: 'O tablet está incluso na implantação?',
+    a: 'Sim. A Implantação Completa inclui tablet configurado, instalação do sistema, treinamento inicial e suporte técnico para início da operação.',
   },
   {
-    q: 'Funciona no celular pessoal do funcionário?',
-    a: 'Sim. O plano Mobile e Híbrido funcionam no celular Android ou iPhone do próprio colaborador. Basta instalar o aplicativo e o funcionário já está pronto para registrar o ponto com geolocalização.',
+    q: 'O sistema funciona sem relógio de ponto tradicional?',
+    a: 'Sim. O REGISTRA.PONTO utiliza reconhecimento facial em tablet, eliminando a necessidade de relógios de ponto caros e equipamentos complexos.',
   },
   {
-    q: 'O que vem incluído nos relatórios e no Excel?',
-    a: 'Os relatórios incluem horas trabalhadas, horas extras, banco de horas, faltas e atrasos. A exportação em Excel vem formatada para o departamento pessoal, com filtros por funcionário, período e tipo de registro.',
+    q: 'O sistema funciona mesmo se a internet cair?',
+    a: 'Sim. O sistema possui funcionamento com armazenamento temporário local, garantindo continuidade dos registros mesmo em quedas momentâneas de internet.',
+  },
+  {
+    q: 'Como funciona o cadastro dos funcionários?',
+    a: 'O cadastro pode ser realizado diretamente no tablet durante a implantação, de forma rápida e prática, sem necessidade de envio manual de fotos.',
   },
   {
     q: 'Como funciona a implantação?',
-    a: 'Configuramos o sistema remotamente e fazemos o cadastro inicial dos colaboradores. Para o plano Tablet e Híbrido, levamos o tablet já configurado e pronto para uso diretamente na sua empresa — sem burocracia, sem aprendizado técnico. Para o plano Mobile, a ativação é remota e os colaboradores já podem registrar o ponto no mesmo dia.',
+    a: 'Nós realizamos toda a configuração inicial do sistema, instalação do tablet, treinamento e ativação da empresa para deixar tudo pronto para uso.',
+  },
+  {
+    q: 'Quais relatórios o sistema oferece?',
+    a: 'O sistema fornece relatórios completos de registros de ponto, horários, entradas, saídas e informações para acompanhamento da equipe.',
   },
   {
     q: 'Existe fidelidade ou multa de cancelamento?',
-    a: 'Não. Não há fidelidade nem multa. Você pode cancelar a qualquer momento, sem burocracia.',
+    a: 'Não trabalhamos com fidelidade obrigatória. Nosso objetivo é manter os clientes pela qualidade do serviço e suporte oferecido.',
   },
   {
     q: 'O sistema é compatível com a legislação trabalhista?',
-    a: 'Sim. O REGISTRA.PONTO gera registros com timestamp, localização (quando aplicável) e foto do colaborador no momento do registro, atendendo aos requisitos da Portaria 671 do Ministério do Trabalho.',
+    a: 'O sistema foi desenvolvido para auxiliar empresas no controle e organização da jornada de trabalho dos funcionários.',
   },
   {
     q: 'Quantos funcionários posso cadastrar?',
-    a: 'Os planos cobrem até 30 funcionários. Para equipes maiores, cada colaborador excedente tem um acréscimo de R$ 10,00/mês, sem necessidade de mudança de plano.',
+    a: 'A quantidade de funcionários varia conforme o plano contratado, com opções para pequenas, médias e grandes empresas.',
   },
 ]
 

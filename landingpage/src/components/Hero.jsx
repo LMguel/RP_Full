@@ -1,11 +1,13 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, CheckCircle2, Shield, Clock, BarChart3 } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Shield, Clock, BarChart3, MessageCircle } from 'lucide-react'
+
+const WA_URL = 'https://wa.me/5524992272778?text=Olá!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 
 const stats = [
   {
     icon: Clock,
-    value: '< 30min',
+    value: '< 1 dia',
     label: 'para implantar',
     bg: 'bg-blue-500/10',
     border: 'border-blue-500/20',
@@ -48,7 +50,7 @@ export default function Hero({ onContact }) {
   return (
     <section className="relative min-h-screen flex flex-col justify-center overflow-hidden pt-[68px]">
 
-      {/* ── Background atmosphere ── */}
+      {/* Background atmosphere */}
       <div className="absolute inset-0 bg-hero-grid opacity-60 pointer-events-none" />
       <motion.div
         animate={{ scale: [1, 1.05, 1], opacity: [0.08, 0.13, 0.08] }}
@@ -61,7 +63,7 @@ export default function Hero({ onContact }) {
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
 
-          {/* ── Left — Copy ── */}
+          {/* Left — Copy */}
           <div>
             <motion.div
               initial={{ opacity: 0, y: 16 }}
@@ -81,8 +83,8 @@ export default function Hero({ onContact }) {
               className="text-4xl sm:text-5xl lg:text-[3.4rem] font-bold text-white leading-[1.08] tracking-tight mb-6"
             >
               Controle de ponto{' '}
-              <span className="gradient-text">eletrônico</span>{' '}
-              simples e confiável
+              <span className="gradient-text">com reconhecimento facial</span>{' '}
+              para sua empresa
             </motion.h1>
 
             <motion.p
@@ -91,8 +93,8 @@ export default function Hero({ onContact }) {
               transition={{ duration: 0.55, delay: 0.2 }}
               className="text-lg text-slate-400 leading-relaxed mb-8 max-w-[480px]"
             >
-              Tablet com reconhecimento facial ou mobile com GPS. Dashboard completo,
-              relatórios prontos e exportação Excel inclusos. Da implantação ao suporte — tudo resolvido.
+              Tablet fixo com reconhecimento facial, dashboard completo e relatórios prontos para exportação.
+              Implantação e suporte incluso — tudo resolvido para você.
             </motion.p>
 
             <motion.div
@@ -102,11 +104,17 @@ export default function Hero({ onContact }) {
               className="flex flex-wrap gap-3 mb-10"
             >
               <button onClick={onContact} className="btn-primary px-7 py-3.5 text-[15px]">
-                Falar com consultor
+                Solicitar demonstração
                 <ArrowRight size={16} />
               </button>
-              <a href="#planos" className="btn-secondary px-7 py-3.5 text-[15px]">
-                Ver planos e preços
+              <a
+                href={WA_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-green px-7 py-3.5 text-[15px]"
+              >
+                <MessageCircle size={16} />
+                Falar no WhatsApp
               </a>
             </motion.div>
 
@@ -125,18 +133,16 @@ export default function Hero({ onContact }) {
             </motion.div>
           </div>
 
-          {/* ── Right — Dashboard screenshot ── */}
+          {/* Right — Dashboard screenshot */}
           <motion.div
             initial={{ opacity: 0, scale: 0.94, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.75, delay: 0.2, ease: [0.21, 0.47, 0.32, 0.98] }}
             className="relative"
           >
-            {/* Multi-layer glow */}
             <div className="absolute -inset-6 bg-gradient-to-r from-blue-600/20 via-cyan-500/10 to-blue-600/15 rounded-3xl blur-3xl pointer-events-none" />
             <div className="absolute -inset-2 bg-blue-600/8 rounded-3xl blur-xl pointer-events-none" />
 
-            {/* Screenshot container */}
             <div
               className="relative rounded-2xl overflow-hidden"
               style={{
@@ -145,7 +151,6 @@ export default function Hero({ onContact }) {
                   '0 0 0 1px rgba(59,130,246,0.12), 0 24px 64px rgba(0,0,0,0.7), 0 8px 24px rgba(0,0,0,0.5)',
               }}
             >
-              {/* Top chrome bar */}
               <div className="flex items-center gap-1.5 px-4 py-2.5 bg-[#0A1628] border-b border-white/[0.06]">
                 <span className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
                 <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
@@ -160,7 +165,6 @@ export default function Hero({ onContact }) {
                 className="w-full block"
                 loading="eager"
               />
-              {/* Bottom fade */}
               <div className="absolute bottom-0 inset-x-0 h-20 bg-gradient-to-t from-rp-bg/60 to-transparent pointer-events-none" />
             </div>
 
@@ -196,7 +200,7 @@ export default function Hero({ onContact }) {
           </motion.div>
         </div>
 
-        {/* ── Stats — premium mini cards ── */}
+        {/* Stats mini cards */}
         <motion.div
           variants={statContainer}
           initial="hidden"

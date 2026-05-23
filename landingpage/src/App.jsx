@@ -3,11 +3,13 @@ import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Features from './components/Features'
 import Showcase from './components/Showcase'
+import HowItWorks from './components/HowItWorks'
 import Pricing from './components/Pricing'
 import FAQ from './components/FAQ'
 import FinalCTA from './components/FinalCTA'
 import Footer from './components/Footer'
 import ContactModal from './components/ContactModal'
+import WhatsAppButton from './components/WhatsAppButton'
 
 const showcases = [
   {
@@ -30,7 +32,7 @@ const showcases = [
     id: 'tablet',
     label: 'Registro por tablet',
     title: 'Ponto facial no tablet — sem fricção',
-    description: 'Instale o tablet na entrada da empresa e seus funcionários registram o ponto em segundos com reconhecimento. Sem cartão, sem senha, sem fila.',
+    description: 'Instale o tablet na entrada da empresa e seus funcionários registram o ponto em segundos com reconhecimento facial. Sem cartão, sem senha, sem fila.',
     image: '/image/captura.jpg',
     imageAlt: 'Registro de ponto via tablet — REGISTRA.PONTO',
     side: 'left',
@@ -43,30 +45,13 @@ const showcases = [
     ],
   },
   {
-    id: 'localizacao',
-    label: 'Mobile com GPS',
-    title: 'Registro pelo celular com geolocalização',
-    description: 'Colaboradores externos registram o ponto diretamente no celular. A localização é capturada no momento do registro, garantindo integridade e transparência.',
-    image: '/image/localizacao.png',
-    imageAlt: 'Registro por geolocalização — REGISTRA.PONTO',
-    side: 'right',
-    accent: 'green',
-    imageClass: 'max-w-[320px] md:max-w-[380px] mx-auto',
-    features: [
-      'Geolocalização capturada em cada batida',
-      'Funciona no celular pessoal do colaborador',
-      'Sem necessidade de equipamento adicional',
-      'Rastreio de localização auditável',
-    ],
-  },
-  {
     id: 'funcionarios',
     label: 'Gestão de equipe',
     title: 'Cadastro e gestão de funcionários',
     description: 'Gerencie toda a equipe em um lugar: cadastre colaboradores, defina jornadas, horários e turnos. Organização completa para empresas de qualquer tamanho.',
     image: '/image/funcionarios.png',
     imageAlt: 'Gestão de funcionários — REGISTRA.PONTO',
-    side: 'left',
+    side: 'right',
     accent: 'blue',
     features: [
       'Cadastro completo de colaboradores',
@@ -82,7 +67,7 @@ const showcases = [
     description: 'Exporte o espelho de ponto em Excel formatado para o departamento pessoal. Feche o mês em minutos, sem retrabalho.',
     image: '/image/excel.jpeg',
     imageAlt: 'Exportação em Excel — REGISTRA.PONTO',
-    side: 'right',
+    side: 'left',
     accent: 'green',
     features: [
       'Exportação em .xlsx compatível com qualquer DP',
@@ -98,7 +83,7 @@ const showcases = [
     description: 'Visualize o registro completo de cada colaborador: entradas, saídas, intervalos, horas trabalhadas e ocorrências. Transparência total para gestores e funcionários.',
     image: '/image/espelho.jpeg',
     imageAlt: 'Espelho de ponto — REGISTRA.PONTO',
-    side: 'left',
+    side: 'right',
     accent: 'cyan',
     features: [
       'Histórico de todos os registros do colaborador',
@@ -126,11 +111,13 @@ export default function App() {
       {showcases.map((s) => (
         <Showcase key={s.id} {...s} onContact={() => openModal(s.label)} />
       ))}
+      <HowItWorks />
       <Pricing onContact={openModal} />
       <FAQ />
       <FinalCTA onContact={() => openModal()} />
       <Footer onContact={() => openModal()} />
       <ContactModal open={modalOpen} plan={selectedPlan} onClose={() => setModalOpen(false)} />
+      <WhatsAppButton />
     </div>
   )
 }

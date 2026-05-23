@@ -7,8 +7,9 @@ const links = [
     title: 'Produto',
     items: [
       { label: 'Funcionalidades', href: '#dashboard' },
+      { label: 'Como funciona', href: '#planos' },
       { label: 'Planos e preços', href: '#planos' },
-      { label: 'Implantação', href: '#planos' },
+      { label: 'Implantação', href: '#implantacao' },
     ],
   },
   {
@@ -46,7 +47,7 @@ export default function Footer({ onContact }) {
               </span>
             </a>
             <p className="text-sm text-slate-500 leading-relaxed max-w-xs mb-6">
-              Sistema de controle de ponto eletrônico para empresas modernas. Tablet, mobile ou híbrido.
+              Sistema de controle de ponto eletrônico com reconhecimento facial para empresas modernas.
             </p>
             <div className="flex flex-col gap-2">
               <a
@@ -86,7 +87,7 @@ export default function Footer({ onContact }) {
             © {new Date().getFullYear()} REGISTRA.PONTO. Todos os direitos reservados.
           </p>
           <p className="text-xs text-slate-600">
-            Sistema de ponto eletrônico · Tablet · Mobile · Híbrido
+            Sistema de ponto eletrônico com reconhecimento facial
           </p>
         </div>
       </div>

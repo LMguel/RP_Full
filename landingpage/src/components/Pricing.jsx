@@ -1,96 +1,72 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { motion } from 'framer-motion'
-import { Check, Tablet, Smartphone, Layers, ArrowRight, Info } from 'lucide-react'
+import { Check, Star, ArrowRight, MessageCircle, Package } from 'lucide-react'
 
-const ranges = [
-  { label: 'Até 10 func.', key: '10' },
-  { label: '11 a 20 func.', key: '20' },
-  { label: '21 a 30 func.', key: '30' },
-]
+const WA_IMPL = 'https://wa.me/5524992272778?text=Quero%20saber%20mais%20sobre%20a%20implantação%20do%20REGISTRA.PONTO'
 
 const plans = [
   {
-    id: 'tablet',
-    icon: Tablet,
-    name: 'Tablet',
-    tagline: 'Registro em dispositivo fixo',
+    id: 'essencial',
+    name: 'Essencial',
+    employees: 'Até 10 funcionários',
+    price: 149,
+    popular: false,
+    features: [
+      'Reconhecimento facial',
+      'Dashboard web',
+      'Relatórios de ponto',
+      'Gestão de funcionários',
+      'Suporte técnico',
+    ],
+  },
+  {
+    id: 'profissional',
+    name: 'Profissional',
+    employees: 'Até 20 funcionários',
+    price: 199,
     popular: true,
-    accent: 'blue',
-    prices: { '10': 129, '20': 159, '30': 199 },
-    description: 'Ideal para empresas que registram o ponto em um dispositivo fixo instalado na entrada.',
     features: [
-      'Terminal tablet fixo na empresa',
-      'Foto capturada em cada registro',
-      'Painel de gestão completo',
-      'Relatórios e exportação Excel',
-      'Suporte inicial incluso',
-    ],
-    note: '* Tablet fornecido pelo cliente ou cotado à parte.',
-  },
-  {
-    id: 'mobile',
-    icon: Smartphone,
-    name: 'Mobile',
-    tagline: 'Registro no celular com GPS',
-    popular: false,
-    accent: 'cyan',
-    prices: { '10': 149, '20': 179, '30': 219 },
-    description: 'Ideal para equipes em campo que precisam de registro pelo celular com geolocalização.',
-    features: [
-      'App no celular do colaborador',
-      'Geolocalização em cada registro',
-      'Painel de gestão completo',
-      'Relatórios e exportação Excel',
-      'Suporte inicial incluso',
+      'Tudo do plano Essencial',
+      'Relatórios completos',
+      'Controle avançado',
+      'Suporte prioritário',
     ],
   },
   {
-    id: 'hibrido',
-    icon: Layers,
-    name: 'Híbrido',
-    tagline: 'Tablet + Mobile no mesmo contrato',
+    id: 'empresarial',
+    name: 'Empresarial',
+    employees: 'Até 30 funcionários',
+    price: 249,
     popular: false,
-    accent: 'green',
-    prices: { '10': 189, '20': 229, '30': 279 },
-    description: 'Ideal para empresas que precisam de tablet fixo na sede e mobile para equipes externas.',
     features: [
-      'Tablet + Mobile habilitados',
-      'Painel de gestão unificado',
-      'Geolocalização inclusa',
-      'Relatórios e exportação Excel',
-      'Suporte inicial incluso',
+      'Tudo do plano Profissional',
+      'Multiusuários',
+      'Gestão avançada',
+      'Recursos empresariais',
     ],
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise',
+    employees: '31+ funcionários',
+    price: null,
+    popular: false,
+    description: 'Plano personalizado para empresas maiores.',
+    ctaLabel: 'Solicitar orçamento',
+    ctaGreen: true,
+    features: [],
   },
 ]
 
-const accentCard = {
-  blue: {
-    border: 'border-blue-500/30',
-    glow: 'shadow-[0_0_40px_rgba(59,130,246,0.12)]',
-    badge: 'bg-blue-600 text-white',
-    icon: 'bg-blue-500/10 text-blue-400',
-    btn: 'btn-primary',
-    check: 'text-blue-400',
-  },
-  cyan: {
-    border: 'border-cyan-500/20',
-    glow: '',
-    badge: '',
-    icon: 'bg-cyan-500/10 text-cyan-400',
-    btn: 'btn-secondary',
-    check: 'text-cyan-400',
-  },
-  green: {
-    border: 'border-emerald-500/20',
-    glow: '',
-    badge: '',
-    icon: 'bg-emerald-500/10 text-emerald-400',
-    btn: 'btn-secondary',
-    check: 'text-emerald-400',
-  },
-}
+const implantationItems = [
+  'Tablet configurado',
+  'Instalação do sistema',
+  'Configuração da empresa',
+  'Treinamento inicial',
+  'Suporte técnico inicial',
+]
 
-const item = {
+const cardVariants = {
   hidden: { opacity: 0, y: 24 },
   visible: (i) => ({
     opacity: 1,
@@ -100,12 +76,11 @@ const item = {
 }
 
 export default function Pricing({ onContact }) {
-  const [range, setRange] = useState('10')
-
   return (
     <section id="planos" className="py-24 bg-rp-surface relative overflow-hidden">
       <div className="absolute inset-0 bg-hero-grid opacity-30" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-blue-600/6 blur-[120px]" />
+      <div className="absolute bottom-0 right-0 w-[400px] h-[300px] rounded-full bg-cyan-600/5 blur-[120px]" />
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
@@ -125,7 +100,8 @@ export default function Pricing({ onContact }) {
             transition={{ delay: 0.1 }}
             className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight mt-2 mb-4"
           >
-            Simples, transparente, sem surpresas
+            Planos do{' '}
+            <span className="gradient-text">REGISTRA.PONTO</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
@@ -134,167 +110,151 @@ export default function Pricing({ onContact }) {
             transition={{ delay: 0.2 }}
             className="text-slate-400 text-lg max-w-xl mx-auto"
           >
-            Escolha o plano ideal para o tamanho da sua equipe.
+            Solução completa de ponto eletrônico com reconhecimento facial para empresas.
           </motion.p>
         </div>
 
-        {/* Range switcher */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.25 }}
-          className="flex justify-center mb-10"
-        >
-          <div className="inline-flex bg-rp-card border border-white/[0.07] rounded-xl p-1 gap-1">
-            {ranges.map((r) => (
-              <button
-                key={r.key}
-                onClick={() => setRange(r.key)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
-                  range === r.key
-                    ? 'bg-blue-600 text-white shadow-lg'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Cards */}
-        <div className="grid lg:grid-cols-3 gap-6 mb-10">
-          {plans.map((plan, i) => {
-            const a = accentCard[plan.accent]
-            const Icon = plan.icon
-            return (
-              <motion.div
-                key={plan.id}
-                custom={i}
-                variants={item}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, margin: '-60px' }}
-                className={`relative rounded-2xl p-7 border transition-all duration-300 ${
-                  plan.popular
-                    ? `bg-rp-card ${a.border} ${a.glow}`
-                    : 'bg-rp-card border-white/[0.07] hover:border-white/[0.12]'
-                }`}
-              >
-                {/* Popular badge */}
-                {plan.popular && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-lg shadow-blue-500/30">
-                      ✦ Mais Popular
-                    </span>
-                  </div>
-                )}
-
-                {/* Icon + Name */}
-                <div className={`w-11 h-11 rounded-xl ${a.icon} flex items-center justify-center mb-5`}>
-                  <Icon size={20} />
+        {/* Plan cards */}
+        <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-14">
+          {plans.map((plan, i) => (
+            <motion.div
+              key={plan.id}
+              custom={i}
+              variants={cardVariants}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: '-60px' }}
+              className={`relative flex flex-col rounded-2xl p-6 border transition-all duration-300 ${
+                plan.popular
+                  ? 'bg-rp-card border-blue-500/40 shadow-[0_0_50px_rgba(59,130,246,0.14)]'
+                  : 'bg-rp-card border-white/[0.07] hover:border-white/[0.14] hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)]'
+              }`}
+            >
+              {plan.popular && (
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-lg shadow-blue-500/30">
+                    <Star size={10} fill="white" strokeWidth={0} />
+                    Mais escolhido
+                  </span>
                 </div>
+              )}
 
-                <h3 className="text-xl font-bold text-white mb-1">{plan.name}</h3>
-                <p className="text-sm text-slate-400 mb-6">{plan.tagline}</p>
+              <div className="mb-5">
+                <h3 className="text-lg font-bold text-white mb-1">{plan.name}</h3>
+                <p className="text-sm text-slate-500">{plan.employees}</p>
+              </div>
 
-                {/* Price */}
-                <motion.div
-                  key={range}
-                  initial={{ opacity: 0.5, scale: 0.96 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.2 }}
-                  className="mb-6"
-                >
+              <div className="mb-6">
+                {plan.price !== null ? (
                   <div className="flex items-start gap-1">
                     <span className="text-slate-400 text-sm mt-2.5 font-medium">R$</span>
                     <span className="text-5xl font-black text-white tracking-tight leading-none">
-                      {plan.prices[range]}
+                      {plan.price}
                     </span>
                     <span className="text-slate-400 text-sm self-end mb-1">/mês</span>
                   </div>
-                </motion.div>
+                ) : (
+                  <p className="text-base font-medium text-slate-300 leading-relaxed">
+                    {plan.description}
+                  </p>
+                )}
+              </div>
 
-                <div className="h-px bg-white/[0.06] mb-6" />
+              <div className="h-px bg-white/[0.06] mb-5" />
 
-                {/* Description */}
-                <p className="text-xs text-slate-500 mb-5">{plan.description}</p>
-
-                {/* Features */}
-                <ul className="space-y-3 mb-7">
+              {plan.features.length > 0 && (
+                <ul className="space-y-2.5 mb-6 flex-1">
                   {plan.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2.5 text-sm text-slate-300">
-                      <Check size={13} className={a.check} strokeWidth={2.5} />
+                    <li key={f} className="flex items-start gap-2.5 text-sm text-slate-300">
+                      <Check
+                        size={13}
+                        className={`mt-0.5 flex-shrink-0 ${plan.popular ? 'text-blue-400' : 'text-emerald-400'}`}
+                        strokeWidth={2.5}
+                      />
                       {f}
                     </li>
                   ))}
                 </ul>
+              )}
 
-                {plan.note && (
-                  <p className="text-xs text-slate-600 mb-5 italic">{plan.note}</p>
-                )}
+              {plan.id === 'enterprise' && <div className="flex-1 min-h-[60px]" />}
 
-                <button
-                  onClick={() => onContact(plan.name)}
-                  className={`w-full ${a.btn} py-3`}
-                >
-                  Solicitar proposta
-                  <ArrowRight size={14} />
-                </button>
-              </motion.div>
-            )
-          })}
+              <button
+                onClick={() => onContact(plan.name)}
+                className={`w-full mt-auto py-3 ${
+                  plan.popular ? 'btn-primary' : plan.ctaGreen ? 'btn-green' : 'btn-secondary'
+                }`}
+              >
+                {plan.ctaLabel || 'Solicitar demonstração'}
+                <ArrowRight size={14} />
+              </button>
+            </motion.div>
+          ))}
         </div>
 
-        {/* Overage note */}
+        {/* Implementation section */}
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          id="implantacao"
+          initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="card-dark p-5 flex items-start gap-4 max-w-3xl mx-auto mb-10"
+          transition={{ delay: 0.1 }}
+          className="rounded-3xl border border-blue-500/25 bg-gradient-to-br from-blue-600/8 via-rp-card to-rp-surface p-8 lg:p-10 max-w-5xl mx-auto"
         >
-          <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Info size={15} className="text-amber-400" />
-          </div>
-          <div>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              <span className="font-semibold text-white">Acima de 30 colaboradores:</span>{' '}
-              acréscimo de <span className="font-semibold text-white">R$ 10,00 por colaborador excedente/mês</span>, cobrado no ciclo de faturamento seguinte ao período em que o limite foi ultrapassado.
-            </p>
-          </div>
-        </motion.div>
-
-        {/* Implementation box */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="rounded-2xl border border-blue-500/20 bg-blue-600/5 p-8 max-w-4xl mx-auto"
-        >
-          <div className="grid sm:grid-cols-2 gap-6 items-center">
+          <div className="grid lg:grid-cols-2 gap-10 items-center">
             <div>
-              <p className="text-xs font-semibold text-blue-400 uppercase tracking-widest mb-2">Implantação única</p>
-              <div className="flex items-baseline gap-1 mb-2">
-                <span className="text-2xl text-slate-400">R$</span>
-                <span className="text-6xl font-black text-white tracking-tight">799</span>
+              <div className="flex items-center gap-2 mb-5">
+                <Package size={16} className="text-blue-400" />
+                <span className="text-xs font-semibold text-blue-400 uppercase tracking-widest">
+                  Implantação Completa
+                </span>
               </div>
-              <p className="text-sm text-slate-400">Pagamento único · sem recorrência</p>
-              <p className="text-xs text-slate-500 mt-1">ou 10× de R$ 79,90</p>
+              <h3 className="text-2xl lg:text-3xl font-bold text-white mb-3 leading-tight">
+                Receba o sistema pronto para uso
+              </h3>
+              <p className="text-sm text-slate-400 leading-relaxed mb-7">
+                Instalação, configuração e treinamento inclusos. Levamos tudo pronto até você.
+              </p>
+
+              <div>
+                <div className="flex items-center gap-3 mb-1.5">
+                  <span className="text-slate-600 text-sm line-through">R$ 1.799</span>
+                  <span className="text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-full px-2.5 py-0.5 font-semibold">
+                    Economia R$ 200
+                  </span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-slate-400 text-lg mt-2.5 font-medium">R$</span>
+                  <span className="text-6xl font-black text-white tracking-tight leading-none">
+                    1.599
+                  </span>
+                  <span className="text-slate-400 text-sm self-end mb-2">à vista</span>
+                </div>
+                <p className="text-xs text-slate-600 mt-2">Parcelamento disponível.</p>
+              </div>
             </div>
-            <ul className="space-y-3">
-              {[
-                'Ativação e configuração completa do sistema',
-                'Cadastro inicial dos colaboradores',
-                'Instalação presencial do tablet na empresa (plano Tablet e Híbrido)',
-                'Tablet levado configurado e pronto para uso no dia da instalação',
-              ].map((f) => (
-                <li key={f} className="flex items-center gap-2.5 text-sm text-slate-300">
-                  <Check size={13} className="text-blue-400 flex-shrink-0" strokeWidth={2.5} />
-                  {f}
-                </li>
-              ))}
-            </ul>
+
+            <div>
+              <ul className="space-y-3 mb-7">
+                {implantationItems.map((f) => (
+                  <li key={f} className="flex items-center gap-3 text-sm text-slate-300">
+                    <div className="w-5 h-5 rounded-full bg-blue-500/15 border border-blue-500/25 flex items-center justify-center flex-shrink-0">
+                      <Check size={11} className="text-blue-400" strokeWidth={2.5} />
+                    </div>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href={WA_IMPL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-green w-full py-3.5"
+              >
+                <MessageCircle size={16} />
+                Agendar implantação
+              </a>
+            </div>
           </div>
         </motion.div>
       </div>

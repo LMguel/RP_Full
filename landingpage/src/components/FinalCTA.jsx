@@ -1,6 +1,8 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, Clock, Shield, Headphones } from 'lucide-react'
+import { ArrowRight, Clock, Shield, Headphones, MessageCircle } from 'lucide-react'
+
+const WA_URL = 'https://wa.me/5524992272778?text=Olá!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 
 const perks = [
   { icon: Clock, text: 'Implantação em até 48h' },
@@ -34,9 +36,8 @@ export default function FinalCTA({ onContact }) {
           transition={{ delay: 0.1, duration: 0.6 }}
           className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white tracking-tight leading-[1.1] mb-6"
         >
-          Pronto para modernizar o{' '}
-          <span className="gradient-text">controle de ponto</span>{' '}
-          da sua empresa?
+          Modernize o controle de ponto{' '}
+          <span className="gradient-text">da sua empresa</span>
         </motion.h2>
 
         <motion.p
@@ -46,7 +47,8 @@ export default function FinalCTA({ onContact }) {
           transition={{ delay: 0.2 }}
           className="text-lg text-slate-400 mb-10 max-w-2xl mx-auto"
         >
-          Fale com um consultor e receba uma proposta personalizada para o tamanho e modalidade ideal para sua empresa.
+          Fale com um consultor e receba uma proposta personalizada para o tamanho ideal da sua empresa.
+          Implantação rápida, suporte incluso e sem fidelidade.
         </motion.p>
 
         <motion.div
@@ -57,11 +59,17 @@ export default function FinalCTA({ onContact }) {
           className="flex flex-col sm:flex-row gap-3 justify-center mb-12"
         >
           <button onClick={onContact} className="btn-primary px-8 py-4 text-base">
-            Falar com consultor
+            Solicitar demonstração
             <ArrowRight size={18} />
           </button>
-          <a href="#planos" className="btn-secondary px-8 py-4 text-base">
-            Ver planos e preços
+          <a
+            href={WA_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-green px-8 py-4 text-base"
+          >
+            <MessageCircle size={18} />
+            Falar no WhatsApp
           </a>
         </motion.div>
 
