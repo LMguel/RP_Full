@@ -332,8 +332,9 @@ def atualizar_funcionario(payload, funcionario_id):
         horario_saida = request.form.get('horario_saida')  # Novo: horário de saída
         nome_horario = request.form.get('nome_horario')  # Nome do horário pré-definido
         tipo_horario = request.form.get('tipo_horario')
+        horarios_json_str = request.form.get('horarios_json')  # Horários por dia em JSON (DiaSemana format)
         home_office = request.form.get('home_office', 'false').lower() == 'true'
-        
+
         if not nome or not cargo:
             return jsonify({'error': 'Nome e cargo são obrigatórios'}), 400
 
@@ -419,24 +420,40 @@ def atualizar_funcionario(payload, funcionario_id):
             funcionario.pop('custom_schedule', None)
         else:
             presets = _get_company_presets(empresa_id)
-            preset_name = nome_horario or cargo
-            preset = _find_preset_by_name(presets, preset_name) if preset_name else None
+            # Usar apenas nome_horario explícito (nunca cargo como fallback)
+            preset = _find_preset_by_name(presets, nome_horario) if nome_horario else None
             if preset:
                 _apply_preset_to_employee(funcionario, preset)
+            elif horarios_json_str:
+                # Horários personalizados por dia enviados pelo frontend (formato DiaSemana)
+                try:
+                    import json as _json
+                    horarios_dict = _json.loads(horarios_json_str)
+                    weekly = pt_schedule_to_weekly(horarios_dict)
+                    if weekly:
+                        funcionario['custom_schedule'] = weekly
+                    entrada_calc, saida_calc = get_first_active_times(horarios_dict)
+                    if entrada_calc:
+                        funcionario['horario_entrada'] = entrada_calc
+                    if saida_calc:
+                        funcionario['horario_saida'] = saida_calc
+                    if nome_horario:
+                        funcionario['pred_hora'] = nome_horario
+                    else:
+                        funcionario.pop('pred_hora', None)
+                except Exception as e:
+                    print(f"[PUT] Erro ao processar horarios_json: {e}")
             elif horario_entrada and horario_saida:
                 funcionario['custom_schedule'] = build_weekly_from_legacy(horario_entrada, horario_saida)
+                if nome_horario:
+                    funcionario['pred_hora'] = nome_horario
+                else:
+                    funcionario.pop('pred_hora', None)
             else:
-                # definir para o padrão da empresa (apenas se intervalo automático estiver ativo)
-                try:
-                    cfg_resp = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
-                    cfg = cfg_resp.get('Item', {})
-                    if cfg.get('intervalo_automatico', False):
-                        funcionario['intervalo_emp'] = int(cfg.get('duracao_intervalo', 60))
-                    else:
-                        funcionario['intervalo_emp'] = None
-                except Exception:
-                    funcionario['intervalo_emp'] = None
-        
+                # Manter horário existente; apenas atualizar nome se fornecido
+                if nome_horario:
+                    funcionario['pred_hora'] = nome_horario
+
         tabela_funcionarios.put_item(Item=funcionario)
         return jsonify({'message': 'Funcionário atualizado com sucesso!'}), 200
     except Exception as e:
@@ -649,6 +666,7 @@ def cadastrar_funcionario(payload):
             horario_saida = data.get('horario_saida')
             nome_horario = data.get('nome_horario')  # Nome do horário pré-definido
             tipo_horario = data.get('tipo_horario')
+            horarios_json_str = data.get('horarios_json')
             login = data.get('login')
             senha = data.get('senha')
             home_office = data.get('home_office', False)
@@ -670,10 +688,11 @@ def cadastrar_funcionario(payload):
             horario_saida = request.form.get('horario_saida')
             nome_horario = request.form.get('nome_horario')  # Nome do horário pré-definido
             tipo_horario = request.form.get('tipo_horario')
+            horarios_json_str = request.form.get('horarios_json')
             login = request.form.get('login')
             senha = request.form.get('senha')
             home_office = request.form.get('home_office', 'false').lower() == 'true'
-            
+
             # Intervalo personalizado (opcional)
             intervalo_personalizado = request.form.get('intervalo_personalizado', 'false').lower() == 'true'
             intervalo_emp = None
@@ -830,13 +849,29 @@ def cadastrar_funcionario(payload):
             funcionario_item.pop('custom_schedule', None)
         else:
             presets = _get_company_presets(empresa_id)
-            preset_name = nome_horario or cargo
-            preset = _find_preset_by_name(presets, preset_name) if preset_name else None
+            # Usar apenas nome_horario explícito (nunca cargo como fallback)
+            preset = _find_preset_by_name(presets, nome_horario) if nome_horario else None
             if preset:
                 _apply_preset_to_employee(funcionario_item, preset)
+            elif horarios_json_str:
+                try:
+                    import json as _json
+                    horarios_dict = _json.loads(horarios_json_str)
+                    weekly = pt_schedule_to_weekly(horarios_dict)
+                    if weekly:
+                        funcionario_item['custom_schedule'] = weekly
+                    entrada_calc, saida_calc = get_first_active_times(horarios_dict)
+                    if entrada_calc:
+                        funcionario_item['horario_entrada'] = entrada_calc
+                    if saida_calc:
+                        funcionario_item['horario_saida'] = saida_calc
+                    if nome_horario:
+                        funcionario_item['pred_hora'] = nome_horario
+                except Exception as e:
+                    print(f"[CADASTRO] Erro ao processar horarios_json: {e}")
             elif horario_entrada and horario_saida:
                 funcionario_item['custom_schedule'] = build_weekly_from_legacy(horario_entrada, horario_saida)
-        
+
         # Salvar no DynamoDB (Employees table uses company_id as partition key)
         tabela_funcionarios.put_item(Item=funcionario_item)
         
@@ -1730,6 +1765,7 @@ def listar_funcionarios(payload):
                 'intervalo_emp': f.get('intervalo_emp'),
                 'tolerancia_atraso': f.get('tolerancia_atraso'),
                 'custom_schedule': f.get('custom_schedule'),
+                'pred_hora': f.get('pred_hora'),
             }
             funcionarios_list.append(funcionario_dict)
         return jsonify({'funcionarios': funcionarios_list})
@@ -2440,12 +2476,100 @@ def meus_registros(payload):
         print(f"[MEUS REGISTROS] Encontrados {len(registros)} registros")
         
         return jsonify({'registros': registros}), 200
-        
+
     except Exception as e:
         print(f"[MEUS REGISTROS] Erro: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@routes.route('/funcionario/alterar-senha', methods=['POST', 'OPTIONS'])
+@token_required
+def alterar_senha_funcionario(payload):
+    """Funcionário altera sua própria senha."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    from utils.auth import verify_password, hash_password
+    try:
+        if payload.get('tipo') != 'funcionario':
+            return jsonify({'error': 'Acesso permitido apenas para funcionários'}), 403
+
+        data = request.get_json() or {}
+        senha_atual = data.get('senha_atual', '')
+        nova_senha = data.get('nova_senha', '')
+
+        if not senha_atual or not nova_senha:
+            return jsonify({'error': 'senha_atual e nova_senha são obrigatórios'}), 400
+        if len(nova_senha) < 6:
+            return jsonify({'error': 'Nova senha deve ter pelo menos 6 caracteres'}), 400
+
+        funcionario_id = payload.get('funcionario_id')
+        company_id = payload.get('company_id')
+
+        resp = tabela_funcionarios.scan(
+            FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(company_id)
+        )
+        items = resp.get('Items', [])
+        if not items:
+            return jsonify({'error': 'Funcionário não encontrado'}), 404
+
+        funcionario = items[0]
+        if not verify_password(senha_atual, funcionario.get('senha_hash', '')):
+            return jsonify({'error': 'Senha atual incorreta'}), 401
+
+        novo_hash = hash_password(nova_senha)
+        tabela_funcionarios.update_item(
+            Key={'company_id': company_id, 'id': funcionario_id},
+            UpdateExpression='SET senha_hash = :h, must_change_password = :f',
+            ExpressionAttributeValues={':h': novo_hash, ':f': False}
+        )
+        return jsonify({'message': 'Senha alterada com sucesso'}), 200
+
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@routes.route('/funcionarios/<funcionario_id>/redefinir-senha', methods=['PUT', 'OPTIONS'])
+@token_required
+def redefinir_senha_funcionario(payload, funcionario_id):
+    """Empresa redefine senha de um funcionário, gerando senha temporária."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    from utils.auth import hash_password
+    import secrets, string
+    try:
+        if payload.get('tipo') != 'empresa':
+            return jsonify({'error': 'Acesso permitido apenas para a empresa'}), 403
+
+        company_id = payload.get('company_id')
+
+        resp = tabela_funcionarios.scan(
+            FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(company_id)
+        )
+        items = resp.get('Items', [])
+        if not items:
+            return jsonify({'error': 'Funcionário não encontrado'}), 404
+
+        funcionario = items[0]
+        chars = string.ascii_letters + string.digits
+        senha_temp = ''.join(secrets.choice(chars) for _ in range(8))
+        novo_hash = hash_password(senha_temp)
+
+        tabela_funcionarios.update_item(
+            Key={'company_id': company_id, 'id': funcionario_id},
+            UpdateExpression='SET senha_hash = :h, must_change_password = :t',
+            ExpressionAttributeValues={':h': novo_hash, ':t': True}
+        )
+
+        login = funcionario.get('login') or funcionario.get('id', funcionario_id)
+        return jsonify({'login': login, 'senha_temporaria': senha_temp}), 200
+
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 
 @routes.route('/horarios', methods=['GET', 'OPTIONS'])
 @token_required

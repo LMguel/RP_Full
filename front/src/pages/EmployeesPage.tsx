@@ -374,6 +374,9 @@ const EmployeesPage: React.FC = () => {
                       Cargo
                     </TableCell>
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                      Turno
+                    </TableCell>
+                    <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Horário Entrada
                     </TableCell>
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
@@ -445,12 +448,30 @@ const EmployeesPage: React.FC = () => {
                           <Chip
                             label={employee.cargo || '-'}
                             size="small"
-                            sx={{ 
+                            sx={{
                               background: 'rgba(59, 130, 246, 0.2)',
                               color: 'white',
                               border: '1px solid rgba(59, 130, 246, 0.3)'
                             }}
                           />
+                        </TableCell>
+                        <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                          {employee.pred_hora ? (
+                            <Chip
+                              label={employee.pred_hora}
+                              size="small"
+                              sx={{
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#34d399',
+                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                fontSize: '12px',
+                              }}
+                            />
+                          ) : (
+                            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: 13 }}>
+                              —
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">
@@ -500,8 +521,8 @@ const EmployeesPage: React.FC = () => {
                     )
                    : (
                     <TableRow>
-                      <TableCell 
-                        colSpan={8} 
+                      <TableCell
+                        colSpan={9}
                         align="center"
                         sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                       >
@@ -567,7 +588,7 @@ const EmployeesPage: React.FC = () => {
           <ListItemIcon>
             <DeleteIcon fontSize="small" sx={{ color: '#ef4444' }} />
           </ListItemIcon>
-          <ListItemText>Excluir</ListItemText>
+          <ListItemText>Desativar</ListItemText>
         </MenuItem>
       </Menu>
 
