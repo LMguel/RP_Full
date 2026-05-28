@@ -3,162 +3,166 @@
 Routes:
   POST /api/auth/admin-login - Admin login (login + password)
   POST /api/auth/admin-logout - Admin logout
+  POST /api/auth/admin-verify - Verify admin token
 """
 from flask import Blueprint, request, jsonify
 import boto3
 from botocore.exceptions import ClientError
 import jwt
+import bcrypt
 from datetime import datetime, timedelta
 import os
 
 auth_admin_routes = Blueprint('auth_admin_routes', __name__)
 
 # AWS
-dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
 table_admin_users = dynamodb.Table('AdminUsers')
 
-# JWT Configuration
-JWT_SECRET = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
+# JWT Configuration — sem fallback hardcoded; falha explicitamente se ausente
+_JWT_SECRET = os.getenv('JWT_SECRET_KEY')
+if not _JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET_KEY não encontrada! Configure a variável de ambiente JWT_SECRET_KEY. "
+        "Use: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+    )
+JWT_SECRET: str = _JWT_SECRET
 JWT_ALGORITHM = 'HS256'
-JWT_EXPIRATION_HOURS = 24
+JWT_EXPIRATION_HOURS = 8  # Reduzido de 24h para 8h
 
+
+# ─── Password helpers ─────────────────────────────────────────────────────────
+
+def hash_admin_password(password: str) -> str:
+    """Gera hash bcrypt para senha admin."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+
+def verify_admin_password(password: str, stored: str) -> bool:
+    """Verifica senha admin contra hash bcrypt.
+    Aceita tanto hash bcrypt ($2b$) quanto plaintext legado para migração gradual.
+    """
+    if stored.startswith('$2b$') or stored.startswith('$2a$'):
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), stored.encode('utf-8'))
+        except Exception:
+            return False
+    # Legado: plaintext — aceita mas deve migrar
+    return stored == password
+
+
+# ─── Token helpers ────────────────────────────────────────────────────────────
 
 def _query_admin_by_login(login: str) -> dict | None:
-    """Query admin by login (login é a partition key)."""
+    """Busca admin pelo login (chave primária)."""
     try:
         response = table_admin_users.get_item(Key={'login': login})
         return response.get('Item')
-    except ClientError as e:
-        print(f"Error querying admin by login: {e}")
+    except ClientError:
         return None
 
 
 def _generate_token(login: str) -> str:
-    """Generate JWT token for admin."""
+    """Gera JWT para admin com expiração de 8h."""
     payload = {
         'login': login,
         'role': 'super_admin',
         'iat': datetime.utcnow(),
-        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def verify_admin_token(token: str) -> dict | None:
-    """Verify and decode JWT token."""
+    """Verifica e decodifica JWT admin."""
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
-        print("Token expired")
         return None
-    except jwt.InvalidTokenError as e:
-        print(f"Invalid token: {e}")
+    except jwt.InvalidTokenError:
         return None
 
+
+def _upgrade_to_bcrypt(login: str, password: str) -> None:
+    """Migra conta admin de plaintext para bcrypt na próxima autenticação."""
+    try:
+        table_admin_users.update_item(
+            Key={'login': login},
+            UpdateExpression='SET password_hash = :h REMOVE #pw',
+            ExpressionAttributeNames={'#pw': 'password'},
+            ExpressionAttributeValues={':h': hash_admin_password(password)},
+        )
+    except Exception:
+        pass  # Migração é best-effort; próxima tentativa irá converter
+
+
+# ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @auth_admin_routes.route('/api/auth/admin-login', methods=['POST'])
 def admin_login():
-    """Admin login endpoint.
-    
-    Expected payload:
-    {
-        "login": "admin",
-        "password": "password123"
-    }
-    """
     try:
         data = request.get_json() or {}
         login = data.get('login', '').strip()
         password = data.get('password', '')
 
-        print(f"[DEBUG] Login attempt - login: '{login}', password: '{password}'")
-
-        # Validate input
         if not login or not password:
             return jsonify({'error': 'Login e senha são obrigatórios'}), 400
-
         if len(login) < 3:
             return jsonify({'error': 'Login inválido'}), 400
 
-        # Query admin by login
         admin = _query_admin_by_login(login)
-        print(f"[DEBUG] Admin found: {admin}")
         if not admin:
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
-        # Verify password (texto plano)
-        admin_password = admin.get('password', '')
-        print(f"[DEBUG] Comparing passwords - db: '{admin_password}', input: '{password}'")
-        if not admin_password or admin_password != password:
+        # Suporte a bcrypt (password_hash) e legado plaintext (password)
+        stored_hash = admin.get('password_hash', '')
+        stored_plain = admin.get('password', '')
+        stored = stored_hash or stored_plain
+
+        if not stored or not verify_admin_password(password, stored):
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
-        # Generate token
-        token = _generate_token(login)
+        # Migração gradual: se ainda está em plaintext, converter agora
+        if stored_plain and not stored_hash:
+            _upgrade_to_bcrypt(login, password)
 
+        token = _generate_token(login)
         return jsonify({
             'token': token,
-            'admin': {
-                'login': login,
-                'role': 'super_admin'
-            }
+            'admin': {'login': login, 'role': 'super_admin'},
         }), 200
 
-    except Exception as e:
-        print(f"Error in admin_login: {e}")
+    except Exception:
         return jsonify({'error': 'Erro interno do servidor'}), 500
 
 
 @auth_admin_routes.route('/api/auth/admin-logout', methods=['POST'])
 def admin_logout():
-    """Admin logout endpoint.
-    
-    Note: Logout is typically handled on the client side by removing the token.
-    This endpoint can be used for server-side cleanup if needed.
-    """
     try:
-        # Extract token from Authorization header
         auth_header = request.headers.get('Authorization', '')
         token = auth_header.replace('Bearer ', '')
-
         if not token:
             return jsonify({'error': 'Token não fornecido'}), 400
-
-        # Verify token is valid
         payload = verify_admin_token(token)
         if not payload:
             return jsonify({'error': 'Token inválido ou expirado'}), 401
-
-        # Token invalidation could be implemented here using a blacklist
-        # For now, just return success (client will remove token)
-
         return jsonify({'message': 'Logout realizado com sucesso'}), 200
-
-    except Exception as e:
-        print(f"Error in admin_logout: {e}")
+    except Exception:
         return jsonify({'error': 'Erro interno do servidor'}), 500
 
 
 @auth_admin_routes.route('/api/auth/admin-verify', methods=['GET'])
 def admin_verify():
-    """Verify admin token and return admin info."""
     try:
         auth_header = request.headers.get('Authorization', '')
         token = auth_header.replace('Bearer ', '')
-
         if not token:
             return jsonify({'error': 'Token não fornecido'}), 401
-
         payload = verify_admin_token(token)
         if not payload:
             return jsonify({'error': 'Token inválido ou expirado'}), 401
-
         return jsonify({
-            'admin': {
-                'login': payload.get('login'),
-                'role': payload.get('role')
-            }
+            'admin': {'login': payload.get('login'), 'role': payload.get('role')},
         }), 200
-
-    except Exception as e:
-        print(f"Error in admin_verify: {e}")
+    except Exception:
         return jsonify({'error': 'Erro interno do servidor'}), 500

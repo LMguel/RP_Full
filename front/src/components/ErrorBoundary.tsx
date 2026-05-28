@@ -19,8 +19,9 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+  public componentDidCatch(error: Error) {
+    // Logar apenas a mensagem, nunca o stack completo em produção
+    console.error('[ErrorBoundary] Erro capturado:', error?.message ?? 'desconhecido');
   }
 
   public render() {
@@ -37,20 +38,9 @@ class ErrorBoundary extends Component<Props, State> {
           <Typography variant="h4" color="error" gutterBottom>
             Oops! Algo deu errado
           </Typography>
-          <Typography variant="body1" color="textSecondary" mb={2}>
-            {this.state.error?.message || 'Erro inesperado na aplicação'}
+          <Typography variant="body1" color="textSecondary" mb={3}>
+            Ocorreu um problema inesperado. Nossa equipe foi notificada.
           </Typography>
-
-          {/* Optional: show stack details to help debugging */}
-          {this.state.error && (
-            <Box sx={{ width: '100%', maxWidth: 920, bgcolor: 'rgba(255,255,255,0.03)', p: 2, borderRadius: 1, mb: 2 }}>
-              <Typography variant="caption" color="textSecondary">Detalhes do erro (clique para expandir)</Typography>
-              <details style={{ color: 'white', marginTop: 8 }}>
-                <summary style={{ cursor: 'pointer' }}>{this.state.error.message}</summary>
-                <pre style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>{String(this.state.error.stack || '')}</pre>
-              </details>
-            </Box>
-          )}
 
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button

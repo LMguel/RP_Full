@@ -27,15 +27,10 @@ export const getDailySummaries = async (
   params.append('page_size', pageSize.toString());
 
   const url = `/api/registros-diarios?${params.toString()}`;
-  console.log('[API] Chamando:', url);
-  
   try {
     const data = await api.get(url);
-    console.log('[API] Resposta recebida:', data);
     return data as DailyRecordsResponse;
   } catch (error: any) {
-    console.error('[API] Erro na requisição:', error);
-    console.error('[API] Erro response:', error.response);
     throw error;
   }
 };

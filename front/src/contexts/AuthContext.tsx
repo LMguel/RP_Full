@@ -128,15 +128,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const checkFirstAccess = async () => {
     try {
       const settings = await apiService.getCompanySettings();
-      console.log('Company settings response:', settings);
-      // Verificar se é primeiro acesso (true explícito ou se não tem o campo first_configuration_completed)
       const isFirst = settings.is_first_access === true;
-      console.log('Setting isFirstAccess to:', isFirst);
       setIsFirstAccess(isFirst);
-    } catch (error: any) {
-      console.error('Error checking first access:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      // Em caso de erro, assumir que não é primeiro acesso para não bloquear o usuário
+    } catch {
       setIsFirstAccess(false);
     }
   };

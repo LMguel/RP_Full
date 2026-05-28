@@ -10,20 +10,49 @@ Routes:
 """
 from flask import Blueprint, request, jsonify
 import boto3
+import os
+import jwt
 from botocore.exceptions import ClientError
 from decimal import Decimal
 from datetime import datetime
 from boto3.dynamodb.conditions import Attr, Key
+from functools import wraps
 import uuid
 import bcrypt
 
 admin_routes = Blueprint('admin_routes', __name__)
 
 # AWS
-dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
-table_user_company = dynamodb.Table('UserCompany')
-table_employees = dynamodb.Table('Employees')
-table_time_records = dynamodb.Table('TimeRecords')
+dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
+table_user_company = dynamodb.Table(os.getenv('DYNAMODB_TABLE_USERS', 'UserCompany'))
+table_employees = dynamodb.Table(os.getenv('DYNAMODB_TABLE_EMPLOYEES', 'Employees'))
+table_time_records = dynamodb.Table(os.getenv('DYNAMODB_TABLE_RECORDS', 'TimeRecords'))
+
+# ─── Admin authentication decorator ──────────────────────────────────────────
+
+def admin_required(f):
+    """Decorator: exige JWT válido com role=super_admin nos headers."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return '', 200
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({'error': 'Token de administrador ausente'}), 401
+        secret = os.getenv('JWT_SECRET_KEY')
+        if not secret:
+            return jsonify({'error': 'Configuração interna inválida'}), 500
+        try:
+            payload = jwt.decode(token, secret, algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token expirado'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Token inválido'}), 401
+        if payload.get('role') != 'super_admin':
+            return jsonify({'error': 'Acesso negado — requer super_admin'}), 403
+        return f(*args, **kwargs)
+    return decorated
 
 
 def _convert_decimal(obj):
@@ -37,6 +66,7 @@ def _convert_decimal(obj):
 
 
 @admin_routes.route('/api/admin/dashboard/stats', methods=['GET'])
+@admin_required
 def get_dashboard_stats():
     """Get dashboard statistics from DynamoDB.
     
@@ -164,6 +194,7 @@ def get_dashboard_stats():
 
 
 @admin_routes.route('/api/admin/companies', methods=['GET'])
+@admin_required
 def get_companies():
     """Get all companies with payment and employee count data.
     
@@ -231,6 +262,7 @@ def get_companies():
 
 
 @admin_routes.route('/api/admin/companies', methods=['POST'])
+@admin_required
 def create_company():
     """Create a new company with admin user.
     
@@ -320,6 +352,7 @@ def create_company():
 
 
 @admin_routes.route('/api/admin/companies/<company_id>', methods=['GET'])
+@admin_required
 def get_company_details(company_id: str):
     """Get specific company details.
     
@@ -378,6 +411,7 @@ def get_company_details(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/employees', methods=['GET'])
+@admin_required
 def get_company_employees(company_id: str):
     """Get all active employees for a specific company.
     
@@ -413,6 +447,7 @@ def get_company_employees(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/records', methods=['GET'])
+@admin_required
 def get_company_records(company_id: str):
     """Get all time records for a specific company.
     
@@ -448,6 +483,7 @@ def get_company_records(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/payment-status', methods=['GET'])
+@admin_required
 def get_company_payment_status(company_id: str):
     """Get payment status for a company by month/year.
     
@@ -487,6 +523,7 @@ def get_company_payment_status(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/payment-status', methods=['POST'])
+@admin_required
 def update_company_payment_status(company_id: str):
     """Update payment status for a company by month/year.
     
@@ -584,6 +621,7 @@ def update_company_payment_status(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/suspend', methods=['POST'])
+@admin_required
 def suspend_company(company_id: str):
     """Temporarily suspend/pause a company (prevent login).
     
@@ -627,6 +665,7 @@ def suspend_company(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/resume', methods=['POST'])
+@admin_required
 def resume_company(company_id: str):
     """Resume a suspended company (re-enable login).
     
@@ -670,6 +709,7 @@ def resume_company(company_id: str):
 
 
 @admin_routes.route('/api/admin/companies/<company_id>', methods=['DELETE'])
+@admin_required
 def delete_company(company_id: str):
     """Delete/remove a company.
     

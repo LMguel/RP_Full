@@ -20,6 +20,7 @@ from utils.geolocation import validar_localizacao, formatar_distancia
 import unicodedata
 import re
 from utils.logger import setup_logger
+from utils.response_utils import sanitize_employee, sanitize_employees
 from utils.schedule import (
     build_pt_schedule_from_legacy,
     build_weekly_from_legacy,
@@ -121,8 +122,35 @@ def token_required(f):
 
 @routes.route('/', methods=['GET', 'OPTIONS'])
 def health():
-    logger.info(f"Request received: {request.method} {request.path}")
     return 'OK', 200
+
+
+@routes.route('/foto', methods=['GET', 'OPTIONS'])
+@token_required
+def get_presigned_foto(payload):
+    """Gera URL temporária (1h) para uma foto de funcionário no S3.
+
+    Query param: key — S3 object key ou URL pública completa.
+    Retorna: { url: '...' }
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+    from utils.aws import generate_presigned_url, extract_s3_key_from_url
+    raw = request.args.get('key', '').strip()
+    if not raw:
+        return jsonify({'error': 'Parâmetro key obrigatório'}), 400
+    # Aceitar tanto key direta quanto URL pública completa
+    key = extract_s3_key_from_url(raw) if 'amazonaws.com' in raw else raw
+    if not key:
+        return jsonify({'error': 'key inválida'}), 400
+    # Validar que a key pertence ao company_id do token (isolamento)
+    company_id = payload.get('company_id', '')
+    if company_id and not key.startswith(company_id + '/'):
+        return jsonify({'error': 'Acesso negado'}), 403
+    url = generate_presigned_url(key, expiration_seconds=3600)
+    if not url:
+        return jsonify({'error': 'Não foi possível gerar URL'}), 500
+    return jsonify({'url': url})
 
 @routes.route('/registros/<registro_id>/invalidar', methods=['PUT', 'OPTIONS'])
 def invalidar_registro(registro_id):
@@ -269,12 +297,9 @@ def obter_funcionario(payload, funcionario_id):
         # Verificar se funcionário está ativo
         is_active = funcionario.get('is_active', funcionario.get('ativo', True))
         if not is_active:
-            return jsonify({
-                'error': 'Funcionário inativo',
-                'deleted_at': funcionario.get('deleted_at')
-            }), 404
-        
-        return jsonify(funcionario)
+            return jsonify({'error': 'Funcionário inativo'}), 404
+
+        return jsonify(sanitize_employee(funcionario))
     except Exception as e:
         print(f"[GET] Erro geral: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -345,8 +370,6 @@ def atualizar_funcionario(payload, funcionario_id):
             from utils.auth import hash_password
             senha_hash = hash_password(senha)
             funcionario['senha_hash'] = senha_hash
-            # Armazenar senha original para exibição (AVISO: não é seguro, apenas para conveniência)
-            funcionario['senha_original'] = senha
             print(f"[PUT] Nova senha definida para funcionário {funcionario_id}")
             
         # Atualizar foto se fornecida
@@ -793,8 +816,6 @@ def cadastrar_funcionario(payload):
             funcionario_item['login'] = login
         if senha_hash:
             funcionario_item['senha_hash'] = senha_hash
-            # Armazenar senha original para exibição (AVISO: não é seguro, apenas para conveniência)
-            funcionario_item['senha_original'] = senha
         
         # Campo home_office (para não exigir geolocalização)
         funcionario_item['home_office'] = home_office
@@ -1752,20 +1773,28 @@ def listar_funcionarios(payload):
                 'id': f.get('id'),
                 'nome': f.get('nome', ''),
                 'cargo': f.get('cargo'),
+                'cpf': f.get('cpf'),
+                'matricula': f.get('matricula'),
+                'setor': f.get('setor'),
+                'telefone': f.get('telefone'),
+                'email': f.get('email'),
                 'foto_url': f.get('foto_url'),
                 'data_cadastro': f.get('data_cadastro'),
+                'data_admissao': f.get('data_admissao'),
                 'horario_entrada': f.get('horario_entrada'),
                 'horario_saida': f.get('horario_saida'),
                 'ativo': f.get('ativo', f.get('is_active', True)),
-                'face_id': f.get('face_id'),
+                # face_id excluído intencionalmente — dado biométrico interno
                 'empresa_nome': f.get('empresa_nome'),
                 'empresa_id': f.get('empresa_id', f.get('company_id')),
                 'login': f.get('login'),
+                'must_change_password': f.get('must_change_password', False),
                 'intervalo_personalizado': f.get('intervalo_personalizado', False),
                 'intervalo_emp': f.get('intervalo_emp'),
                 'tolerancia_atraso': f.get('tolerancia_atraso'),
                 'custom_schedule': f.get('custom_schedule'),
                 'pred_hora': f.get('pred_hora'),
+                'horario_variavel': f.get('horario_variavel', False),
             }
             funcionarios_list.append(funcionario_dict)
         return jsonify({'funcionarios': funcionarios_list})
@@ -2181,16 +2210,7 @@ def login():
     import jwt
 
     try:
-        # Log de debug
-        print(f"[LOGIN] ========== REQUEST DEBUG ==========")
-        print(f"[LOGIN] Content-Type: {request.content_type}")
-        print(f"[LOGIN] Method: {request.method}")
-        print(f"[LOGIN] Raw data (primeiros 500 chars): {request.get_data(as_text=True)[:500]}")
-        
-        data = request.get_json(force=True, silent=False)
-        print(f"[LOGIN] JSON parseado: {data}")
-        print(f"[LOGIN] ====================================")
-        
+        data = request.get_json(force=True, silent=True)
         if not data:
             return jsonify({'error': 'JSON inválido ou ausente'}), 400
 
@@ -2199,8 +2219,6 @@ def login():
 
         if not usuario_id or not senha:
             return jsonify({'error': 'usuario_id e senha são obrigatórios'}), 400
-
-        print(f"[LOGIN DEBUG] Tentando login (empresa) para usuario_id: {usuario_id}")
 
         # Buscar usuário de empresa na tabela UserCompany por user_id
         response = tabela_usuarioempresa.scan(
@@ -2214,21 +2232,16 @@ def login():
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
         usuario = items[0]
-        print(f"[LOGIN DEBUG] Usuário empresa encontrado. company_id={usuario.get('company_id')}")
 
         # Verificar senha (prioriza hash bcrypt)
         if usuario.get('senha_hash'):
-            hash_verificado = verify_password(senha, usuario['senha_hash'])
-            print(f"[LOGIN DEBUG] Hash verificado: {hash_verificado}")
-            if not hash_verificado:
+            if not verify_password(senha, usuario['senha_hash']):
                 return jsonify({'error': 'Login ou senha incorretos'}), 401
         elif usuario.get('senha'):
             if senha != usuario['senha']:
                 return jsonify({'error': 'Login ou senha incorretos'}), 401
         else:
             return jsonify({'error': 'Login ou senha incorretos'}), 401
-
-        print(f"[LOGIN DEBUG] Senha verificada com sucesso")
 
         secret_key = get_secret_key()
         token = jwt.encode({
@@ -2248,8 +2261,8 @@ def login():
         })
 
     except Exception as e:
-        print(f"Erro no login: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Erro no login empresa: {type(e).__name__}")
+        return jsonify({'error': 'Erro interno ao processar login'}), 500
 
 # Add CORS support to the cadastrar_usuario_empresa route
 @routes.route('/cadastrar_usuario_empresa', methods=['POST', 'OPTIONS'])

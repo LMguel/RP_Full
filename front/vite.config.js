@@ -63,7 +63,9 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: false,
+        // Remove todos os console.* em produção — evita vazamento de dados em DevTools
+        drop_console: true,
+        drop_debugger: true,
       },
     },
     rollupOptions: {

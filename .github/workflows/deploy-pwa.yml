@@ -1,0 +1,79 @@
+name: Deploy PWA Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pwa-mobile/**'
+      - '.github/workflows/deploy-pwa.yml'
+  workflow_dispatch:
+
+jobs:
+  test-build-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: pwa-mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: pwa-mobile
+        run: npm ci
+
+      - name: Run tests
+        working-directory: pwa-mobile
+        run: npm run test
+
+      - name: Build
+        working-directory: pwa-mobile
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy assets to S3 (cache imutável)
+        working-directory: pwa-mobile
+        run: |
+          aws s3 sync dist/assets/ s3://pwa-registra-ponto/assets/ \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Deploy entrypoints to S3 (sem cache para atualização imediata dos tablets)
+        working-directory: pwa-mobile
+        run: |
+          for file in index.html sw.js manifest.webmanifest registerSW.js; do
+            [ -f "dist/$file" ] && \
+              aws s3 cp "dist/$file" "s3://pwa-registra-ponto/$file" \
+                --cache-control "no-cache,no-store,must-revalidate"
+          done
+          for wbfile in dist/workbox-*.js; do
+            [ -f "$wbfile" ] && \
+              aws s3 cp "$wbfile" "s3://pwa-registra-ponto/$(basename $wbfile)" \
+                --cache-control "no-cache,no-store,must-revalidate"
+          done
+
+      - name: CloudFront invalidation
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E2TE7LW6Z6QARR \
+            --paths "/*"
+
+      - name: Summary
+        run: |
+          echo "✅ PWA deployado: https://painel.registraponto.app.br"
+          echo "   Tablets receberão novo Service Worker na próxima visita."
+          echo "   kiosk_active flag garante retorno automático à câmera."

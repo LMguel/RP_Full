@@ -44,29 +44,64 @@ tabela_configuracoes = dynamodb.Table(DYNAMODB_TABLE_CONFIG)
 # Nota: Horários pré-definidos serão salvos na tabela ConfigCompany com id='horarios_preset'
 
 def enviar_s3(caminho, nome_arquivo, company_id):
-    """Upload an object under company prefix and return public URL.
+    """Faz upload sob o prefixo da empresa e retorna a S3 key.
 
-    nome_arquivo is the relative path inside the company folder, e.g.
-    'funcionarios/<employee_id>.jpg' or 'registros/<registro_id>.jpg'.
-    company_id is required and used as the top-level prefix.
+    Retorna a key (ex: '{company_id}/funcionarios/{id}.jpg').
+    Para obter uma URL temporária, use generate_presigned_url(key).
     """
     key = f"{company_id}/{nome_arquivo}"
-    
-    # Upload sem ACL (bucket deve ter política de acesso público configurada)
     s3.upload_file(
-        caminho, 
-        BUCKET, 
+        caminho,
+        BUCKET,
         key,
-        ExtraArgs={
-            # ACL removido - bucket usa Object Ownership: BucketOwnerEnforced
-            'ContentType': 'image/jpeg'
-        }
+        ExtraArgs={'ContentType': 'image/jpeg'},
     )
-    
-    # Use region-aware URL
+    print(f"[S3] Upload concluído. Bucket={BUCKET}, Key={key[:40]}…")
+    # Retornar a URL pública por compatibilidade com dados legados.
+    # Novos clientes devem usar generate_presigned_url() para URLs temporárias.
     url = f"https://{BUCKET}.s3.{REGIAO}.amazonaws.com/{key}"
-    print(f"[S3] Upload concluído. URL pública: {url}")
     return url
+
+
+def generate_presigned_url(key: str, expiration_seconds: int = 3600) -> str | None:
+    """Gera uma URL assinada temporária para um objeto S3.
+
+    Args:
+        key: S3 object key (ex: '{company_id}/funcionarios/{id}.jpg')
+        expiration_seconds: Tempo de validade em segundos (padrão: 1 hora)
+
+    Returns:
+        URL assinada ou None em caso de erro.
+    """
+    try:
+        url = s3.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': BUCKET, 'Key': key},
+            ExpiresIn=expiration_seconds,
+        )
+        return url
+    except Exception as e:
+        print(f"[S3] Erro ao gerar presigned URL: {type(e).__name__}")
+        return None
+
+
+def extract_s3_key_from_url(url: str) -> str | None:
+    """Extrai a S3 key de uma URL pública do bucket.
+
+    Ex: 'https://bucket.s3.region.amazonaws.com/{company_id}/foo.jpg'
+    → '{company_id}/foo.jpg'
+    """
+    if not url or 'amazonaws.com' not in url:
+        return None
+    try:
+        # Formato: https://{bucket}.s3.{region}.amazonaws.com/{key}
+        marker = '.amazonaws.com/'
+        idx = url.find(marker)
+        if idx < 0:
+            return None
+        return url[idx + len(marker):]
+    except Exception:
+        return None
 
 
 UUID_LEN = 36  # company_id é um UUID com 36 chars (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)

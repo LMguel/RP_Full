@@ -89,8 +89,18 @@ export default defineConfig({
     })
   ],
   server: {
-    host: '0.0.0.0', // Escuta em IPv4 (necessário para iPhone)
-    port: 3002
-    // HTTPS disabled for local development — use HTTP to avoid mixed-content / cert errors
-  }
+    host: '0.0.0.0',
+    port: 3002,
+  },
+  build: {
+    sourcemap: false,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        // Remove todos os console.* em builds de produção — evita vazamento de dados
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+  },
 });

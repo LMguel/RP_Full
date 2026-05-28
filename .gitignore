@@ -31,8 +31,9 @@ env/
 .env
 *.env
 .env.local
-.env.production
 .env.development
+# .env.production é commitado como template (sem valores reais preenchidos)
+deploy/.env
 
 # IDEs
 .vscode/
@@ -66,6 +67,11 @@ Thumbs.db
 # AWS / build artifacts and heavy dependencies
 backend/lambda_dependencies/
 backend/__pycache__/
+
+# Mobile nativo (Android build cache — nomes muito longos para Windows git)
+mobile/android/
+mobile/gradle-android-home/
+mobile/assets/models/
 
 # Optional: add large files by pattern
 # *.zip

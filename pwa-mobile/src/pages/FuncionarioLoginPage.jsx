@@ -14,23 +14,17 @@ export default function FuncionarioLoginPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Apenas redirecionar automaticamente se o usuário já estiver logado
-    // e for do tipo 'funcionario'. Isso evita que um usuário 'empresa'
-    // navegando para esta rota seja redirecionado incorretamente.
     if (signed && userType === 'funcionario') {
       navigate('/funcionario/dashboard', { replace: true });
     }
-
-    // Carregar login salvo
+    // Carregar apenas o ID salvo — nunca salvar ou carregar senha
     const savedId = localStorage.getItem('@funcionario_login_id');
-    const savedSenha = localStorage.getItem('@funcionario_login_senha');
     if (savedId) {
       setFuncionarioId(savedId);
       setRememberLogin(true);
     }
-    if (savedSenha) {
-      setSenha(savedSenha);
-    }
+    // Garantir limpeza de senha legada (migração de dados anteriores)
+    localStorage.removeItem('@funcionario_login_senha');
   }, [signed, userType, navigate]);
 
   async function handleLogin(e) {
@@ -46,13 +40,11 @@ export default function FuncionarioLoginPage() {
     try {
         await signInFuncionario(funcionarioId, senha);
 
-        // Salvar ou remover login e senha
+        // Salvar apenas o ID (nunca a senha)
         if (rememberLogin) {
           localStorage.setItem('@funcionario_login_id', funcionarioId);
-          localStorage.setItem('@funcionario_login_senha', senha);
         } else {
           localStorage.removeItem('@funcionario_login_id');
-          localStorage.removeItem('@funcionario_login_senha');
         }
 
         // Navegar ao dashboard do funcionário após login bem-sucedido
