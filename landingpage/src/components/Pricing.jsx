@@ -3,16 +3,16 @@ import { motion } from 'framer-motion'
 import { Check, Star, ArrowRight, MessageCircle, Package } from 'lucide-react'
 
 const WA_BASE = 'https://wa.me/5524992272778?text='
-const WA_IMPL = `${WA_BASE}Quero%20saber%20mais%20sobre%20a%20implantação%20do%20REGISTRA.PONTO`
+const WA_IMPL = `${WA_BASE}${encodeURIComponent('Olá! Gostaria de solicitar um orçamento para a Implantação Completa do REGISTRA.PONTO.')}`
 
 const plans = [
   {
-    id: 'essencial',
-    name: 'Essencial',
+    id: 'plano10',
+    name: 'Plano 10',
     employees: 'Até 10 funcionários',
-    price: 149,
+    price: 179,
     popular: false,
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no plano Essencial do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 10 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
     features: [
       'Reconhecimento facial',
       'Dashboard web',
@@ -22,28 +22,28 @@ const plans = [
     ],
   },
   {
-    id: 'profissional',
-    name: 'Profissional',
+    id: 'plano20',
+    name: 'Plano 20',
     employees: 'Até 20 funcionários',
-    price: 199,
+    price: 239,
     popular: true,
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no plano Profissional do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 20 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
     features: [
-      'Tudo do plano Essencial',
+      'Tudo do Plano 10',
       'Relatórios completos',
       'Controle avançado',
       'Suporte prioritário',
     ],
   },
   {
-    id: 'empresarial',
-    name: 'Empresarial',
+    id: 'plano30',
+    name: 'Plano 30',
     employees: 'Até 30 funcionários',
-    price: 249,
+    price: 299,
     popular: false,
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no plano Empresarial do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 30 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
     features: [
-      'Tudo do plano Profissional',
+      'Tudo do Plano 20',
       'Multiusuários',
       'Gestão avançada',
       'Recursos empresariais',
@@ -55,7 +55,7 @@ const plans = [
     employees: '31+ funcionários',
     price: null,
     popular: false,
-    description: 'Plano personalizado para empresas maiores.',
+    description: 'Entre em contato',
     ctaLabel: 'Solicitar orçamento',
     ctaGreen: true,
     waUrl: `${WA_BASE}${encodeURIComponent('Olá! Gostaria de solicitar um orçamento para o plano Enterprise do REGISTRA.PONTO.')}`,
@@ -64,11 +64,11 @@ const plans = [
 ]
 
 const implantationItems = [
-  'Tablet configurado',
-  'Instalação do sistema',
-  'Configuração da empresa',
-  'Treinamento inicial',
-  'Suporte técnico inicial',
+  'Tablet configurado com o sistema',
+  'Instalação e configuração da empresa',
+  'Cadastro facial dos funcionários',
+  'Treinamento da equipe',
+  'Suporte no primeiro mês',
 ]
 
 const cardVariants = {
@@ -217,28 +217,11 @@ export default function Pricing() {
                 </span>
               </div>
               <h3 className="text-2xl lg:text-3xl font-bold text-white mb-3 leading-tight">
-                Receba o sistema pronto para uso
+                Chegamos até você com tudo pronto.
               </h3>
-              <p className="text-sm text-slate-400 leading-relaxed mb-7">
-                Instalação, configuração e treinamento inclusos. Levamos tudo pronto até você.
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Instalação, configuração e treinamento inclusos. Você não precisa fazer nada — a gente cuida de tudo.
               </p>
-
-              <div>
-                <div className="flex items-center gap-3 mb-1.5">
-                  <span className="text-slate-600 text-sm line-through">R$ 1.799</span>
-                  <span className="text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-full px-2.5 py-0.5 font-semibold">
-                    Economia R$ 200
-                  </span>
-                </div>
-                <div className="flex items-start gap-1.5">
-                  <span className="text-slate-400 text-lg mt-2.5 font-medium">R$</span>
-                  <span className="text-6xl font-black text-white tracking-tight leading-none">
-                    1.599
-                  </span>
-                  <span className="text-slate-400 text-sm self-end mb-2">à vista</span>
-                </div>
-                <p className="text-xs text-slate-600 mt-2">Parcelamento disponível.</p>
-              </div>
             </div>
 
             <div>
@@ -259,7 +242,7 @@ export default function Pricing() {
                 className="btn-green w-full py-3.5"
               >
                 <MessageCircle size={16} />
-                Agendar implantação
+                Solicitar orçamento
               </a>
             </div>
           </div>
