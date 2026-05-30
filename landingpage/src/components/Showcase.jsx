@@ -2,6 +2,8 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { Check, ArrowRight } from 'lucide-react'
 
+const WA_BASE = 'https://wa.me/5524992272778?text='
+
 const accentMap = {
   blue: {
     label: 'text-blue-400',
@@ -35,9 +37,10 @@ const accentMap = {
   },
 }
 
-export default function Showcase({ id, label, title, description, image, imageAlt, side, accent, features, onContact, imageClass }) {
+export default function Showcase({ id, label, title, description, image, imageAlt, side, accent, features, imageClass }) {
   const c = accentMap[accent] || accentMap.blue
   const isRight = side === 'right'
+  const waUrl = `${WA_BASE}${encodeURIComponent(`Olá! Gostaria de saber mais sobre ${label} no REGISTRA.PONTO.`)}`
 
   return (
     <section
@@ -88,17 +91,17 @@ export default function Showcase({ id, label, title, description, image, imageAl
               ))}
             </ul>
 
-            {onContact && (
-              <motion.button
-                onClick={onContact}
-                whileHover={{ x: 2 }}
-                transition={{ duration: 0.15 }}
-                className="btn-secondary group"
-              >
-                Saiba mais
-                <ArrowRight size={15} className="group-hover:translate-x-1 transition-transform duration-150" />
-              </motion.button>
-            )}
+            <motion.a
+              href={waUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              whileHover={{ x: 2 }}
+              transition={{ duration: 0.15 }}
+              className="btn-secondary group"
+            >
+              Saiba mais
+              <ArrowRight size={15} className="group-hover:translate-x-1 transition-transform duration-150" />
+            </motion.a>
           </motion.div>
 
           {/* ── Image ── */}

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight, CheckCircle2, Shield, Clock, BarChart3, MessageCircle } from 'lucide-react'
 
 const WA_URL = 'https://wa.me/5524992272778?text=Olá!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
+const WA_DEMO = 'https://wa.me/5524992272778?text=Olá!%20Gostaria%20de%20solicitar%20uma%20demonstração%20do%20REGISTRA.PONTO.'
 
 const stats = [
   {
@@ -46,7 +47,7 @@ const statItem = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.21, 0.47, 0.32, 0.98] } },
 }
 
-export default function Hero({ onContact }) {
+export default function Hero() {
   return (
     <section className="relative min-h-screen flex flex-col justify-center overflow-hidden pt-[68px]">
 
@@ -103,10 +104,15 @@ export default function Hero({ onContact }) {
               transition={{ duration: 0.55, delay: 0.3 }}
               className="flex flex-wrap gap-3 mb-10"
             >
-              <button onClick={onContact} className="btn-primary px-7 py-3.5 text-[15px]">
+              <a
+                href={WA_DEMO}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary px-7 py-3.5 text-[15px]"
+              >
                 Solicitar demonstração
                 <ArrowRight size={16} />
-              </button>
+              </a>
               <a
                 href={WA_URL}
                 target="_blank"

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight, Clock, Shield, Headphones, MessageCircle } from 'lucide-react'
 
 const WA_URL = 'https://wa.me/5524992272778?text=Olá!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
+const WA_DEMO = 'https://wa.me/5524992272778?text=Olá!%20Gostaria%20de%20solicitar%20uma%20demonstração%20do%20REGISTRA.PONTO.'
 
 const perks = [
   { icon: Clock, text: 'Implantação em até 48h' },
@@ -10,7 +11,7 @@ const perks = [
   { icon: Headphones, text: 'Suporte incluso' },
 ]
 
-export default function FinalCTA({ onContact }) {
+export default function FinalCTA() {
   return (
     <section className="py-24 relative overflow-hidden bg-rp-surface">
       <div className="absolute inset-0">
@@ -58,10 +59,15 @@ export default function FinalCTA({ onContact }) {
           transition={{ delay: 0.3 }}
           className="flex flex-col sm:flex-row gap-3 justify-center mb-12"
         >
-          <button onClick={onContact} className="btn-primary px-8 py-4 text-base">
+          <a
+            href={WA_DEMO}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary px-8 py-4 text-base"
+          >
             Solicitar demonstração
             <ArrowRight size={18} />
-          </button>
+          </a>
           <a
             href={WA_URL}
             target="_blank"

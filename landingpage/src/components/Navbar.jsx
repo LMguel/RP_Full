@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
 
+const WA_CONSULTOR = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Gostaria%20de%20falar%20com%20um%20consultor%20do%20REGISTRA.PONTO.'
+
 const links = [
   { label: 'Funcionalidades', href: '#dashboard' },
   { label: 'Planos', href: '#planos' },
   { label: 'FAQ', href: '#faq' },
 ]
 
-export default function Navbar({ onContact }) {
+export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -82,9 +84,14 @@ export default function Navbar({ onContact }) {
 
             {/* Desktop CTA */}
             <div className="hidden md:flex items-center">
-              <button onClick={onContact} className="btn-primary text-sm px-5 py-2.5">
+              <a
+                href={WA_CONSULTOR}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary text-sm px-5 py-2.5"
+              >
                 Falar com consultor
-              </button>
+              </a>
             </div>
 
             {/* Mobile hamburger */}
@@ -119,12 +126,15 @@ export default function Navbar({ onContact }) {
                   {l.label}
                 </button>
               ))}
-              <button
-                onClick={() => { setMobileOpen(false); onContact() }}
+              <a
+                href={WA_CONSULTOR}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMobileOpen(false)}
                 className="btn-primary mt-2 w-full"
               >
                 Falar com consultor
-              </button>
+              </a>
             </div>
           </motion.div>
         )}

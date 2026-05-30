@@ -2,7 +2,8 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { Check, Star, ArrowRight, MessageCircle, Package } from 'lucide-react'
 
-const WA_IMPL = 'https://wa.me/5524992272778?text=Quero%20saber%20mais%20sobre%20a%20implantação%20do%20REGISTRA.PONTO'
+const WA_BASE = 'https://wa.me/5524992272778?text='
+const WA_IMPL = `${WA_BASE}Quero%20saber%20mais%20sobre%20a%20implantação%20do%20REGISTRA.PONTO`
 
 const plans = [
   {
@@ -11,6 +12,7 @@ const plans = [
     employees: 'Até 10 funcionários',
     price: 149,
     popular: false,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no plano Essencial do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
     features: [
       'Reconhecimento facial',
       'Dashboard web',
@@ -25,6 +27,7 @@ const plans = [
     employees: 'Até 20 funcionários',
     price: 199,
     popular: true,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no plano Profissional do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
     features: [
       'Tudo do plano Essencial',
       'Relatórios completos',
@@ -38,6 +41,7 @@ const plans = [
     employees: 'Até 30 funcionários',
     price: 249,
     popular: false,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no plano Empresarial do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
     features: [
       'Tudo do plano Profissional',
       'Multiusuários',
@@ -54,6 +58,7 @@ const plans = [
     description: 'Plano personalizado para empresas maiores.',
     ctaLabel: 'Solicitar orçamento',
     ctaGreen: true,
+    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Gostaria de solicitar um orçamento para o plano Enterprise do REGISTRA.PONTO.')}`,
     features: [],
   },
 ]
@@ -75,7 +80,7 @@ const cardVariants = {
   }),
 }
 
-export default function Pricing({ onContact }) {
+export default function Pricing() {
   return (
     <section id="planos" className="py-24 bg-rp-surface relative overflow-hidden">
       <div className="absolute inset-0 bg-hero-grid opacity-30" />
@@ -179,15 +184,17 @@ export default function Pricing({ onContact }) {
 
               {plan.id === 'enterprise' && <div className="flex-1 min-h-[60px]" />}
 
-              <button
-                onClick={() => onContact(plan.name)}
+              <a
+                href={plan.waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className={`w-full mt-auto py-3 ${
                   plan.popular ? 'btn-primary' : plan.ctaGreen ? 'btn-green' : 'btn-secondary'
                 }`}
               >
                 {plan.ctaLabel || 'Solicitar demonstração'}
                 <ArrowRight size={14} />
-              </button>
+              </a>
             </motion.div>
           ))}
         </div>

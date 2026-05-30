@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
 import Features from './components/Features'
@@ -8,7 +8,6 @@ import Pricing from './components/Pricing'
 import FAQ from './components/FAQ'
 import FinalCTA from './components/FinalCTA'
 import Footer from './components/Footer'
-import ContactModal from './components/ContactModal'
 import WhatsAppButton from './components/WhatsAppButton'
 
 const showcases = [
@@ -95,28 +94,19 @@ const showcases = [
 ]
 
 export default function App() {
-  const [modalOpen, setModalOpen] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState('')
-
-  function openModal(plan = '') {
-    setSelectedPlan(plan)
-    setModalOpen(true)
-  }
-
   return (
     <div className="bg-rp-bg text-slate-100 min-h-screen overflow-x-hidden">
-      <Navbar onContact={() => openModal()} />
-      <Hero onContact={() => openModal()} />
+      <Navbar />
+      <Hero />
       <Features />
       {showcases.map((s) => (
-        <Showcase key={s.id} {...s} onContact={() => openModal(s.label)} />
+        <Showcase key={s.id} {...s} />
       ))}
       <HowItWorks />
-      <Pricing onContact={openModal} />
+      <Pricing />
       <FAQ />
-      <FinalCTA onContact={() => openModal()} />
-      <Footer onContact={() => openModal()} />
-      <ContactModal open={modalOpen} plan={selectedPlan} onClose={() => setModalOpen(false)} />
+      <FinalCTA />
+      <Footer />
       <WhatsAppButton />
     </div>
   )
