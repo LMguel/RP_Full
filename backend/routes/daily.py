@@ -512,22 +512,25 @@ def get_daily_summaries():
                 horas_extras_min = None
             elif not intervalo_automatico:
                 # ── MODO MANUAL (intervalo_automatico=False) ──────────────────
-                # Previsto = jornada bruta cadastrada (saída - entrada), SEM
-                # desconto de intervalo. O pareamento posicional já exclui
-                # a pausa de worked; descontar break do expected geraria banco errado.
+                # Previsto depende do número de batidas:
+                #   n<=2: sem intervalo registrado → previsto = jornada bruta (sem desconto)
+                #   n>=3: intervalo registrado → previsto = jornada bruta - break configurado
+                # O pareamento posicional de worked já exclui naturalmente a pausa real.
+                expected_break = break_duration if n_punches_count >= 3 else 0
                 expected_min = eng_expected(
                     scheduled_start, scheduled_end,
                     intervalo_automatico=False,
-                    break_duration=0,
+                    break_duration=expected_break,
                 )
                 atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
                 # Hora extra = baseada no horário de SAÍDA REAL vs contratado + tolerância.
-                # NÃO usa worked vs expected (geraria falsos positivos com 2 batidas).
                 horas_extras_min = eng_overtime_exit(last_iso, scheduled_end, tolerancia_atraso)
-                # Banco diário = worked - expected (reflete pausa longa/curta).
-                # apply_bank_tolerance zera micro-diferenças dentro da tolerância.
-                banco_horas_dia = apply_bank_tolerance(worked_min - expected_min, tolerancia_atraso)
+                # Banco diário = overtime - delay - saida_antecipada (exit-entry based).
+                # MESMA lógica que o resumo mensal usa no frontend:
+                #   saldoBruto = sum(horas_extras_min) - sum(atraso_minutos) - sum(saida_antecipada_minutos)
+                # Isso garante que daily banco == contribuição para o banco mensal.
+                banco_horas_dia = horas_extras_min - atraso_min - saida_antecipada_min
             else:
                 # ── MODO AUTOMÁTICO (intervalo_automatico=True) ───────────────
                 # Previsto = jornada bruta - break configurado (intervalo não

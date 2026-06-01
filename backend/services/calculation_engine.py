@@ -222,10 +222,11 @@ def calculate_expected_minutes(
     """
     Calcula minutos previstos de trabalho.
 
-    intervalo_automatico=True:  desconta break_duration (intervalo não aparece nas batidas).
-    intervalo_automatico=False: previsto = jornada bruta (saída - entrada cadastradas).
-      O intervalo aparece como batidas reais; o pareamento posicional já exclui a pausa
-      do worked. Descontar break do expected geraria previsto incorreto.
+    break_duration é descontado quando > 0, independente do modo.
+    O chamador controla qual break_duration passar:
+      - modo automático: sempre passa break_duration configurado
+      - modo manual, n<=2 batidas: passa 0 (sem desconto, sem intervalo registrado)
+      - modo manual, n>=3 batidas: passa break_duration configurado
     """
     start_min = _parse_hhmm(scheduled_start)
     end_min = _parse_hhmm(scheduled_end)
@@ -234,7 +235,7 @@ def calculate_expected_minutes(
     total = end_min - start_min
     if total <= 0:
         return 0
-    if intervalo_automatico and break_duration > 0:
+    if break_duration > 0:
         total = max(0, total - break_duration)
     return total
 
