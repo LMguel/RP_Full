@@ -386,6 +386,9 @@ def atualizar_funcionario(payload, funcionario_id):
             foto.save(temp_path)
             # Upload into company folder
             foto_url = enviar_s3(temp_path, f"funcionarios/{funcionario_id}.jpg", empresa_id)
+            # Timestamp no URL garante que o browser não use versão cacheada
+            foto_url = f"{foto_url}?v={int(datetime.now().timestamp())}"
+            print(f"[PUT FOTO] Foto salva. URL: {foto_url[:60]}...")
             if 'face_id' in funcionario and rekognition:
                 try:
                     rekognition.delete_faces(
@@ -544,17 +547,20 @@ def atualizar_foto_funcionario(payload, funcionario_id):
                     break
 
         foto_nome = f"funcionarios/{funcionario_id}.jpg"
-        # Upload under company prefix and index the S3 object
-        foto_url = enviar_s3(temp_path, foto_nome, empresa_id)
+        foto_url_base = enviar_s3(temp_path, foto_nome, empresa_id)
+        foto_url = f"{foto_url_base}?v={int(datetime.now().timestamp())}"
         if rekognition:
-            rekognition.index_faces(
-                CollectionId=COLLECTION,
-                Image={'S3Object': {'Bucket': BUCKET, 'Name': f"{empresa_id}/{foto_nome}"}},
-                ExternalImageId=f"{empresa_id}_{funcionario_id}"
-            )
+            try:
+                rekognition.index_faces(
+                    CollectionId=COLLECTION,
+                    Image={'S3Object': {'Bucket': BUCKET, 'Name': f"{empresa_id}/{foto_nome}"}},
+                    ExternalImageId=f"{empresa_id}_{funcionario_id}"
+                )
+            except Exception as rek_e:
+                print(f"[PUT FOTO dedicado] Rekognition falhou (não crítico): {rek_e}")
 
         tabela_funcionarios.update_item(
-            Key={'id': funcionario_id},
+            Key={'company_id': empresa_id, 'id': funcionario_id},
             UpdateExpression='SET foto_url = :url',
             ExpressionAttributeValues={':url': foto_url}
         )
