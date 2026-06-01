@@ -111,20 +111,12 @@ class ApiService {
   }
 
   async createEmployee(employeeData: FormData) {
-    const response = await this.api.post('/api/cadastrar_funcionario', employeeData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await this.api.post('/api/cadastrar_funcionario', employeeData);
     return response.data;
   }
 
   async updateEmployee(id: string, employeeData: FormData) {
-    const response = await this.api.put(`/api/funcionarios/${id}`, employeeData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await this.api.put(`/api/funcionarios/${id}`, employeeData);
     return response.data;
   }
 

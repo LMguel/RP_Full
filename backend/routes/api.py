@@ -394,22 +394,27 @@ def atualizar_funcionario(payload, funcionario_id):
                     )
                 except Exception as e:
                     print(f"Aviso: falha ao deletar face anterior: {e}")
+            face_id = None
             with open(temp_path, 'rb') as image:
                 if rekognition:
-                    rekognition_response = rekognition.index_faces(
-                        CollectionId=COLLECTION,
-                        Image={'Bytes': image.read()},
-                        ExternalImageId=f"{empresa_id}_{funcionario_id}",
-                        MaxFaces=1,
-                        QualityFilter="AUTO",
-                        DetectionAttributes=["ALL"]
-                    )
-                else:
-                    rekognition_response = {'FaceRecords': []}
-            face_id = rekognition_response.get('FaceRecords', [{}])[0].get('Face', {}).get('FaceId')
+                    try:
+                        rekognition_response = rekognition.index_faces(
+                            CollectionId=COLLECTION,
+                            Image={'Bytes': image.read()},
+                            ExternalImageId=f"{empresa_id}_{funcionario_id}",
+                            MaxFaces=1,
+                            QualityFilter="AUTO",
+                            DetectionAttributes=["ALL"]
+                        )
+                        records = rekognition_response.get('FaceRecords', [])
+                        if records:
+                            face_id = records[0].get('Face', {}).get('FaceId')
+                    except Exception as rek_err:
+                        print(f"[PUT] Rekognition indexing falhou (não crítico): {rek_err}")
             os.remove(temp_path)
             funcionario['foto_url'] = foto_url
-            funcionario['face_id'] = face_id
+            if face_id:
+                funcionario['face_id'] = face_id
             
         funcionario['nome'] = nome
         funcionario['cargo'] = cargo

@@ -196,16 +196,7 @@ const EmployeesPage: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Error updating employee:', err);
-      
-      // Verificar se é realmente um erro ou se foi atualizado com sucesso
-      if (err.response?.status === 200 || err.response?.status === 201) {
-        toast.success('Funcionário atualizado com sucesso!');
-        setFormOpen(false);
-        setEditingEmployee(null);
-        loadEmployees();
-      } else {
-        toast.error(err.response?.data?.message || 'Erro ao atualizar funcionário');
-      }
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Erro ao atualizar funcionário');
     } finally {
       setSubmitting(false);
     }
