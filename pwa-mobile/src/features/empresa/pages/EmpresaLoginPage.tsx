@@ -1,9 +1,35 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../auth/AuthContext';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
+
+const SAVED_USUARIO_KEY = '@empresa:saved_usuario';
+const SAVED_SENHA_KEY = '@empresa:saved_senha';
+
+function saveCredentials(usuario: string, senha: string) {
+  localStorage.setItem(SAVED_USUARIO_KEY, usuario);
+  // btoa para leve ofuscação — não é criptografia real
+  localStorage.setItem(SAVED_SENHA_KEY, btoa(unescape(encodeURIComponent(senha))));
+}
+
+function loadCredentials(): { usuario: string; senha: string } | null {
+  const usuario = localStorage.getItem(SAVED_USUARIO_KEY);
+  const senhab64 = localStorage.getItem(SAVED_SENHA_KEY);
+  if (!usuario || !senhab64) return null;
+  try {
+    const senha = decodeURIComponent(escape(atob(senhab64)));
+    return { usuario, senha };
+  } catch {
+    return null;
+  }
+}
+
+function clearCredentials() {
+  localStorage.removeItem(SAVED_USUARIO_KEY);
+  localStorage.removeItem(SAVED_SENHA_KEY);
+}
 
 export default function EmpresaLoginPage() {
   const navigate = useNavigate();
@@ -11,8 +37,18 @@ export default function EmpresaLoginPage() {
   const [usuario, setUsuario] = useState('');
   const [senha, setSenha] = useState('');
   const [showSenha, setShowSenha] = useState(false);
+  const [lembrar, setLembrar] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const saved = loadCredentials();
+    if (saved) {
+      setUsuario(saved.usuario);
+      setSenha(saved.senha);
+      setLembrar(true);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,6 +58,11 @@ export default function EmpresaLoginPage() {
     setLoading(true);
     try {
       await signInEmpresa(usuario.trim(), senha);
+      if (lembrar) {
+        saveCredentials(usuario.trim(), senha);
+      } else {
+        clearCredentials();
+      }
       navigate('/empresa');
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Usuário ou senha inválidos.');
@@ -77,6 +118,24 @@ export default function EmpresaLoginPage() {
               </button>
             }
           />
+
+          {/* Lembrar credenciais */}
+          <button
+            type="button"
+            onClick={() => setLembrar(v => !v)}
+            className="flex items-center gap-3 w-full py-1 group"
+          >
+            <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors flex-shrink-0 ${lembrar ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600 group-hover:border-slate-400'}`}>
+              {lembrar && (
+                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+            <span className="text-slate-400 text-sm group-hover:text-slate-300 transition-colors text-left">
+              Lembrar credenciais neste tablet
+            </span>
+          </button>
 
           {error && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-rose-500/15 border border-rose-500/30 rounded-xl px-4 py-3">

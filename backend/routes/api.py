@@ -21,6 +21,13 @@ import unicodedata
 import re
 from utils.logger import setup_logger
 from utils.response_utils import sanitize_employee, sanitize_employees
+from utils.registro_normalizer import (
+    extrair_employee_id as _norm_emp,
+    extrair_data_hora as _norm_dh,
+    para_iso_date as _norm_date,
+    filtrar_registros as _norm_filtrar,
+    agrupar_por_employee_data as _norm_agrupar,
+)
 from utils.schedule import (
     build_pt_schedule_from_legacy,
     build_weekly_from_legacy,
@@ -1007,8 +1014,15 @@ def listar_registros(payload):
             if nome_funcionario:
                 filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
             
-            response_func = tabela_funcionarios.scan(FilterExpression=filtro_func)
-            funcionarios_items = response_func.get('Items', [])
+            funcionarios_items = []
+            _emp_kw: dict = {'FilterExpression': filtro_func}
+            while True:
+                _emp_resp = tabela_funcionarios.scan(**_emp_kw)
+                funcionarios_items.extend(_emp_resp.get('Items', []))
+                _emp_last = _emp_resp.get('LastEvaluatedKey')
+                if not _emp_last:
+                    break
+                _emp_kw['ExclusiveStartKey'] = _emp_last
             funcionarios_filtrados = [f['id'] for f in funcionarios_items]
             # Criar mapa de funcionários para acesso rápido
             funcionarios_map = {f['id']: f for f in funcionarios_items}
@@ -1032,40 +1046,44 @@ def listar_registros(payload):
         
         # Construir filtro de registros para o novo schema TimeRecords
         try:
-            # Tabela TimeRecords usa: company_id (HASH) + employee_id#date_time (RANGE)
+            # Filtra apenas por company_id no DynamoDB (filtro mais amplo e seguro).
+            # A filtragem por data é feita em Python usando data_hora[:10], idêntico
+            # ao /api/registros-diarios, para não perder registros onde employee_id#date_time
+            # tem formato diferente (ISO com T, maiúsculas, etc.).
             filtro_registros = Attr('company_id').eq(empresa_id)
             
-            # Adicionar filtro de data se fornecido (formato ISO: YYYY-MM-DD)
-            if data_inicio and data_fim:
-                # employee_id#date_time formato: "miguel_123#2025-11-10 14:30:00"
-                # Precisamos buscar registros entre as datas
-                filtro_registros = filtro_registros & Attr('employee_id#date_time').between(
-                    f"#{data_inicio} 00:00:00",  # Prefixo com # para pegar qualquer employee_id
-                    f"~{data_fim} 23:59:59"      # ~ é maior que qualquer caractere normal
-                )
-                print(f"[DEBUG] Filtro de data aplicado: {data_inicio} até {data_fim}")
-            
-            print(f"[DEBUG] Executando scan na tabela TimeRecords...")
-            response = tabela_registros.scan(FilterExpression=filtro_registros)
-            registros = response.get('Items', [])
-            print(f"[DEBUG] Encontrados {len(registros)} registros após scan")
-            
+            # Paginar o scan — limite de 1MB por chamada no DynamoDB.
+            # Empresas com intervalo manual têm 2× mais registros/dia, esgotando
+            # o limite mais rápido e causando desaparecimento de registros.
+            print(f"[DEBUG] Executando scan paginado na tabela TimeRecords...")
+            registros = []
+            _scan_kw: dict = {'FilterExpression': filtro_registros}
+            while True:
+                _resp = tabela_registros.scan(**_scan_kw)
+                registros.extend(_resp.get('Items', []))
+                _last = _resp.get('LastEvaluatedKey')
+                if not _last:
+                    break
+                _scan_kw['ExclusiveStartKey'] = _last
+            print(f"[DEBUG] Encontrados {len(registros)} registros (scan paginado)")
+
+            # Filtrar via normalizer canônico (mesma lógica do /api/registros-diarios)
+            # case-insensitive, suporta data_hora_calculo, data_hora, composite key
+            registros = _norm_filtrar(
+                registros,
+                start_date=data_inicio or None,
+                end_date=data_fim or None,
+                employee_id=funcionario_id or None,
+                ignorar_invalidos=False,  # status já filtrado abaixo na formatação
+            )
+            print(f"[DEBUG] Após filtro canônico: {len(registros)} registros (func={funcionario_id})")
+
             # Debug: mostrar estrutura dos registros
             if registros:
                 print(f"[DEBUG] Exemplo de registro (novo schema): {registros[0]}")
-            
-            # Agrupar registros por funcionário e data para calcular status
-            registros_por_func_data = {}
-            for reg in registros:
-                composite_key = reg.get('employee_id#date_time', '')
-                if '#' in composite_key:
-                    employee_id, data_hora = composite_key.split('#', 1)
-                    data_apenas = data_hora.split(' ')[0]  # YYYY-MM-DD
-                    
-                    chave = f"{employee_id}#{data_apenas}"
-                    if chave not in registros_por_func_data:
-                        registros_por_func_data[chave] = []
-                    registros_por_func_data[chave].append(reg)
+
+            # Agrupar via normalizer canônico
+            registros_por_func_data = _norm_agrupar(registros)
             
             # Converter schema novo para formato esperado pelo frontend
             registros_formatados = []
@@ -1115,13 +1133,14 @@ def listar_registros(payload):
                         
                         if '#' in entrada_key:
                             _, entrada_data_hora = entrada_key.split('#', 1)
-                            horario_entrada_real = entrada_data_hora.split(' ')[1][:5]
+                            # Suporta 'YYYY-MM-DD HH:MM:SS' e 'YYYY-MM-DDTHH:MM:SS'
+                            horario_entrada_real = entrada_data_hora[11:16] if len(entrada_data_hora) > 10 else '00:00'
                         else:
                             horario_entrada_real = '00:00'
-                        
+
                         if '#' in saida_key:
                             _, saida_data_hora = saida_key.split('#', 1)
-                            horario_saida_real = saida_data_hora.split(' ')[1][:5]
+                            horario_saida_real = saida_data_hora[11:16] if len(saida_data_hora) > 10 else '00:00'
                         else:
                             horario_saida_real = '00:00'
                         
@@ -1185,30 +1204,28 @@ def listar_registros(payload):
                         print(f"[DEBUG] Erro ao calcular status para {employee_id}: {calc_err}")
             
             # Segundo passo: criar registros formatados com status correto
+            _fids_low = [f.lower() for f in funcionarios_filtrados] if funcionarios_filtrados else []
             for reg in registros:
-                # Extrair employee_id e data_hora do campo composto
-                composite_key = reg.get('employee_id#date_time', '')
-                if '#' in composite_key:
-                    employee_id, data_hora = composite_key.split('#', 1)
-                else:
-                    employee_id = reg.get('funcionario_id', '')
-                    data_hora = reg.get('data_hora', '')
-                
-                # Filtrar por funcionário específico se solicitado
-                if funcionario_id and employee_id != funcionario_id:
+                employee_id = _norm_emp(reg)
+                data_hora   = _norm_dh(reg)
+                data_hora   = str(data_hora) if data_hora else ''
+
+                # Filtro de segurança (normalizer já aplicou, mas garante status)
+                _rec_status = str(reg.get('status') or 'ATIVO').upper()
+                if _rec_status in ('INVALIDADO', 'AJUSTADO'):
+                    continue  # exclui inválidos da listagem de detalhes
+                if funcionario_id and employee_id.lower() != funcionario_id.lower():
                     continue
-                
-                # Filtrar por nome se não foi específico por ID
-                if not funcionario_id and funcionarios_filtrados and employee_id not in funcionarios_filtrados:
+                if not funcionario_id and _fids_low and employee_id.lower() not in _fids_low:
                     continue
-                
+
                 # Criar registro formatado para o frontend
                 tipo_registro = reg.get('type', reg.get('tipo', ''))
                 metodo_registro = reg.get('method', reg.get('metodo', 'MANUAL'))
-                
+
                 # Buscar status calculado para este funcionário/data
-                data_apenas = data_hora.split(' ')[0]
-                chave = f"{employee_id}#{data_apenas}"
+                data_apenas = _norm_date(data_hora)
+                chave = f"{employee_id}#{data_apenas}" if data_apenas else ''
                 status_calculado = status_por_func_data.get(chave, {})
                 
                 # Atribuir status ao registro correto:
@@ -1218,8 +1235,9 @@ def listar_registros(payload):
                 horas_trabalhadas_minutos = 0
                 if tipo_registro in ('saída', 'saida'):
                     horas_extras_minutos = status_calculado.get('horas_extras_minutos', 0)
+                composite_key = str(reg.get('employee_id#date_time') or '')
                 registro_formatado = {
-                    'registro_id': f"{reg.get('company_id', '')}_{composite_key}",
+                    'registro_id': f"{reg.get('company_id', '')}_{composite_key or f'{employee_id}#{data_hora}'}",
                     'funcionario_id': employee_id,
                     'data_hora': data_hora,
                     'type': tipo_registro,
@@ -1267,15 +1285,25 @@ def listar_registros(payload):
             print(f"[DEBUG] Erro no scan de registros: {str(e)}")
             return jsonify({'error': f'Erro ao buscar registros: {str(e)}'}), 500
         
-        # Formatar data para DD-MM-AAAA
+        # Normalizar data_hora para 'DD-MM-YYYY HH:MM:SS'
         for reg in registros:
-            if 'data_hora' in reg:
-                try:
-                    data_part, hora_part = reg['data_hora'].split(' ')
-                    yyyy, mm, dd = data_part.split('-')
-                    reg['data_hora'] = f"{dd}-{mm}-{yyyy} {hora_part}"
-                except (ValueError, IndexError) as e:
-                    print(f"[DEBUG] Erro ao formatar data {reg.get('data_hora', 'N/A')}: {str(e)}")
+            try:
+                dh = reg.get('data_hora') or ''
+                dh = str(dh) if dh else ''
+                if not dh or len(dh) < 10:
+                    continue
+                sep = 'T' if 'T' in dh else ' '
+                parts = dh.split(sep, 1)
+                date_part = parts[0]
+                time_part = parts[1][:8] if len(parts) > 1 else '00:00:00'
+                date_segs = date_part.split('-')
+                if len(date_segs) == 3 and len(date_segs[0]) == 4:  # YYYY-MM-DD
+                    yyyy, mm, dd = date_segs
+                    reg['data_hora'] = f"{dd}-{mm}-{yyyy} {time_part}"
+                elif len(date_segs) == 3 and len(date_segs[2]) == 4:  # DD-MM-YYYY already
+                    pass  # already formatted
+            except Exception as e:
+                print(f"[DEBUG] Erro ao formatar data_hora: {e}")
         
         # SEMPRE retornar registros individuais completos
         print(f"[DEBUG] Retornando {len(registros)} registros individuais")
@@ -1346,122 +1374,114 @@ def listar_registros_resumo(payload):
 
         funcionarios_filtrados = []
         
-        # Buscar funcionários da empresa
+        # Buscar funcionários da empresa (paginado)
         try:
             filtro_func = Attr('company_id').eq(empresa_id)
             if nome_funcionario:
                 filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
-            
-            response_func = tabela_funcionarios.scan(FilterExpression=filtro_func)
-            funcionarios_filtrados = response_func.get('Items', [])
+            funcionarios_filtrados = []
+            _fkw: dict = {'FilterExpression': filtro_func}
+            while True:
+                _fr = tabela_funcionarios.scan(**_fkw)
+                funcionarios_filtrados.extend(_fr.get('Items', []))
+                _fl = _fr.get('LastEvaluatedKey')
+                if not _fl:
+                    break
+                _fkw['ExclusiveStartKey'] = _fl
             print(f"[DEBUG RESUMO] Funcionários encontrados: {len(funcionarios_filtrados)}")
         except Exception as e:
             print(f"[DEBUG RESUMO] Erro ao buscar funcionários: {str(e)}")
             return jsonify({'error': 'Erro ao buscar funcionários da empresa'}), 500
         
-        # Filtrar por funcionario_id se fornecido
+        # Filtrar por funcionario_id se fornecido (case-insensitive)
         if funcionario_id:
-            funcionarios_filtrados = [f for f in funcionarios_filtrados if f['id'] == funcionario_id]
-        
+            funcionarios_filtrados = [f for f in funcionarios_filtrados if f.get('id', '').lower() == funcionario_id.lower()]
+
         if not funcionarios_filtrados:
             print("[DEBUG RESUMO] Nenhum funcionário encontrado")
             return jsonify([])
-        
-        # Buscar TODOS os registros da empresa no período com paginação completa
+
+        # Buscar TODOS os registros da empresa (sem filtro de data no DynamoDB —
+        # Attr('data_hora').between() falha para formatos ISO 8601, data_hora_calculo
+        # e registros sem data_hora. Filtro de data é feito em Python via normalizer.)
         try:
             print(f"[DEBUG RESUMO] Iniciando busca de registros - Período: {data_inicio} até {data_fim}")
-            func_ids_set = set(f['id'] for f in funcionarios_filtrados)
-            print(f"[DEBUG RESUMO] Buscando para {len(func_ids_set)} funcionários")
-            
-            # Montar filtro base
-            base_filter = Attr('company_id').eq(empresa_id)
-            if data_inicio and data_fim:
-                start_ts = f"{data_inicio} 00:00:00"
-                end_ts = f"{data_fim} 23:59:59"
-                date_filter = Attr('data_hora').between(start_ts, end_ts)
-                scan_filter = base_filter & date_filter
-            else:
-                scan_filter = base_filter
-            
-            # Scan com paginação completa (sem Limit)
+            # Lookup case-insensitive: lowercase → funcionário original
+            func_ids_lower = {f['id'].lower(): f for f in funcionarios_filtrados}
+            print(f"[DEBUG RESUMO] Buscando para {len(func_ids_lower)} funcionários")
+
+            scan_filter = Attr('company_id').eq(empresa_id)
             registros_raw = []
             scan_kwargs = {'FilterExpression': scan_filter}
             while True:
                 response = tabela_registros.scan(**scan_kwargs)
-                items = response.get('Items', [])
-                registros_raw.extend(items)
-                # Verificar se há mais páginas
+                registros_raw.extend(response.get('Items', []))
                 last_key = response.get('LastEvaluatedKey')
                 if not last_key:
                     break
                 scan_kwargs['ExclusiveStartKey'] = last_key
-            
+
             print(f"[DEBUG RESUMO] Registros raw encontrados (scan completo): {len(registros_raw)}")
-            
-            # Filtrar por employee_id e status
+
+            # Filtrar via normalizer canônico (mesma lógica do /api/registros-diarios)
+            registros_raw = _norm_filtrar(
+                registros_raw,
+                start_date=data_inicio or None,
+                end_date=data_fim or None,
+                employee_id=None,  # filtro de employee feito abaixo com lookup
+                ignorar_invalidos=True,
+            )
+            print(f"[DEBUG RESUMO] Após filtro canonico de data: {len(registros_raw)}")
+
+            # Filtrar por employee_id usando normalizer canônico (case-insensitive)
             registros = []
+            _descartados_motivo: dict = {}
             for item in registros_raw:
-                # Ignorar registros invalidados ou ajustados
-                record_status = (item.get('status') or 'ATIVO').upper()
-                if record_status in ('INVALIDADO', 'AJUSTADO'):
-                    continue
-                
-                # Determinar employee_id do registro
-                employee_id = item.get('employee_id')
+                # Usar extração canônica (prioriza funcionario_id > employee_id > composite)
+                employee_id = _norm_emp(item)
+
                 if not employee_id:
-                    composite = item.get('employee_id#date_time') or ''
-                    if '#' in composite:
-                        employee_id = composite.split('#')[0]
-                
-                # Verificar se pertence a um funcionário filtrado
-                if not employee_id or str(employee_id) not in func_ids_set:
+                    _descartados_motivo['sem_employee_id'] = _descartados_motivo.get('sem_employee_id', 0) + 1
+                    continue
+
+                emp_low = employee_id.lower()
+                func_obj = func_ids_lower.get(emp_low)
+                if func_obj is None:
+                    _descartados_motivo['nao_pertence_empresa'] = _descartados_motivo.get('nao_pertence_empresa', 0) + 1
                     continue
                 
-                # Extrair campos
-                data_hora = item.get('data_hora') or item.get('date_time')
-                data_hora_calculo = item.get('data_hora_calculo') or data_hora
+                # Usar extração canônica para data_hora
+                dh_raw = _norm_dh(item)
+                data_hora_calculo = item.get('data_hora_calculo') or dh_raw
                 tipo = item.get('type') or item.get('tipo')
-                
+
                 # Normalizar data para DD-MM-YYYY HH:MM:SS
-                data_hora_formatada = data_hora
-                data_hora_calculo_fmt = data_hora_calculo
-                if data_hora:
-                    try:
-                        if '-' in data_hora:
-                            partes = data_hora.split(' ')
-                            if len(partes) >= 2:
-                                data_part, hora_part = partes[0], partes[1]
-                                split = data_part.split('-')
-                                if len(split) == 3 and len(split[0]) == 4:
-                                    yyyy, mm, dd = split
-                                    data_hora_formatada = f"{dd}-{mm}-{yyyy} {hora_part}"
-                    except Exception as e:
-                        print(f"[DEBUG RESUMO] Erro ao formatar data {data_hora}: {e}")
-                
-                if data_hora_calculo and data_hora_calculo != data_hora:
-                    try:
-                        if '-' in data_hora_calculo:
-                            partes = data_hora_calculo.split(' ')
-                            if len(partes) >= 2:
-                                data_part, hora_part = partes[0], partes[1]
-                                split = data_part.split('-')
-                                if len(split) == 3 and len(split[0]) == 4:
-                                    yyyy, mm, dd = split
-                                    data_hora_calculo_fmt = f"{dd}-{mm}-{yyyy} {hora_part}"
-                    except Exception:
-                        data_hora_calculo_fmt = data_hora_formatada
-                else:
-                    data_hora_calculo_fmt = data_hora_formatada
-                
+                def _fmt_dh(dh):
+                    if not dh:
+                        return dh
+                    sep = 'T' if 'T' in dh else ' '
+                    parts = dh.split(sep, 1)
+                    date_part = parts[0]
+                    time_part = parts[1][:8] if len(parts) > 1 else '00:00:00'
+                    segs = date_part.split('-')
+                    if len(segs) == 3 and len(segs[0]) == 4:
+                        return f"{segs[2]}-{segs[1]}-{segs[0]} {time_part}"
+                    return f"{date_part} {time_part}"
+
+                data_hora_formatada = _fmt_dh(dh_raw)
+                data_hora_calculo_fmt = _fmt_dh(data_hora_calculo) if data_hora_calculo != dh_raw else data_hora_formatada
+
                 registro_formatado = {
-                    'employee_id': str(employee_id),
+                    'employee_id': func_obj.get('id', employee_id),  # canonical ID
                     'data_hora': data_hora_formatada,
                     'data_hora_calculo': data_hora_calculo_fmt,
                     'tipo': tipo,
                 }
                 registros.append(registro_formatado)
-            
+
             print(f"[DEBUG RESUMO] Registros filtrados e formatados: {len(registros)}")
+            if _descartados_motivo:
+                print(f"[DEBUG RESUMO] Descartados: {_descartados_motivo}")
         except Exception as e:
             print(f"[DEBUG RESUMO] Erro ao buscar registros: {str(e)}")
             import traceback
@@ -1817,49 +1837,88 @@ def buscar_nomes(payload):
         print(f"Erro ao buscar nomes: {str(e)}")
         return jsonify({'error': 'Erro ao buscar nomes'}), 500
 
-@routes.route('/enviar-email-registros', methods=['POST'])
-def enviar_email_registros():
+@routes.route('/enviar-espelho-email', methods=['POST', 'OPTIONS'])
+def enviar_email_espelho():
+    """Envia o espelho de ponto mensal por email usando Amazon SES."""
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # Verificar token manualmente (mesmo padrão de /configuracoes — evita bloqueio do decorator no OPTIONS)
+    token = None
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+    if not token:
+        return jsonify({'error': 'Token ausente'}), 401
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido'}), 401
+
     try:
-        from io import BytesIO
-        from openpyxl import Workbook
-        
-        # ✅ CORREÇÃO: Usar request.get_json() em vez de request.json
+        import boto3
+        from botocore.exceptions import ClientError
+
         data = request.get_json()
         if not data:
             return jsonify({'error': 'JSON inválido ou ausente'}), 400
-            
-        funcionario = data.get('funcionario', 'Funcionário não especificado')
-        periodo = data.get('periodo', 'Período não especificado')
-        registros = data.get('registros', [])
-        email_destino = data.get('email')
-        if not email_destino:
-            return jsonify({'error': 'Email não fornecido'}), 400
-            
-        output = BytesIO()
-        workbook = Workbook()
-        sheet_resumo = workbook.active
-        sheet_resumo.title = "Resumo"
-        sheet_resumo.append(["Relatório de Registros de Ponto"])
-        sheet_resumo.append(["Funcionário:", funcionario])
-        sheet_resumo.append(["Período:", periodo])
-        sheet_resumo.append([])
-        sheet_resumo.append(["Total de Registros:", len(registros)])
-        sheet_detalhes = workbook.create_sheet("Registros")
-        sheet_detalhes.append(["Data", "Hora", "Tipo"])
-        for reg in registros:
-            emp_id = reg.get('employee_id')
-            data_hora_completa = reg.get('data_hora', '')
-            if not emp_id or not data_hora_completa:
-                continue
-            data = data_hora_completa.split(' ')[0]  # DD-MM-YYYY
-            if emp_id not in registros_por_funcionario_data:
-                registros_por_funcionario_data[emp_id] = {}
-            if data not in registros_por_funcionario_data[emp_id]:
-                registros_por_funcionario_data[emp_id][data] = []
-            registros_por_funcionario_data[emp_id][data].append(reg)
+
+        email_destino = data.get('email', '').strip()
+        periodo = data.get('periodo', '')
+        empresa_nome = data.get('empresa_nome', payload.get('empresa_nome', 'Empresa'))
+        empresa_cnpj = data.get('empresa_cnpj', '')
+        gerado_em = data.get('gerado_em', datetime.now().strftime('%d/%m/%Y %H:%M'))
+        resumo_html = data.get('resumo_html', '')
+
+        if not email_destino or '@' not in email_destino:
+            return jsonify({'error': 'Email de destino inválido'}), 400
+        if not periodo:
+            return jsonify({'error': 'Período não informado'}), 400
+
+        cnpj_linha = f'<p style="margin:2px 0;font-size:13px;color:#555;">CNPJ: {empresa_cnpj}</p>' if empresa_cnpj else ''
+
+        html_body = f"""
+        <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#f9f9f9;border-radius:8px;">
+          <div style="background:#1e40af;padding:20px 24px;border-radius:8px 8px 0 0;">
+            <h2 style="color:white;margin:0;font-size:20px;">Espelho de Ponto Mensal</h2>
+            <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:14px;">{empresa_nome}</p>
+            {cnpj_linha.replace('color:#555', 'color:rgba(255,255,255,0.7)')}
+          </div>
+          <div style="background:white;padding:20px 24px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;border-top:none;">
+            <p style="margin:0 0 12px;font-size:14px;color:#374151;"><strong>Período:</strong> {periodo}</p>
+            <p style="margin:0 0 16px;font-size:14px;color:#374151;"><strong>Gerado em:</strong> {gerado_em}</p>
+            {resumo_html}
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
+            <p style="font-size:12px;color:#9ca3af;margin:0;">
+              Este relatório foi gerado automaticamente pelo sistema REGISTRA.PONTO.<br>
+              Em caso de dúvidas, entre em contato com o administrador do sistema.
+            </p>
+          </div>
+        </div>
+        """
+
+        ses_client = boto3.client('ses', region_name='us-east-1')
+        ses_from = os.environ.get('SES_FROM_EMAIL', '')
+        if not ses_from:
+            return jsonify({'error': 'Remetente de email não configurado. Defina SES_FROM_EMAIL no .env do servidor.'}), 500
+
+        ses_client.send_email(
+            Source=ses_from,
+            Destination={'ToAddresses': [email_destino]},
+            Message={
+                'Subject': {'Data': f'Espelho de Ponto — {empresa_nome} — {periodo}', 'Charset': 'UTF-8'},
+                'Body': {
+                    'Html': {'Data': html_body, 'Charset': 'UTF-8'},
+                    'Text': {'Data': f'Espelho de Ponto\nEmpresa: {empresa_nome}\nPeríodo: {periodo}\nGerado em: {gerado_em}', 'Charset': 'UTF-8'},
+                },
+            },
+        )
+
+        print(f"[EMAIL] Espelho enviado para {email_destino} — período {periodo}")
+        return jsonify({'success': True, 'message': f'Email enviado para {email_destino}'}), 200
+
     except Exception as e:
-        print(f"Erro ao enviar email: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        print(f"[EMAIL] Erro ao enviar: {str(e)}")
+        return jsonify({'error': f'Erro ao enviar email: {str(e)}'}), 500
 
 @routes.route('/registros/<registro_id>/ajustar', methods=['POST', 'OPTIONS'])
 @token_required
@@ -2264,6 +2323,60 @@ def login():
         logger.error(f"Erro no login empresa: {type(e).__name__}")
         return jsonify({'error': 'Erro interno ao processar login'}), 500
 
+# ========== DADOS DA EMPRESA (nome e CNPJ) ==========
+@routes.route('/empresa/dados', methods=['GET', 'PUT', 'OPTIONS'])
+def empresa_dados():
+    """Lê e atualiza empresa_nome e cnpj diretamente na tabela UserCompany."""
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    token = None
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+    if not token:
+        return jsonify({'error': 'Token ausente'}), 401
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido'}), 401
+
+    usuario_id = payload.get('usuario_id')
+    company_id = payload.get('company_id')
+
+    if request.method == 'GET':
+        try:
+            resp = tabela_usuarioempresa.get_item(
+                Key={'company_id': company_id, 'user_id': usuario_id}
+            )
+            item = resp.get('Item', {})
+            return jsonify({
+                'empresa_nome_display': item.get('empresa_nome_display', item.get('empresa_nome', '')),
+                'empresa_cnpj': item.get('empresa_cnpj', ''),
+            }), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    # PUT
+    try:
+        data = request.get_json() or {}
+        empresa_nome_display = data.get('empresa_nome_display', '').strip()
+        empresa_cnpj = data.get('empresa_cnpj', '').strip()
+
+        # Chave composta: company_id (PK) + user_id (SK)
+        tabela_usuarioempresa.update_item(
+            Key={'company_id': company_id, 'user_id': usuario_id},
+            UpdateExpression='SET empresa_nome_display = :nome, empresa_cnpj = :cnpj',
+            ExpressionAttributeValues={':nome': empresa_nome_display, ':cnpj': empresa_cnpj},
+        )
+
+        print(f"[EMPRESA/DADOS] Atualizado company_id={company_id} user_id={usuario_id}")
+        return jsonify({'success': True}), 200
+
+    except Exception as e:
+        print(f"[EMPRESA/DADOS] Erro: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # Add CORS support to the cadastrar_usuario_empresa route
 @routes.route('/cadastrar_usuario_empresa', methods=['POST', 'OPTIONS'])
 def cadastrar_usuario_empresa():
@@ -2469,24 +2582,33 @@ def meus_registros(payload):
         
         print(f"[MEUS REGISTROS] Buscando registros de {funcionario_id}")
         
-        # Buscar registros do funcionário usando a chave composta employee_id#date_time
-        # Filtrar por company_id e employee_id# que começa com o funcionario_id
-        filtro = Attr('company_id').eq(empresa_id) & Attr('employee_id#date_time').begins_with(funcionario_id)
-        
-        if data_inicio and data_fim:
-            # Adicionar filtro de data se fornecido
-            filtro = filtro & Attr('employee_id#date_time').between(
-                f"{funcionario_id}#{data_inicio} 00:00:00",
-                f"{funcionario_id}#{data_fim} 23:59:59"
-            )
-        
-        response = tabela_registros.scan(FilterExpression=filtro)
-        registros = response.get('Items', [])
-        
+        # Scan paginado por company_id; filtragem de data e employee via normalizer
+        # (remove o between do DynamoDB que causava missing records em formato T e
+        #  o begins_with que excluía records com employee_id em campos explícitos)
+        filtro = Attr('company_id').eq(empresa_id)
+
+        registros = []
+        _scan_kw: dict = {'FilterExpression': filtro}
+        while True:
+            _resp = tabela_registros.scan(**_scan_kw)
+            registros.extend(_resp.get('Items', []))
+            _last = _resp.get('LastEvaluatedKey')
+            if not _last:
+                break
+
+        # Filtrar por funcionário e data via normalizer canônico (case-insensitive)
+        registros = _norm_filtrar(
+            registros,
+            start_date=data_inicio or None,
+            end_date=data_fim or None,
+            employee_id=funcionario_id,
+            ignorar_invalidos=False,
+        )
+
         # Ordenar por data (mais recente primeiro)
         registros = sorted(registros, key=lambda x: x.get('employee_id#date_time', ''), reverse=True)
-        
-        print(f"[MEUS REGISTROS] Encontrados {len(registros)} registros")
+
+        print(f"[MEUS REGISTROS] Encontrados {len(registros)} registros (scan paginado)")
         
         return jsonify({'registros': registros}), 200
 
@@ -2996,7 +3118,11 @@ def configuracoes_empresa():
             intervalo_automatico = data.get('intervalo_automatico', False)
             duracao_intervalo = data.get('duracao_intervalo', 60)
             compensar_saldo_horas = data.get('compensar_saldo_horas', False)
-            
+
+            # Dados da empresa para relatórios
+            empresa_nome_display = data.get('empresa_nome_display', '').strip()
+            empresa_cnpj = data.get('empresa_cnpj', '').strip()
+
             # Novos campos de geolocalização
             latitude_empresa = data.get('latitude_empresa')
             longitude_empresa = data.get('longitude_empresa')
@@ -3036,6 +3162,10 @@ def configuracoes_empresa():
             config_item['raio_permitido'] = raio_permitido
             config_item['data_atualizacao'] = datetime.now().isoformat()
             config_item['first_configuration_completed'] = True
+            if empresa_nome_display:
+                config_item['empresa_nome_display'] = empresa_nome_display
+            if empresa_cnpj:
+                config_item['empresa_cnpj'] = empresa_cnpj
             
             # Adicionar coordenadas se fornecidas
             if latitude_empresa is not None:

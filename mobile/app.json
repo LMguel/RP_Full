@@ -1,34 +1,4 @@
 {
-  "expo": {
-    "name": "RegistraPonto Tablet",
-    "slug": "registraponto-tablet",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#1e3a8a"
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.registraponto.tablet"
-    },
-    "android": {
-      "package": "com.registraponto.tablet",
-      "permissions": [
-        "android.permission.CAMERA"
-      ]
-    },
-    "plugins": [
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Permitir que $(PRODUCT_NAME) acesse sua câmera para reconhecimento facial."
-        }
-      ]
-    ]
-  }
+  "name": "RegistraPonto",
+  "displayName": "REGISTRA.PONTO"
 }

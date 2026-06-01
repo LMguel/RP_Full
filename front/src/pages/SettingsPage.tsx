@@ -36,9 +36,116 @@ import { toast } from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 import { CompanySettings } from '../types';
-import LocationSettings from '../components/LocationSettings';
 import HorarioEmpresaSettings from '../components/HorarioEmpresaSettings';
 import HolidayCalendarSettings from '../components/HolidayCalendarSettings';
+
+// Componente para dados da empresa (nome e CNPJ para relatórios)
+const CompanyInfoSettings: React.FC = () => {
+  const [empresaNome, setEmpresaNome] = useState('');
+  const [empresaCnpj, setEmpresaCnpj] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiService.get('/api/empresa/dados').then((r: any) => {
+      setEmpresaNome(r?.empresa_nome_display || '');
+      setEmpresaCnpj(r?.empresa_cnpj || '');
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const formatCnpj = (v: string) => {
+    const d = v.replace(/\D/g, '').slice(0, 14);
+    return d
+      .replace(/^(\d{2})(\d)/, '$1.$2')
+      .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+      .replace(/\.(\d{3})(\d)/, '.$1/$2')
+      .replace(/(\d{4})(\d)/, '$1-$2');
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiService.put('/api/empresa/dados', {
+        empresa_nome_display: empresaNome.trim(),
+        empresa_cnpj: empresaCnpj.replace(/\D/g, ''),
+      });
+      toast.success('Dados da empresa salvos!');
+    } catch {
+      toast.error('Erro ao salvar dados da empresa');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputSx = {
+    '& .MuiOutlinedInput-root': {
+      color: 'rgba(255,255,255,0.9)',
+      '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.35)' },
+      '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+    },
+    '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+    '& .MuiInputLabel-root.Mui-focused': { color: '#60a5fa' },
+  };
+
+  return (
+    <Card sx={{ background:'rgba(255,255,255,0.08)', backdropFilter:'blur(20px)', borderRadius:'16px', border:'1px solid rgba(255,255,255,0.1)' }}>
+      <CardContent>
+        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:3 }}>
+          <BusinessIcon sx={{ color:'#3b82f6', fontSize:'24px' }} />
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight:600, color:'white', fontSize:'18px' }}>
+              Dados da Empresa
+            </Typography>
+            <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'14px' }}>
+              Informações exibidas nos relatórios e espelhos de ponto exportados
+            </Typography>
+          </Box>
+        </Box>
+        {loading ? (
+          <Box sx={{ display:'flex', justifyContent:'center', p:3 }}><CircularProgress sx={{ color:'#3b82f6' }} /></Box>
+        ) : (
+          <Grid container spacing={3}>
+            <Grid size={{ xs:12, md:6 }}>
+              <TextField
+                fullWidth
+                label="Nome da Empresa (para relatórios)"
+                placeholder="Ex: Empresa XYZ Ltda"
+                value={empresaNome}
+                onChange={e => setEmpresaNome(e.target.value)}
+                sx={inputSx}
+              />
+            </Grid>
+            <Grid size={{ xs:12, md:6 }}>
+              <TextField
+                fullWidth
+                label="CNPJ"
+                placeholder="00.000.000/0000-00"
+                value={formatCnpj(empresaCnpj)}
+                onChange={e => setEmpresaCnpj(e.target.value)}
+                inputProps={{ maxLength: 18 }}
+                sx={inputSx}
+              />
+            </Grid>
+            <Grid size={{ xs:12 }}>
+              <Box sx={{ display:'flex', justifyContent:'flex-end' }}>
+                <Button
+                  variant="contained"
+                  startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
+                  onClick={handleSave}
+                  disabled={saving}
+                  sx={{ background:'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', '&:hover':{ background:'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' } }}
+                >
+                  {saving ? 'Salvando...' : 'Salvar Dados'}
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 // Componente para configurações de ponto e horas extras
 const TimeTrackingSettings: React.FC = () => {
@@ -487,7 +594,18 @@ const SettingsPage: React.FC = () => {
       </motion.div>
 
       <Grid container spacing={3}>
-        {/* Time Tracking Settings - TOP */}
+        {/* Dados da Empresa - primeiro */}
+        <Grid size={{ xs: 12 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.05 }}
+          >
+            <CompanyInfoSettings />
+          </motion.div>
+        </Grid>
+
+        {/* Time Tracking Settings */}
         <Grid size={{ xs: 12 }}>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -520,16 +638,6 @@ const SettingsPage: React.FC = () => {
           </motion.div>
         </Grid>
 
-        {/* Location Settings */}
-        <Grid size={{ xs: 12 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <LocationSettings />
-          </motion.div>
-        </Grid>
       </Grid>
     </PageLayout>
   );

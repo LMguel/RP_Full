@@ -117,12 +117,14 @@ export interface RegistroDiario {
   horas_previstas?: number;
   horas_previstas_min?: number;
   horas_previstas_str?: string;     // HH:MM
-  horas_extras?: number;
-  horas_extras_str?: string;
+  horas_extras?: number;       // minutes (same as horas_extras_min — legacy name)
+  horas_extras_min?: number;   // minutes excedentes positivos do dia
+  horas_extras_str?: string;   // HH:MM
   banco_horas_dia?: number;
   banco_horas_dia_str?: string;
   atraso_minutos?: number;
   saida_antecipada_minutos?: number;
+  saida_antecipada_str?: string;
   intervalo_automatico?: boolean;
   horario_variavel?: boolean;
 }

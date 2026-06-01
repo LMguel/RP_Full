@@ -16,7 +16,7 @@ export default defineConfig({
         description: 'Sistema de Registro de Ponto com Geolocalização e Reconhecimento Facial',
         theme_color: '#2563eb',
         background_color: '#ffffff',
-        display: 'standalone',
+        display: 'fullscreen',
         orientation: 'portrait',
         start_url: '/',
         scope: '/',

@@ -1,244 +1,296 @@
-# 📱 RegistraPonto Tablet - Totem de Reconhecimento Facial
+# REGISTRA.PONTO — Terminal Android Kiosk
 
-Aplicativo tablet React Native + Expo para reconhecimento facial em modo totem/kiosk.
+Aplicativo React Native de terminal de ponto eletrônico **offline-first** com reconhecimento facial **REAL** on-device (MobileFaceNet TFLite + MLKit Face Detection) e fallback AWS Rekognition. Modo kiosk Android para tablets corporativos (Samsung Galaxy Tab A11 4GB Android).
 
-## 🚀 Características
+## 1. Arquitetura
 
-- ✅ **Login com credenciais web** - Usa as mesmas credenciais do painel administrativo
-- 📸 **Reconhecimento facial automático** - AWS Rekognition
-- 🎯 **Modo Landscape** - Otimizado para tablets em posição horizontal
-- ⏰ **Saudações personalizadas** - "Bom dia/Boa tarde/Boa noite" baseado no horário
-- 🎨 **Interface moderna** - Design glassmorphism com animações suaves
-- 🔒 **Seguro** - Token JWT, armazenamento seguro de credenciais
-- 🌐 **Multi-empresa** - Cada empresa vê apenas seus funcionários
+```
+mobile/
+├─ assets/models/
+│   ├─ mobilefacenet.tflite     # ⚠ adicionar manualmente (ver assets/models/README.md)
+│   └─ README.md
+├─ src/
+│  ├─ api/                      # Axios + interceptors + endpoints
+│  ├─ app/                      # App raiz, bootstrap, theme, queryClient
+│  ├─ components/               # PrimaryButton, TextField, Clock, StatusBar
+│  ├─ database/                 # SQLite + migrations versionadas
+│  ├─ features/
+│  │   ├─ auth/                 # LoginScreen, ProvisioningScreen, authStore
+│  │   ├─ facial/               # ⭐ Reconhecimento facial REAL
+│  │   │   ├─ useLiveRecognition.ts      # frame processor + worklet
+│  │   │   ├─ providers/tfliteProvider   # MobileFaceNet (fast-tflite)
+│  │   │   ├─ embeddingCache.ts          # cache em memória
+│  │   │   ├─ embeddingPullService.ts    # sync de embeddings
+│  │   │   ├─ embeddingService.ts        # interface JS
+│  │   │   ├─ faceRecognitionService.ts  # JS + cloud fallback
+│  │   │   ├─ antiSpoofing.ts            # blink + movimento + size
+│  │   │   ├─ preprocessing.ts           # math worklet-safe
+│  │   │   ├─ faceMath.ts                # top-K, gap, decisão
+│  │   │   ├─ calibrationLog.ts          # ring buffer p/ debug
+│  │   │   ├─ FacialScanScreen.tsx       # tela live
+│  │   │   └─ CalibrationScreen.tsx      # ajuste threshold + métricas
+│  │   ├─ kiosk/                # KioskScreen, KioskService, kioskStore
+│  │   ├─ records/              # RecordService (cria ponto offline-first)
+│  │   ├─ sync/                 # syncStore
+│  │   └─ settings/             # SettingsScreen, configStore
+│  ├─ navigation/               # RootNavigator com gating por sessão
+│  ├─ repositories/             # employee, embedding, timeRecord, syncQueue, deviceConfig, log
+│  ├─ services/                 # bootstrap, connectivity, deviceId, sync, queueProcessor
+│  ├─ storage/                  # mmkv, secureStorage (Keychain)
+│  ├─ types/                    # domain, api, navigation
+│  └─ utils/                    # config, logger, time, id
+└─ android/
+   └─ app/src/main/java/com/registraponto/
+       ├─ MainActivity.java
+       ├─ MainApplication.java
+       └─ kiosk/
+           ├─ KioskModule.java
+           ├─ KioskPackage.java
+           ├─ RPDeviceAdminReceiver.java
+           └─ RPBootReceiver.java
+```
 
-## 📋 Pré-requisitos
+## 2. Pipeline facial REAL (offline)
 
-- Node.js 18+ 
-- npm ou yarn
-- Expo CLI (`npm install -g expo-cli`)
-- Dispositivo Android/iOS ou emulador
-- Backend da API rodando
+### Live recognition (hot path — frame processor / worklet)
 
-## 🔧 Instalação
+```
+camera frame (vision-camera, pixelFormat: yuv, fps: 20)
+   │
+   ├─▶ useFaceDetector (MLKit, classification: all)
+   │     ├─ leftEyeOpenProbability / rightEyeOpenProbability  (anti-spoof)
+   │     ├─ yawAngle / pitchAngle / rollAngle                (anti-spoof)
+   │     └─ bounds { x, y, width, height }
+   │
+   ├─▶ Anti-spoofing (antiSpoofing.ts)
+   │     ├─ minFaceSizeRatio (face/frame width ≥ 22%)
+   │     ├─ minConfidence
+   │     ├─ blink detection (open → closed → open janela 4s)
+   │     └─ movimento facial (variância yaw/pitch ≥ 4°)
+   │
+   ├─▶ expandBbox(face, +30%) → crop quadrado dentro do frame
+   │
+   ├─▶ vision-camera-resize-plugin
+   │     resize(frame, { crop, scale: 112x112, pixelFormat: 'rgb', dataType: 'uint8' })
+   │
+   ├─▶ MobileFaceNet TFLite (react-native-fast-tflite, runSync no worklet)
+   │     input: [1, 112, 112, 3] uint8
+   │     output: [1, 192] float32
+   │
+   ├─▶ L2-normalize embedding (in-place)
+   │
+   ├─▶ cosine similarity vs EmbeddingCache (Float32Array em memória)
+   │     calcula best + second melhor → gap
+   │
+   └─▶ decisão:
+         best ≥ threshold E gap ≥ topGap  → MATCH (RecordService.createPunch)
+         best < threshold                  → NO_MATCH (BELOW_THRESHOLD)
+         gap < topGap                      → AMBIGUOUS → fallback cloud
+         cache vazio                        → EMPTY_CACHE → fallback cloud
 
-### 1. Instalar dependências
+cooldown global: faceCooldownMs (default 1500ms)
+```
+
+Performance no Tab A11 4GB:
+- detecção MLKit: 10-25ms/frame
+- crop+resize plugin: 1-3ms
+- MFN runSync 112x112: 25-60ms (CPU XNNPACK)
+- match (≤500 embeddings): <1ms
+- **Total typical**: 40-90ms (sub-100ms na maioria dos rostos)
+
+### Decisão multi-fator (anti falso-positivo)
+
+| Caso | Resultado |
+|---|---|
+| `best ≥ 0.62` E `gap ≥ 0.05` | ✅ ACEITA |
+| `best ≥ 0.62` E `gap < 0.05` | ⚠ AMBIGUOUS → cloud fallback |
+| `best < 0.62` | ❌ NO_MATCH |
+| `cache.size === 0` | ⚠ EMPTY_CACHE → cloud fallback |
+
+Threshold default `0.62` é um valor seguro para MobileFaceNet 192d com L2-normalização — **calibre via CalibrationScreen** para o seu dataset real.
+
+## 3. Como o app obtém embeddings
+
+**Não** computa embeddings de fotos no aparelho (decodificação JPEG → tensor é lenta e exige bridge nativo). A arquitetura prevê:
+
+1. **Backend** computa embeddings ao cadastrar funcionário (Lambda + TFLite ou TensorFlow lambda layer)
+2. **Mobile** pulla via `GET /api/v2/face_embeddings?since=ISO&model_version=mobilefacenet@112x112-192d`
+3. Pull incremental — `since` é o `updated_at` máximo recebido. Itens com `deleted: true` removem do cache.
+
+Endpoint a implementar no Flask backend:
+
+```python
+@routes.route('/api/v2/face_embeddings', methods=['GET'])
+@token_required
+def list_embeddings(payload):
+    company_id = payload.get('company_id')
+    since = request.args.get('since')
+    model_version = request.args.get('model_version')
+
+    items = []
+    # query DynamoDB tabela FaceEmbeddings WHERE company_id=? AND updated_at > since
+    # ...
+
+    return jsonify({
+        'items': items,           # [{employee_id, embedding: [192 floats], model_version, updated_at, deleted?}]
+        'server_now': iso_now(),
+        'model_version': 'mobilefacenet@112x112-192d',
+    })
+```
+
+Pull é enfileirado a cada 10min via `EMBEDDING_PULL` na sync_queue, e também executado manualmente via `Settings → Calibração → Sincronizar embeddings agora`.
+
+## 4. Sync engine (existente, agora com EMBEDDING_PULL)
+
+```
+SyncService.tick() roda por:
+  - intervalo (config.syncIntervalMs default 60s)
+  - listener NetInfo (offline → online)
+  - BackgroundFetch headless (15min)
+  - SyncService.kick(reason) manual
+
+A cada tick:
+  - se passou ≥ 10min do último pull facial → enfileira EMBEDDING_PULL
+  - QueueProcessor.runBatch() processa items prontos
+      TIME_RECORD_CREATE   → POST /api/registrar_ponto_facial (idempotente via client_id)
+      EMPLOYEE_PULL        → GET /api/funcionarios → upsert
+      EMBEDDING_PULL       → GET /api/v2/face_embeddings?since=… → upsert cache
+  - falhas: backoff exponencial, persistido em sync_queue
+```
+
+## 5. Anti-spoofing leve
+
+Sem modelos pesados — apenas heurísticas:
+
+- **Tamanho mínimo do rosto**: `face.width / frame.width ≥ 22%` (configurável)
+- **Confiança mínima do detector** MLKit
+- **Blink detection**: monitorando `leftEyeOpenProbability + rightEyeOpenProbability`, exige sequência `aberto (≥0.7) → fechado (≤0.3) → aberto` em janela de 4 segundos
+- **Movimento facial**: variância de `yawAngle` ou `pitchAngle` ≥ 4° na janela — diferencia rosto vivo de foto estática
+
+Anti-spoofing pode ser desligado em `Calibration` para enrollment / debug.
+
+## 6. Calibração (CalibrationScreen)
+
+Acessível em `Settings → Calibração avançada`. Permite:
+- Ver estado do modelo (carregado/erro/versão)
+- Ver tamanho do cache de embeddings
+- **Sincronizar embeddings agora** (pull manual)
+- Ajustar em runtime: threshold, gap, tamanho mínimo, confiança, cooldown
+- Liga/desliga anti-spoofing e fallback cloud
+- Liga/desliga **logging de calibração** — cada decisão do hot path entra em um ring buffer com:
+  - duração da inferência (ms)
+  - top-K matches com nome resolvido
+  - decisão (ACCEPT/REJECT_THRESHOLD/REJECT_GAP/REJECT_SPOOF/NO_FACE/ERROR)
+  - threshold, gap, faceSizeRatio
+- Botão "Testar reconhecimento" abre câmera com logging ativo
+
+## 7. Banco local SQLite (inalterado)
+
+| Tabela | Função |
+|---|---|
+| `employees` | Funcionários (snapshot do backend) |
+| `face_embeddings` | Embeddings 192d L2-normalizados (JSON) com `model_version` |
+| `time_records` | Registros de ponto. `synced=0` ⇒ pendente. `client_id` único |
+| `sync_queue` | Operações pendentes (TIME_RECORD_CREATE, EMPLOYEE_PULL, EMBEDDING_PULL) |
+| `device_config` | Config remota da empresa para este device |
+| `logs` | Logs persistidos via logger.info/warn/error |
+
+**Invalidação automática de embeddings**: ao boot, se a versão do modelo do app não bate com a versão dos embeddings salvos, são removidos e re-pullados.
+
+## 8. Modo Kiosk Android
+
+Inalterado da v1:
+- `KioskModule.java` (bridge: startLockTask, setBootStartEnabled, setKeepAwake, isDeviceOwner)
+- `RPDeviceAdminReceiver` + `device_admin.xml`
+- `RPBootReceiver` reabre app no `BOOT_COMPLETED`
+- Manifest: `lockTaskMode="if_whitelisted"` + categorias HOME/LAUNCHER
+
+Para kiosk completo (sem barra de status / multitarefa), o tablet precisa ser **Device Owner**:
+```bash
+adb shell dpm set-device-owner com.registraponto/.kiosk.RPDeviceAdminReceiver
+```
+
+## 9. Permissões Android
+
+Manifest já configurado:
+
+| Permissão | Uso |
+|---|---|
+| `INTERNET`, `ACCESS_NETWORK_STATE` | API + NetInfo |
+| `CAMERA` + `<uses-feature camera.front required>` | Reconhecimento facial |
+| `RECEIVE_BOOT_COMPLETED` | Auto-start no boot |
+| `WAKE_LOCK`, `DISABLE_KEYGUARD` | Tablet ligado |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` | Sync persistente |
+| `BIND_DEVICE_ADMIN` | Kiosk Device Owner |
+| `READ_MEDIA_IMAGES` | Upload de frames se necessário |
+| `VIBRATE` | Feedback de leitura |
+| `SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM` | BackgroundFetch |
+
+## 10. Setup local
+
+> Requer Node 18+, JDK 17, Android SDK 34, NDK 26.
 
 ```bash
-cd tablet
+cd mobile
 npm install
+
+# Configurar API
+cp .env.example .env
+# editar API_BASE_URL para o backend Flask
+
+# ⚠ Adicionar o modelo MobileFaceNet
+# Coloque mobilefacenet.tflite em assets/models/ — ver assets/models/README.md
+
+# Rodar
+npm run android
+
+# Release
+npm run android:release
+# ./android/app/build/outputs/apk/release/app-release.apk
 ```
 
-### 2. Configurar a API
+### Credenciais de teste
+- Usuário: `teste`
+- Senha: `123123`
 
-Edite `src/services/api.js` e altere a URL da API:
-
-```javascript
-const API_URL = 'http://SEU_IP:5000/api'; // Substitua SEU_IP pelo IP da máquina do backend
+### Verificação no log
+```
+[INFO] [TFLite] Modelo carregado (hook). inputs=[[1,112,112,3]] outputs=[[1,192]]
+[INFO] [EmbeddingCache] Hidratado com N embeddings
+[INFO] [FacialScan] MATCH live id=… sim=0.78 gap=0.21 dur=68ms record=…
 ```
 
-**Importante:** 
-- Use o IP da rede local (ex: 192.168.1.4)
-- NÃO use `localhost` ou `127.0.0.1` no dispositivo físico
-- Para descobrir seu IP:
-  - Windows: `ipconfig` no CMD
-  - Mac/Linux: `ifconfig` no terminal
+## 11. Segurança
 
-### 3. Executar o app
+- ✅ Tokens em Keychain (SecureStorage)
+- ✅ MMKV criptografado para cache
+- ✅ Embeddings só (sem fotos brutas guardadas no aparelho)
+- ✅ TLS-only na rede (`network_security_config`)
+- ✅ JWT validado com 401 → logout automático
+- ✅ Modelo binário no APK (não baixado em runtime)
 
-```bash
-npm start
-```
+## 12. Performance no Tab A11 (otimizações ativas)
 
-Depois:
-- Pressione `a` para Android
-- Pressione `i` para iOS
-- Escaneie o QR code com o app Expo Go
+- `pixelFormat: 'yuv'` na câmera (menor banda que RGB)
+- `fps: 20` na câmera (suficiente para reconhecimento, economiza CPU)
+- Frame processor com `cooldownMs` global — nunca processa mais de 1 inferência/cooldown
+- Cache de embeddings como `Float32Array` (não `number[]`) — 4x menor footprint, melhor cache de CPU
+- Snapshot do cache passado por referência ao worklet (sem cópia por frame)
+- Resize plugin faz crop+scale numa única operação nativa
+- Inferência TFLite é `runSync` no worklet thread (não bloqueia UI/JS)
+- Embeddings vêm pré-computados do backend — nunca decodificamos JPEG no aparelho
 
-## 📱 Como usar
+## 13. Próximos passos
 
-### 1. Login
-- Use as mesmas credenciais do painel web da empresa
-- Usuário: `usuario_empresa`
-- Senha: senha da empresa
+1. **Implementar `/api/v2/face_embeddings` no backend Flask** — sem isso, mobile não terá embeddings para matching local. Fallback Rekognition continua funcionando.
+2. **Pipeline de enrollment server-side**: quando funcionário é cadastrado com foto, lambda computa MFN 192d e armazena.
+3. **GPU delegate / NNAPI** para ainda mais velocidade — `react-native-fast-tflite` suporta via `delegate: 'gpu'` ou `delegate: 'android-nnapi'`. Tablet A11 não tem GPU forte — NNAPI provavelmente é melhor.
+4. **Frame processor com `useSkia`** para overlay visual (caixa do rosto detectada em tempo real).
+5. **Re-enrollment via mobile**: tela admin para capturar nova foto do funcionário no próprio terminal.
 
-### 2. Reconhecimento Facial
-- O app abre a câmera frontal automaticamente
-- Posicione o rosto do funcionário no centro
-- Clique em "Registrar Ponto"
-- O sistema reconhece e registra automaticamente
+## 14. Observações
 
-### 3. Confirmação
-- Aparece uma mensagem: "Bom dia/Boa tarde, [Nome]!"
-- Mostra se foi entrada ou saída
-- Horário do registro
-
-## 🏗️ Estrutura do Projeto
-
-```
-tablet/
-├── App.js                      # Arquivo principal
-├── app.json                    # Configuração Expo
-├── package.json                # Dependências
-├── src/
-│   ├── contexts/
-│   │   └── AuthContext.js      # Contexto de autenticação
-│   ├── routes/
-│   │   └── index.js            # Navegação
-│   ├── screens/
-│   │   ├── LoginScreen.js      # Tela de login
-│   │   └── CameraScreen.js     # Tela da câmera
-│   └── services/
-│       └── api.js              # Serviço de API
-└── assets/                     # Imagens e ícones
-```
-
-## 🎨 Tecnologias
-
-- **React Native** - Framework mobile
-- **Expo** - Plataforma de desenvolvimento
-- **Expo Camera** - Acesso à câmera
-- **Expo SecureStore** - Armazenamento seguro de tokens
-- **React Navigation** - Navegação entre telas
-- **Axios** - Requisições HTTP
-- **React Native Animatable** - Animações
-
-## 🔐 Segurança
-
-- ✅ Token JWT armazenado com SecureStore
-- ✅ HTTPS recomendado em produção
-- ✅ Timeout de 15s nas requisições
-- ✅ Logout manual disponível
-- ✅ Validações de permissões de câmera
-
-## 🌐 Integração com Backend
-
-### Endpoints utilizados:
-
-1. **Login**
-   ```
-   POST /api/login
-   Body: { usuario_id, senha }
-   ```
-
-2. **Registro de Ponto (Facial)**
-   ```
-   POST /api/registrar_ponto
-   Header: Authorization: Bearer <token>
-   Body: FormData com foto
-   ```
-
-### Formato da resposta esperada:
-
-```json
-{
-  "mensagem": "Ponto registrado com sucesso",
-  "funcionario_nome": "João Silva",
-  "tipo_registro": "entrada",
-  "horario": "09:00:00"
-}
-```
-
-## 📊 Fluxo de Funcionamento
-
-```
-1. Empresa faz login com credenciais web
-   └─> Token JWT salvo localmente
-
-2. Câmera frontal é ativada
-   └─> Guia visual para posicionamento do rosto
-
-3. Funcionário clica em "Registrar Ponto"
-   └─> Foto capturada
-   └─> Enviada para backend (FormData)
-   └─> Backend usa AWS Rekognition
-   └─> Reconhece funcionário da empresa
-   └─> Registra ponto no DynamoDB
-
-4. App recebe resposta
-   └─> Mostra "Bom dia/Boa tarde, [Nome]!"
-   └─> Tipo: Entrada/Saída
-   └─> Horário do registro
-
-5. Modal fecha após 4 segundos
-   └─> Pronto para próximo funcionário
-```
-
-## 🎯 Modo Totem/Kiosk
-
-Para usar como totem fixo:
-
-### Android:
-1. Instale um app de kiosk mode (ex: "Kiosk Browser Lockdown")
-2. Configure para abrir apenas o RegistraPonto
-3. Desative botões físicos
-4. Fixe o tablet na parede
-
-### iOS:
-1. Use o "Guided Access" nativo
-2. Settings > Accessibility > Guided Access
-3. Configure para bloquear o tablet no app
-
-## 🐛 Troubleshooting
-
-### Câmera não funciona
-- Verifique permissões no app
-- Settings > Apps > RegistraPonto > Permissions > Camera
-
-### Erro "Network Error"
-- Confirme que o backend está rodando
-- Verifique se o IP está correto em `api.js`
-- Certifique-se que tablet e backend estão na mesma rede
-
-### Reconhecimento falha
-- Verifique se há boa iluminação
-- Funcionário deve estar cadastrado no sistema
-- Foto do funcionário deve estar no AWS S3
-
-### Token expirado
-- Faça logout e login novamente
-- Token válido por 12 horas
-
-## 🚀 Build para Produção
-
-### Android (APK)
-
-```bash
-expo build:android
-```
-
-### iOS (IPA)
-
-```bash
-expo build:ios
-```
-
-## 📝 Configurações Recomendadas
-
-### Para Totem:
-- **Orientação:** Landscape (já configurado)
-- **Modo Kiosk:** Ativado
-- **Brilho:** Automático
-- **Sleep:** Desativado
-- **Updates:** Automáticos desativados
-
-### Para Backend:
-- **AWS Rekognition:** Collection por empresa
-- **S3:** Bucket com pastas por empresa
-- **DynamoDB:** Composite keys (company_id + ...)
-
-## 📄 Licença
-
-Proprietary - Todos os direitos reservados
-
-## 👨‍💻 Suporte
-
-Para dúvidas ou problemas:
-1. Verifique este README
-2. Consulte os logs no terminal
-3. Entre em contato com o suporte técnico
-
----
-
-**Desenvolvido para RegistraPonto**  
-Versão Tablet 1.0.0
+- **NÃO commitar** `.env`, `*.keystore`, `local.properties`, `assets/models/*.tflite`
+- **NÃO usar Expo Go** — exige código nativo
+- O `EmbeddingCache` é singleton em memória — limpo ao logout (queue + DB são preservados, mas o cache é re-hidratado).
+- O hot path do reconhecimento NÃO usa `EmbeddingService.match()` — usa diretamente `cosineSim` no worklet. `EmbeddingService` é só para JS-side (tela de calibração, fallback ad-hoc).

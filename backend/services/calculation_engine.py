@@ -295,6 +295,24 @@ def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:
     return balance_minutes
 
 
+def apply_monthly_tolerance(
+    saldo_min: int,
+    tolerance_min: int = 120,
+) -> Tuple[bool, int]:
+    """
+    Aplica tolerância mensal ao saldo acumulado (padrão: 2h = 120 min).
+
+    Se abs(saldo) <= tolerance_min → considera cumprimento integral.
+      - Retorna (True, 0): tolerância aplicada, saldo zerado.
+    Caso contrário → retorna (False, saldo_min): saldo real preservado.
+
+    Aplicar ao saldo MENSAL (extras - atrasos), nunca ao diário.
+    """
+    if abs(saldo_min) <= tolerance_min:
+        return True, 0
+    return False, saldo_min
+
+
 def apply_rounding(minutes: int, round_to: int) -> int:
     """Arredonda minutos para baixo ao bloco mais próximo."""
     if round_to <= 1:

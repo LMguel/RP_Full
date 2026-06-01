@@ -10,6 +10,7 @@ interface AuthContextValue {
   userType: UserType | null;
   loading: boolean;
   kioskShouldRestore: boolean;
+  clearKioskRestore: () => void;
   signInFuncionario: (id: string, senha: string) => Promise<FuncionarioUser>;
   signInEmpresa: (usuario: string, senha: string) => Promise<EmpresaUser>;
   signOut: () => void;
@@ -48,6 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userType, setUserType] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
   const [kioskShouldRestore, setKioskShouldRestore] = useState(false);
+
+  const clearKioskRestore = useCallback(() => {
+    setKioskShouldRestore(false);
+  }, []);
 
   const signOut = useCallback(async () => {
     const companyId = (user as EmpresaUser)?.company_id;
@@ -129,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userType,
       loading,
       kioskShouldRestore,
+      clearKioskRestore,
       signInFuncionario,
       signInEmpresa,
       signOut,

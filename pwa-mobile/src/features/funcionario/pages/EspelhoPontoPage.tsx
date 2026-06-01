@@ -23,20 +23,27 @@ import type { TimeRecord, RegistroDiario, FuncionarioUser, WeeklySchedule } from
 
 type DayStatus = 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO';
 
+// Tolerância mensal: se saldo (extras − atrasos) estiver dentro deste limite,
+// considera cumprimento integral e zera banco/extras/atrasos na exibição.
+const MONTHLY_TOLERANCE_MIN = 120; // 2 horas
+
 interface CalendarDay {
   data: string;        // YYYY-MM-DD
   dia_numero: number;
   dia_semana: string;  // 'dom'...'sab'
   feriado_nome?: string;
-  horas_previstas?: string;   // HH:MM from backend
-  entrada?: string;           // HH:MM
+  horas_previstas?: string;     // HH:MM from backend
+  entrada?: string;             // HH:MM
   saida_intervalo?: string;
   volta_intervalo?: string;
   saida?: string;
-  horas_trabalhadas?: string; // HH:MM
-  banco_horas?: string;       // HH:MM with sign
+  horas_trabalhadas?: string;   // HH:MM
+  banco_horas?: string;         // HH:MM with sign
   banco_horas_min?: number;
   atraso_min?: number;
+  saida_antecipada_min?: number;
+  horas_extras_min?: number;    // minutos extras positivos do dia
+  feriado_credit_min?: number;  // horas auto-creditadas para feriados em dias úteis
   status: DayStatus;
   registros: TimeRecord[];
 }
@@ -220,7 +227,10 @@ export default function EspelhoPontoPage() {
 
   const buildCalendar = useCallback((): CalendarDay[] => {
     const lastDay = new Date(year, month, 0).getDate();
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // Usar data local (não UTC) para evitar bug de fuso UTC+ onde meia-noite
+    // local é dia anterior em UTC e toISOString() retornaria a data errada.
+    const _n = new Date();
+    const todayISO = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
 
     // Group records by day
     const grouped: Record<string, TimeRecord[]> = {};
@@ -236,10 +246,11 @@ export default function EspelhoPontoPage() {
 
     const days: CalendarDay[] = [];
     for (let d = 1; d <= lastDay; d++) {
-      const dateObj = new Date(year, month - 1, d);
-      const iso = dateObj.toISOString().slice(0, 10);
+      // Formatar ISO sem conversão UTC para preservar data local corretamente
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const records = grouped[iso] || [];
-      const dow = dateObj.getDay();
+      // dow via Date às 12:00 (evita problemas de DST/UTC na extração do dia da semana)
+      const dow = new Date(`${iso}T12:00:00`).getDay();
       const isPast = iso <= todayISO;
       const feriadoNome = holidayMap[iso];
       const isHoliday = Boolean(feriadoNome);
@@ -251,22 +262,35 @@ export default function EspelhoPontoPage() {
         : minutosPrevistosDia(employeeSchedule, customSchedule, companyWeeklySchedule, iso);
       const isWorkday = !isVariableSchedule && previstoMin > 0;
 
-      // Status — same logic as front
+      // Crédito automático para feriados em dias úteis — APENAS jornada fixa.
+      // Horário variável não tem carga diária definida: crédito automático não se aplica.
+      const feriadoCreditMin = isHoliday && records.length === 0 && !isVariableSchedule
+        ? minutosPrevistosDia(employeeSchedule, customSchedule, companyWeeklySchedule, iso)
+        : 0;
+
+      // ── Status determinado EXCLUSIVAMENTE pelo dailySummary (fonte canônica) ──
+      // rawRecords.length NUNCA é usado para determinar presença/falta.
+      // rawRecords serve apenas para a tabela de detalhes (drilldown).
+      const summaryWorked = summary ? Number(summary.horas_trabalhadas_min || 0) : 0;
+      const summaryAtraso = summary ? Number(summary.atraso_minutos || 0) : 0;
+
       let status: DayStatus = 'SEM_REGISTRO';
       if (isHoliday) {
         status = 'FERIADO';
-      } else if (records.length > 0) {
-        const hasAtraso = summary
-          ? Number(summary.atraso_minutos || 0) > 0
-          : false;
-        status = hasAtraso ? 'ATRASO' : 'PRESENTE';
+      } else if (summaryWorked > 0) {
+        // Horas calculadas pelo motor canônico → funcionário presente
+        status = summaryAtraso > 0 ? 'ATRASO' : 'PRESENTE';
       } else if (isWorkday && isPast) {
         status = 'FALTA';
       }
 
-      const horasPrevistasStr = isWorkday && !isHoliday
-        ? (summary?.horas_previstas_str || toHHMM(previstoMin))
-        : undefined;
+      // Horas previstas: dias úteis normais + feriados com crédito automático
+      const horasPrevistasStr =
+        (isWorkday && !isHoliday)
+          ? (summary?.horas_previstas_str || toHHMM(previstoMin))
+          : feriadoCreditMin > 0
+            ? toHHMM(feriadoCreditMin)
+            : undefined;
 
       days.push({
         data: iso,
@@ -282,6 +306,9 @@ export default function EspelhoPontoPage() {
         banco_horas: summary?.banco_horas_dia_str || undefined,
         banco_horas_min: summary?.banco_horas_dia,
         atraso_min: summary?.atraso_minutos,
+        saida_antecipada_min: summary?.saida_antecipada_minutos,
+        horas_extras_min: summary ? Number(summary.horas_extras_min ?? summary.horas_extras ?? 0) : undefined,
+        feriado_credit_min: feriadoCreditMin > 0 ? feriadoCreditMin : undefined,
         status, registros: records,
       });
     }
@@ -289,42 +316,103 @@ export default function EspelhoPontoPage() {
   }, [year, month, rawRecords, dailySummariesMap, holidayMap, employeeSchedule, customSchedule, companyWeeklySchedule, isVariableSchedule]);
 
   const calendarDays = buildCalendar();
-  const daysWithRecords = calendarDays.filter(d => d.registros.length > 0);
-  const daysSorted = [...daysWithRecords].sort((a, b) => {
+  // Inclui dias com registros reais OU com summary do backend (safety net para paginação)
+  const daysWithRecords = calendarDays.filter(d =>
+    d.registros.length > 0 ||
+    (dailySummariesMap[d.data] && Number(dailySummariesMap[d.data].horas_trabalhadas_min || 0) > 0)
+  );
+  // Feriados em dias úteis sem registros reais: aparecem na tabela com crédito automático
+  const feriadosAutoCredit = calendarDays.filter(
+    d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros.length === 0
+  );
+  const allDisplayDays = [...daysWithRecords, ...feriadosAutoCredit];
+  const daysSorted = [...allDisplayDays].sort((a, b) => {
     const c = a.data.localeCompare(b.data);
     return sortDir === 'asc' ? c : -c;
   });
 
-  // ── Resumo (same as front's resumo()) ────────────────────────────────────────
+  // ── Resumo ────────────────────────────────────────────────────────────────────
 
   const resumo = (() => {
-    const todayISO = new Date().toISOString().slice(0, 10);
-    const presentes = calendarDays.filter(d => d.status === 'PRESENTE' || d.status === 'ATRASO').length;
-    const faltas = calendarDays.filter(d => d.status === 'FALTA').length;
-    const atrasos = calendarDays.filter(d => d.status === 'ATRASO').length;
-    const diasUteisPrevistosAteHoje = calendarDays.filter(
-      d => d.data <= todayISO && d.status !== 'FERIADO' && d.horas_previstas && d.horas_previstas !== '00:00'
-    ).length;
+    const _r = new Date();
+    const todayISO = `${_r.getFullYear()}-${String(_r.getMonth()+1).padStart(2,'0')}-${String(_r.getDate()).padStart(2,'0')}`;
 
     let totalMinTrabalhados = 0;
-    let totalMinPrevistos = 0;
-    let saldoMin = 0;
+    let totalMinPrevistos   = 0;
+    let totalMinExtras      = 0; // soma de dias com saldo positivo
+    let totalMinAtrasos     = 0; // soma de atraso_min + saida_antecipada_min
+
+    // Agregar resumos diários do backend (fonte de verdade)
     Object.entries(dailySummariesMap).forEach(([iso, s]) => {
       if (iso > todayISO) return;
       totalMinTrabalhados += Number(s.horas_trabalhadas_min || 0);
       totalMinPrevistos   += Number(s.horas_previstas_min  || 0);
-      saldoMin            += Number(s.banco_horas_dia      || 0);
+      totalMinExtras      += Number(s.horas_extras_min ?? s.horas_extras ?? 0);
+      totalMinAtrasos     += Number(s.atraso_minutos || 0) + Number(s.saida_antecipada_minutos || 0);
     });
 
-    console.log('[EspelhoPonto] resumo final:', { presentes, faltas, atrasos, totalMinTrabalhados, totalMinPrevistos, saldoMin });
+    // Crédito automático de feriados — apenas jornada fixa
+    if (!isVariableSchedule) {
+      calendarDays.forEach(day => {
+        if (day.status !== 'FERIADO') return;
+        if (day.data > todayISO) return;
+        if (dailySummariesMap[day.data]) return;
+        const credit = day.feriado_credit_min ?? 0;
+        if (credit > 0) {
+          totalMinTrabalhados += credit;
+          totalMinPrevistos   += credit;
+        }
+      });
+    }
+
+    // Tolerância mensal: se saldo (extras − atrasos) ≤ 2h → cumprimento integral
+    const saldoBruto = totalMinExtras - totalMinAtrasos;
+    const toleranciaAplicada = !isVariableSchedule && Math.abs(saldoBruto) <= MONTHLY_TOLERANCE_MIN;
+    const saldoFinal         = toleranciaAplicada ? 0 : saldoBruto;
+    const displayExtras      = toleranciaAplicada ? 0 : totalMinExtras;
+    const displayAtrasos     = toleranciaAplicada ? 0 : totalMinAtrasos;
+    // Quando tolerância aplicada: exibe previsto como trabalhado (sem minutos sobrando)
+    const displayTrabalhado  = toleranciaAplicada ? totalMinPrevistos : totalMinTrabalhados;
+
+    // Presença: dias com registro + feriados em dias úteis contam como presente
+    const presentes = calendarDays.filter(d => {
+      if (d.status === 'PRESENTE' || d.status === 'ATRASO') return true;
+      if (d.status === 'FERIADO' && d.data <= todayISO && (d.feriado_credit_min ?? 0) > 0) return true;
+      return false;
+    }).length;
+
+    const faltas  = calendarDays.filter(d => d.status === 'FALTA').length;
+    const atrasos = calendarDays.filter(d => d.status === 'ATRASO').length;
+
+    // Dias úteis previstos até hoje (inclui feriados com crédito)
+    const diasUteisPrevistosAteHoje = calendarDays.filter(d => {
+      if (d.data > todayISO) return false;
+      if (d.status === 'FERIADO') return (d.feriado_credit_min ?? 0) > 0;
+      return !!(d.horas_previstas && d.horas_previstas !== '00:00');
+    }).length;
+
+    const cumprimento = Math.round((displayTrabalhado / (totalMinPrevistos || 1)) * 100);
+
+    console.log('[EspelhoPonto] resumo:', {
+      presentes, faltas, atrasos, totalMinExtras, totalMinAtrasos,
+      saldoBruto, toleranciaAplicada, saldoFinal, displayTrabalhado,
+    });
 
     return {
       presentes, faltas, atrasos,
       percent: Math.round((presentes / (diasUteisPrevistosAteHoje || 1)) * 100),
-      totalMinPrevistos, totalMinTrabalhados, saldoMin,
-      previsto: toHHMM(totalMinPrevistos),
-      trabalhado: toHHMM(totalMinTrabalhados),
-      saldo: toHHMM(saldoMin),
+      totalMinPrevistos,
+      totalMinTrabalhados: displayTrabalhado,
+      totalMinExtras: displayExtras,
+      totalMinAtrasos: displayAtrasos,
+      saldoMin: saldoFinal,
+      toleranciaAplicada,
+      cumprimento,
+      previsto:    toHHMM(totalMinPrevistos),
+      trabalhado:  toHHMM(displayTrabalhado),
+      extras:      toHHMM(displayExtras),
+      atrasosStr:  toHHMM(displayAtrasos),
+      saldo:       toHHMM(saldoFinal),
     };
   })();
 
@@ -353,7 +441,7 @@ export default function EspelhoPontoPage() {
       doc.text(`ESPELHO DE PONTO — ${func?.nome?.toUpperCase() ?? ''}`, pageW / 2, y, { align: 'center' }); y += 7;
       doc.setFontSize(10); doc.setFont('helvetica', 'normal');
       doc.text(`Período: ${inicio} a ${fim}`, pageW / 2, y, { align: 'center' }); y += 6;
-      doc.text(`Dias Trabalhados: ${resumo.presentes}  |  Faltas: ${resumo.faltas}  |  H. Trabalhadas: ${resumo.trabalhado}  |  H. Previstas: ${resumo.previsto}  |  Banco: ${resumo.saldo}`, pageW / 2, y, { align: 'center' }); y += 8;
+      doc.text(`Presentes: ${resumo.presentes}  |  Faltas: ${resumo.faltas}  |  Trabalhado: ${resumo.trabalhado}  |  Previsto: ${resumo.previsto}  |  Extras: ${resumo.extras}  |  Atrasos: ${resumo.atrasosStr}  |  Banco: ${resumo.saldo}`, pageW / 2, y, { align: 'center' }); y += 8;
 
       // Table header
       doc.setFillColor(30, 41, 59);
@@ -368,16 +456,17 @@ export default function EspelhoPontoPage() {
         if (y > 190) { doc.addPage(); y = 15; }
         if (idx % 2 === 0) { doc.setFillColor(248, 250, 252); doc.rect(15, y - 3, pageW - 30, 6, 'F'); }
         doc.setFontSize(8);
+        const isFAC = day.status === 'FERIADO' && (day.feriado_credit_min ?? 0) > 0 && day.registros.length === 0;
         const row = [
           day.data.split('-').reverse().join('/'),
-          day.dia_semana.toUpperCase(),
-          day.entrada || '—',
-          day.saida_intervalo || '—',
-          day.volta_intervalo || '—',
-          day.saida || '—',
-          day.horas_trabalhadas || '—',
-          day.horas_previstas || '—',
-          day.banco_horas || '00:00',
+          isFAC ? `${day.dia_semana.toUpperCase()} [F]` : day.dia_semana.toUpperCase(),
+          isFAC ? 'FERIADO' : (day.entrada || '—'),
+          isFAC ? (day.feriado_nome || 'Feriado') : (day.saida_intervalo || '—'),
+          isFAC ? '—' : (day.volta_intervalo || '—'),
+          isFAC ? '—' : (day.saida || '—'),
+          isFAC ? toHHMM(day.feriado_credit_min!) : (day.horas_trabalhadas || '—'),
+          isFAC ? toHHMM(day.feriado_credit_min!) : (day.horas_previstas || '—'),
+          isFAC ? '00:00' : (day.banco_horas || '00:00'),
         ];
         row.forEach((v, i) => doc.text(v, cols[i] + 1, y + 1));
         y += 6;
@@ -476,7 +565,7 @@ export default function EspelhoPontoPage() {
         {loading ? (
           <div className="px-4 py-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              {[...Array(4)].map((_, i) => <Skeleton key={i} height="90px" />)}
+              {[...Array(6)].map((_, i) => <Skeleton key={i} height="90px" />)}
             </div>
             <Skeleton height="280px" />
             {[...Array(4)].map((_, i) => <Skeleton key={i} height="64px" />)}
@@ -495,7 +584,7 @@ export default function EspelhoPontoPage() {
           </div>
         ) : (
           <div className="px-4 py-5 space-y-5">
-            {/* ── 4 Summary Cards (identical to front) ──────────────────────── */}
+            {/* ── 6 Summary Cards ──────────────────────────────────────────── */}
             <div className="grid grid-cols-2 gap-3">
               {/* Presentes */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
@@ -540,14 +629,54 @@ export default function EspelhoPontoPage() {
                 <p className="text-slate-500 text-xs mt-1">
                   {isVariableSchedule
                     ? 'Horas registradas'
-                    : `${Math.round(((resumo.totalMinPrevistos + resumo.saldoMin) / (resumo.totalMinPrevistos || 1)) * 100)}% de cumprimento`}
+                    : `${resumo.cumprimento}% de cumprimento`}
+                </p>
+              </div>
+
+              {/* Horas Extras */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className={`w-4 h-4 ${isVariableSchedule ? 'text-slate-500' : resumo.totalMinExtras > 0 ? 'text-violet-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide">H. Extras</p>
+                </div>
+                {isVariableSchedule ? (
+                  <p className="text-2xl font-black text-slate-600 font-mono">—</p>
+                ) : (
+                  <p className={`text-2xl font-black font-mono ${resumo.totalMinExtras > 0 ? 'text-violet-400' : 'text-slate-500'}`}>
+                    {resumo.extras}
+                  </p>
+                )}
+                <p className="text-slate-500 text-xs mt-1">
+                  {isVariableSchedule ? 'Horário variável' : 'Tempo excedente acumulado'}
+                </p>
+              </div>
+
+              {/* Atrasos */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className={`w-4 h-4 ${isVariableSchedule ? 'text-slate-500' : resumo.totalMinAtrasos > 0 ? 'text-amber-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />
+                  </svg>
+                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide">Atrasos</p>
+                </div>
+                {isVariableSchedule ? (
+                  <p className="text-2xl font-black text-slate-600 font-mono">—</p>
+                ) : (
+                  <p className={`text-2xl font-black font-mono ${resumo.totalMinAtrasos > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {resumo.atrasosStr}
+                  </p>
+                )}
+                <p className="text-slate-500 text-xs mt-1">
+                  {isVariableSchedule ? 'Horário variável' : 'Tempo abaixo da jornada'}
                 </p>
               </div>
 
               {/* Banco de Horas */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <svg className={`w-4 h-4 ${isVariableSchedule ? 'text-slate-500' : resumo.saldoMin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-4 h-4 ${isVariableSchedule ? 'text-slate-500' : resumo.saldoMin > 0 ? 'text-emerald-400' : resumo.saldoMin < 0 ? 'text-rose-400' : 'text-slate-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                   <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide">Banco</p>
@@ -555,12 +684,16 @@ export default function EspelhoPontoPage() {
                 {isVariableSchedule ? (
                   <p className="text-2xl font-black text-slate-600 font-mono">—</p>
                 ) : (
-                  <p className={`text-2xl font-black font-mono ${resumo.saldoMin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {resumo.saldo}
+                  <p className={`text-2xl font-black font-mono ${resumo.saldoMin > 0 ? 'text-emerald-400' : resumo.saldoMin < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                    {resumo.saldoMin > 0 ? '+' : ''}{resumo.saldo}
                   </p>
                 )}
                 <p className="text-slate-500 text-xs mt-1">
-                  {isVariableSchedule ? 'Horário variável' : resumo.saldoMin >= 0 ? 'Saldo positivo' : 'Saldo negativo'}
+                  {isVariableSchedule
+                    ? 'Horário variável'
+                    : resumo.toleranciaAplicada
+                      ? 'Dentro da tolerância'
+                      : resumo.saldoMin > 0 ? 'Saldo positivo' : resumo.saldoMin < 0 ? 'Saldo negativo' : 'Zerado'}
                 </p>
               </div>
             </div>
@@ -647,7 +780,7 @@ export default function EspelhoPontoPage() {
                   </svg>
                   <span className="text-slate-300 font-bold text-sm">
                     Registros do Mês
-                    <span className="text-slate-500 font-normal ml-1 text-xs">({daysWithRecords.length} dias)</span>
+                    <span className="text-slate-500 font-normal ml-1 text-xs">({daysSorted.length} dias)</span>
                   </span>
                 </div>
                 <button
@@ -676,14 +809,81 @@ export default function EspelhoPontoPage() {
                     const st = statusStyle(day.status);
                     const isOpen = expandedDay === day.data;
                     const bancoPositivo = (day.banco_horas_min ?? 0) >= 0;
+                    const isFeriadoAutoCredit = day.status === 'FERIADO' && (day.feriado_credit_min ?? 0) > 0 && day.registros.length === 0;
 
+                    // ── Linha de feriado com crédito automático ──────────────
+                    if (isFeriadoAutoCredit) {
+                      return (
+                        <div key={day.data}
+                          className="px-5 py-4 flex items-center gap-3"
+                          style={{ borderLeft: '3px solid #eab308' }}
+                        >
+                          <div className="w-16 flex-shrink-0">
+                            <p className="text-white font-bold text-sm font-mono">{day.data.slice(8)}/{day.data.slice(5, 7)}</p>
+                            <p className="text-slate-500 text-xs uppercase">{day.dia_semana}</p>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full">
+                                Feriado
+                              </span>
+                              {day.feriado_nome && (
+                                <span className="text-xs text-yellow-400/80 truncate">{day.feriado_nome}</span>
+                              )}
+                            </div>
+                            <div className="flex gap-4 mt-1.5 text-xs text-slate-400">
+                              <span>Previsto: <span className="text-slate-300 font-mono">{toHHMM(day.feriado_credit_min!)}</span></span>
+                              <span>Trabalhado: <span className="text-slate-300 font-mono">{toHHMM(day.feriado_credit_min!)}</span></span>
+                              <span>Banco: <span className="text-slate-400 font-mono">00:00</span></span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // ── Linha com summary mas sem raw records (paginação incompleta) ─
+                    const hasSummaryOnly = day.registros.length === 0 && dailySummariesMap[day.data];
+                    if (hasSummaryOnly) {
+                      const s = dailySummariesMap[day.data];
+                      return (
+                        <div key={day.data}
+                          className="px-5 py-4 flex items-center gap-3 border-l-[3px] border-emerald-500/50"
+                        >
+                          <div className="w-16 flex-shrink-0">
+                            <p className="text-white font-bold text-sm font-mono">{day.data.slice(8)}/{day.data.slice(5,7)}</p>
+                            <p className="text-slate-500 text-xs uppercase">{day.dia_semana}</p>
+                          </div>
+                          <div className="flex-1 grid grid-cols-3 gap-2 text-center min-w-0">
+                            <div>
+                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Entrada</p>
+                              <p className="text-sm font-mono font-semibold text-emerald-400">{s.hora_entrada || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Saída</p>
+                              <p className="text-sm font-mono font-semibold text-rose-400">{s.hora_saida || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Total</p>
+                              <p className="text-sm font-mono font-bold text-white">{s.horas_trabalhadas_str || '—'}</p>
+                            </div>
+                          </div>
+                          {s.banco_horas_dia_str && !isVariableSchedule && (
+                            <span className={`text-xs font-mono font-bold flex-shrink-0 ${Number(s.banco_horas_dia ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {Number(s.banco_horas_dia ?? 0) >= 0 ? '+' : ''}{s.banco_horas_dia_str}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // ── Linha normal com registros ────────────────────────────
                     return (
                       <div key={day.data}>
                         {/* Day summary row */}
                         <button
                           onClick={() => setExpandedDay(isOpen ? null : day.data)}
                           className={`w-full text-left px-5 py-4 flex items-center gap-3 hover:bg-slate-800/50 transition-colors ${isOpen ? 'bg-slate-800/30' : ''}`}
-                          style={{ borderLeft: `3px solid ${day.status === 'ATRASO' ? '#f59e0b' : day.status === 'PRESENTE' ? '#10b981' : '#334155'}` }}
+                          style={{ borderLeft: `3px solid ${day.status === 'ATRASO' ? '#f59e0b' : day.status === 'PRESENTE' ? '#10b981' : day.status === 'FERIADO' ? '#eab308' : '#334155'}` }}
                         >
                           {/* Date */}
                           <div className="w-16 flex-shrink-0">
@@ -707,8 +907,11 @@ export default function EspelhoPontoPage() {
                             </div>
                           </div>
 
-                          {/* Bank + expand */}
+                          {/* Status badges + expand */}
                           <div className="flex items-center gap-2 flex-shrink-0">
+                            {day.status === 'FERIADO' && (
+                              <span className="text-[10px] font-bold text-yellow-400 bg-yellow-500/15 border border-yellow-500/25 px-1.5 py-0.5 rounded-full">F</span>
+                            )}
                             {day.banco_horas && !isVariableSchedule && (
                               <span className={`text-xs font-mono font-bold ${bancoPositivo ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {bancoPositivo ? '+' : ''}{day.banco_horas}
@@ -741,6 +944,12 @@ export default function EspelhoPontoPage() {
                               <div className="bg-slate-950/50 border-t border-slate-800">
                                 {/* Extra summary fields */}
                                 <div className="px-5 py-3 grid grid-cols-2 gap-x-6 gap-y-1.5">
+                                  {day.status === 'FERIADO' && day.feriado_nome && (
+                                    <div className="flex justify-between text-xs col-span-2">
+                                      <span className="text-yellow-400/70">Feriado</span>
+                                      <span className="text-yellow-400 font-medium">{day.feriado_nome}</span>
+                                    </div>
+                                  )}
                                   {day.saida_intervalo && (
                                     <div className="flex justify-between text-xs">
                                       <span className="text-slate-500">Saída Int.</span>
@@ -765,6 +974,24 @@ export default function EspelhoPontoPage() {
                                       <span className={`font-mono font-semibold ${bancoPositivo ? 'text-emerald-400' : 'text-rose-400'}`}>
                                         {bancoPositivo ? '+' : ''}{day.banco_horas}
                                       </span>
+                                    </div>
+                                  )}
+                                  {(day.atraso_min ?? 0) > 0 && (
+                                    <div className="flex justify-between text-xs">
+                                      <span className="text-slate-500">Atraso</span>
+                                      <span className="text-amber-400 font-mono">{toHHMM(day.atraso_min!)}</span>
+                                    </div>
+                                  )}
+                                  {(day.saida_antecipada_min ?? 0) > 0 && (
+                                    <div className="flex justify-between text-xs">
+                                      <span className="text-slate-500">Saída Ant.</span>
+                                      <span className="text-amber-400 font-mono">{toHHMM(day.saida_antecipada_min!)}</span>
+                                    </div>
+                                  )}
+                                  {(day.horas_extras_min ?? 0) > 0 && (
+                                    <div className="flex justify-between text-xs">
+                                      <span className="text-slate-500">H. Extra dia</span>
+                                      <span className="text-violet-400 font-mono">+{toHHMM(day.horas_extras_min!)}</span>
                                     </div>
                                   )}
                                 </div>

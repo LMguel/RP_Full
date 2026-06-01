@@ -1,66 +1,49 @@
 # OSX
 .DS_Store
 
-# Xcode
-build/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata
-*.xccheckout
-*.moved-aside
-DerivedData
-*.hmap
-*.ipa
-*.xcuserstate
-project.xcworkspace
-
-# Android/IntelliJ
-build/
-.idea
-.gradle
-local.properties
-*.iml
-*.hprof
-.cxx/
-
-# node.js
+# node modules
 node_modules/
-npm-debug.log
-yarn-error.log
 
-# Expo
-.expo/
-.expo-shared/
-dist/
-web-build/
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/release/
+android/app/debug/
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/res/drawable-*/node_modules*
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
 
 # Bundle artifacts
 *.jsbundle
+*.aab
+*.apk
+*.keystore
+!debug.keystore
 
-# CocoaPods
-/ios/Pods/
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Environment
+# Env
 .env
 .env.local
-.env.production
+.env.*.local
 
-# Logs
-logs
-*.log
+# Metro
+.metro-health-check*
 
-# Testing
-coverage/
-.jest/
-
-# Backup / temp
-*.backup
-*.bak
-*.tmp
-dev-dist
+# Temporary
+tmp/
+temp/

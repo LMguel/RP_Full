@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { useAuth } from '../auth/AuthContext';
+import { useFullscreen } from '../../hooks/useFullscreen';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { pingBackend } from '../../hooks/useBackendStatus';
 import { getSaoPauloTimeString } from '../../utils/time';
@@ -36,7 +37,7 @@ export default function KioskPage() {
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const navigate = useNavigate();
-  const { user, userType } = useAuth();
+  const { user, userType, clearKioskRestore } = useAuth();
   const { isOnline, backendAvailable, pendingCount, syncStatus, refreshPendingCount } = useOfflineSync();
 
   // Ref for stale-closure guard in handleCapture
@@ -86,10 +87,8 @@ export default function KioskPage() {
 
   // ── Effects ──────────────────────────────────────────────────────────────────
 
-  // Fullscreen
-  useEffect(() => {
-    document.documentElement.requestFullscreen?.()?.catch(() => {});
-  }, []);
+  // Fullscreen persistente: re-entra automaticamente se o usuário sair
+  useFullscreen({ persistent: true });
 
   // Kiosk persistence flag — usado para auto-retorno após reload/update
   useEffect(() => {
@@ -480,9 +479,9 @@ export default function KioskPage() {
       <div className="absolute bottom-5 right-5 z-50">
         <button
           onClick={() => {
-            // Limpar flag: usuário está saindo intencionalmente, não é reload
             localStorage.removeItem('@kiosk:active');
-            navigate('/empresa');
+            clearKioskRestore();
+            navigate('/empresa', { state: { fromKioskExit: true } });
           }}
           className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/10 text-white/30 text-xs hover:text-white/60 hover:bg-black/50 transition-all"
         >

@@ -7,6 +7,11 @@ from utils.auth import verify_token
 from functools import wraps
 from utils.aws import dynamodb
 from utils.schedule import get_schedule_for_date
+from utils.registro_normalizer import (
+    filtrar_registros, agrupar_por_employee_data,
+    extrair_employee_id as _norm_emp_d,
+    extrair_data_hora as _norm_dh_d,
+)
 from services.calculation_engine import (
     calculate_worked_minutes as eng_worked,
     get_display_times as eng_display,
@@ -312,40 +317,20 @@ def get_daily_summaries():
                 scan_kwargs['ExclusiveStartKey'] = last_key
             
             print(f"[DEBUG] Registros encontrados (bruto): {len(all_records)}")
-            
-            # Filtrar por data de forma eficiente
-            # IMPORTANTE: Ignorar registros INVALIDADOS e AJUSTADOS
-            # Apenas registros ATIVO (ou sem status, para retrocompatibilidade) devem ser considerados
-            records_in_range = []
-            for record in all_records:
-                # Ignorar registros invalidados ou ajustados
-                record_status = (record.get('status') or 'ATIVO').upper()
-                if record_status in ('INVALIDADO', 'AJUSTADO'):
-                    continue
-                
-                data_hora = record.get('data_hora', '')
-                if data_hora and len(data_hora) >= 10:
-                    record_date = data_hora[:10]  # YYYY-MM-DD
-                    if start_date <= record_date <= end_date:
-                        if employee_id_filter:
-                            rec_emp = record.get('funcionario_id') or record.get('employee_id')
-                            if rec_emp != employee_id_filter:
-                                continue
-                        records_in_range.append(record)
-            
+
+            # Filtrar e agrupar via normalizer canônico — garante consistência com
+            # /api/registros e /api/funcionario/registros, e corrige o bug histórico
+            # de comparação case-sensitive de employee_id.
+            records_in_range = filtrar_registros(
+                all_records,
+                start_date=start_date,
+                end_date=end_date,
+                employee_id=employee_id_filter,
+                ignorar_invalidos=True,
+            )
             print(f"[DEBUG] TimeRecords encontrados no período: {len(records_in_range)}")
-            
-            # Agrupar registros por funcionário e data
-            from collections import defaultdict
-            grouped = defaultdict(list)
-            for record in records_in_range:
-                emp_id = record.get('funcionario_id') or record.get('employee_id')
-                data_hora = record.get('data_hora', '')
-                if emp_id and data_hora:
-                    record_date = data_hora[:10]
-                    key = f"{emp_id}#{record_date}"
-                    grouped[key].append(record)
-            
+
+            grouped = agrupar_por_employee_data(records_in_range)
             print(f"[DEBUG] Grupos de funcionário+data: {len(grouped)}")
             
             # OTIMIZAÇÃO: Calcular sumários diretamente dos registros agrupados
@@ -400,7 +385,7 @@ def get_daily_summaries():
         if items:
             try:
                 print(f"[DEBUG] Buscando dados de funcionários para {len(items)} items")
-                
+
                 emp_kwargs = {'FilterExpression': Attr('company_id').eq(company_id)}
                 all_emps = []
                 while True:
@@ -411,27 +396,29 @@ def get_daily_summaries():
                         break
                     emp_kwargs['ExclusiveStartKey'] = emp_last
                 for emp in all_emps:
-                    # Pegar intervalo do funcionário (intervalo_emp)
-                    # IMPORTANTE: preservar None quando não tem intervalo definido
+                    eid = emp.get('id') or ''
+                    if not eid:
+                        continue
                     intervalo_raw = emp.get('intervalo_emp')
                     if intervalo_raw is None or str(intervalo_raw).strip() in ('', '0', 'None', 'null', 'false', 'False') or intervalo_raw == 0:
                         intervalo_raw = emp.get('intervalo')
-                    
                     intervalo = None
                     if intervalo_raw is not None and str(intervalo_raw).strip() not in ('', '0', 'None', 'null', 'false', 'False') and intervalo_raw != 0:
                         try:
                             v = int(intervalo_raw)
                             intervalo = v if v > 0 else None
-                        except:
+                        except Exception:
                             intervalo = None
-                    
-                    employee_data[emp.get('id')] = {
-                        'nome': emp.get('nome', emp.get('id')),
+                    entry = {
+                        'id': eid,  # canonical ID preservado
+                        'nome': emp.get('nome', eid),
                         'horario_entrada': emp.get('horario_entrada'),
                         'horario_saida': emp.get('horario_saida'),
                         'custom_schedule': emp.get('custom_schedule'),
-                        'intervalo': intervalo  # None = sem intervalo pré-definido
+                        'intervalo': intervalo,
                     }
+                    # Indexar por lowercase para lookup case-insensitive
+                    employee_data[eid.lower()] = entry
                 print(f"[DEBUG] Dados de funcionários carregados: {len(employee_data)}")
             except Exception as e:
                 print(f"[AVISO] Erro ao buscar dados funcionários: {e}")
@@ -439,18 +426,24 @@ def get_daily_summaries():
         # Enriquecer com dados dos funcionários e calcular via motor canônico
         summaries = []
         for item in items:
-            if employee_id_filter and item.get('employee_id') != employee_id_filter:
+            emp_id_raw = item.get('employee_id') or ''
+            emp_id_low = emp_id_raw.lower()
+
+            # Filtro por funcionário específico (case-insensitive)
+            if employee_id_filter and emp_id_low != employee_id_filter.lower():
                 continue
 
-            emp_id = item.get('employee_id')
             date_str = item.get('date')
             records = item.get('records', [])
 
-            if emp_id not in employee_data:
-                print(f"[SECURITY] Rejecting record for unknown employee '{emp_id}' in company {company_id} — possible cross-tenant leak")
+            # Lookup case-insensitive — employee_data keyed by lowercase
+            if emp_id_low not in employee_data:
+                print(f"[SECURITY] Rejecting record for unknown employee '{emp_id_raw}' (lower='{emp_id_low}') in company {company_id}")
                 continue
 
-            emp_info = employee_data.get(emp_id, {})
+            emp_info = employee_data[emp_id_low]
+            # Usar canonical ID da tabela Employees (nunca o ID bruto do registro)
+            emp_id = emp_info.get('id', emp_id_raw)
             emp_nome = emp_info.get('nome', emp_id)
 
             try:
@@ -480,22 +473,35 @@ def get_daily_summaries():
                 records, intervalo_automatico, break_duration
             )
 
+            # n_punches calculado antes do split auto/manual (usado no status e no break)
+            n_punches_count = count_valid_punches(records)
+
             # Regra de break por quantidade de batidas (intervalo_automatico=False):
-            #   n=2  → sem desconto (funcionário não registrou intervalo)
+            #   n<=2 → sem desconto (funcionário não registrou intervalo)
             #   n=3  → desconta break configurado (estimativa: foi ao intervalo sem volta)
             #   n>=4 → desconta break real (gap entre batida[1] e batida[2])
             #   auto → sempre desconta break configurado
             if intervalo_automatico:
                 effective_break = break_duration
             else:
-                n_punches = count_valid_punches(records)
-                if n_punches <= 2:
+                if n_punches_count <= 2:
                     effective_break = 0
-                elif n_punches == 3:
+                elif n_punches_count == 3:
                     effective_break = break_duration
                 else:
                     actual_gap = get_actual_break_minutes(records)
                     effective_break = actual_gap if actual_gap is not None else break_duration
+
+            # Status canônico do dia
+            if variavel:
+                day_status = 'VARIAVEL'
+            elif n_punches_count == 0:
+                day_status = 'SEM_REGISTRO'
+            elif intervalo_automatico:
+                day_status = 'INCOMPLETO' if last_iso is None else 'PRESENTE'
+            else:
+                # Número ímpar de batidas = algum par entrada/saída sem correspondente
+                day_status = 'INCOMPLETO' if n_punches_count % 2 == 1 else 'PRESENTE'
 
             if variavel:
                 expected_min = None
@@ -504,9 +510,13 @@ def get_daily_summaries():
                 banco_horas_dia = None
                 horas_extras_min = None
             else:
+                # Previsto usa break_duration CONFIGURADO, não effective_break.
+                # effective_break varia com a quantidade de batidas (0 para n≤2),
+                # o que faria previsto = jornada bruta quando o funcionário não
+                # registrou os intervalos. O previsto deve ser constante.
                 expected_min = eng_expected(
                     scheduled_start, scheduled_end,
-                    intervalo_automatico, effective_break
+                    intervalo_automatico, break_duration
                 )
                 atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
@@ -536,19 +546,23 @@ def get_daily_summaries():
                 'horas_previstas_min': expected_min,
                 'horas_previstas_str': minutes_to_hhmm(expected_min) if expected_min is not None else None,
                 'horas_extras': horas_extras_min,
-                'horas_extras_str': minutes_to_hhmm(horas_extras_min) if horas_extras_min is not None and horas_extras_min > 0 else None,
+                'horas_extras_min': horas_extras_min,
+                'horas_extras_str': minutes_to_hhmm(horas_extras_min) if horas_extras_min is not None and horas_extras_min > 0 else '00:00',
                 'banco_horas_dia': banco_horas_dia,
                 'banco_horas_dia_str': minutes_to_hhmm(banco_horas_dia) if banco_horas_dia is not None else None,
                 'atraso_minutos': atraso_min,
                 'saida_antecipada_minutos': saida_antecipada_min,
+                'saida_antecipada_str': minutes_to_hhmm(saida_antecipada_min) if saida_antecipada_min is not None and saida_antecipada_min > 0 else '00:00',
                 'intervalo_automatico': intervalo_automatico,
                 'horario_variavel': variavel,
+                'status': day_status,
+                'n_punches': n_punches_count,
             }
 
             summaries.append(summary_obj)
-        
+
         # Ordenar por data descendente
-        summaries.sort(key=lambda s: s.get('date', ''), reverse=True)
+        summaries.sort(key=lambda s: s.get('data', ''), reverse=True)
         
         # Paginação
         total = len(summaries)

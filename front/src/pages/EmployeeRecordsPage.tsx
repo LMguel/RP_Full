@@ -35,10 +35,8 @@ import {
   ArrowBack as ArrowBackIcon,
   Edit as EditIcon,
   Block as BlockIcon,
-  Email as EmailIcon,
   FileDownload as FileDownloadIcon,
   AccessTime as AccessTimeIcon,
-  Close as CloseIcon,
   Clear as ClearIcon,
   CalendarMonth as CalendarIcon,
   ChevronLeft as ChevronLeftIcon,
@@ -51,6 +49,7 @@ import {
   Add as AddIcon,
   CameraAlt as CameraIcon,
   EditNote as EditNoteIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 import { Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
@@ -64,6 +63,9 @@ interface EmployeeWithRecords extends Employee {
   ultimoRegistro?: TimeRecord;
 }
 
+// Tolerância mensal: saldo (extras − atrasos) ≤ 2h → cumprimento integral
+const MONTHLY_TOLERANCE_MIN = 120;
+
 interface RegistroDia {
   data: string;
   dia_numero: number;
@@ -75,9 +77,13 @@ interface RegistroDia {
   volta_intervalo?: string;
   saida?: string;
   horas_trabalhadas?: string;
-  horas_extras?: string;
-  status: 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO';
-  cor: 'verde' | 'vermelho' | 'laranja' | 'azul' | 'cinza';
+  horas_extras?: string;        // banco_horas_dia_str (campo legado)
+  atraso_min?: number;
+  saida_antecipada_min?: number;
+  horas_extras_min?: number;    // minutos extras positivos do dia
+  feriado_credit_min?: number;  // crédito automático para feriados em dias úteis
+  status: 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO' | 'INCOMPLETO';
+  cor: 'verde' | 'vermelho' | 'laranja' | 'azul' | 'cinza' | 'amarelo';
   registros: TimeRecord[];
 }
 
@@ -112,9 +118,6 @@ const EmployeeRecordsPage: React.FC = () => {
   const [justificativaAnchorEl, setJustificativaAnchorEl] = useState<HTMLElement | null>(null);
   const [justificativaTexto, setJustificativaTexto] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
-  const [emailDestino, setEmailDestino] = useState('');
-  const [emailEnviando, setEmailEnviando] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'warning' | 'info'>('success');
@@ -233,10 +236,11 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   const chipColor = (status: string) => {
-    if (status==='PRESENTE') return { bg:'rgba(16,185,129,0.15)', border:'#10b981', color:'#10b981' };
-    if (status==='ATRASO') return { bg:'rgba(245,158,11,0.15)', border:'#f59e0b', color:'#f59e0b' };
-    if (status==='FERIADO') return { bg:'rgba(250,204,21,0.2)', border:'#facc15', color:'#facc15' };
-    if (status==='FALTA') return { bg:'rgba(239,68,68,0.15)', border:'#ef4444', color:'#ef4444' };
+    if (status==='PRESENTE')   return { bg:'rgba(16,185,129,0.15)', border:'#10b981', color:'#10b981' };
+    if (status==='ATRASO')     return { bg:'rgba(245,158,11,0.15)', border:'#f59e0b', color:'#f59e0b' };
+    if (status==='INCOMPLETO') return { bg:'rgba(234,179,8,0.18)',  border:'#eab308', color:'#eab308' };
+    if (status==='FERIADO')    return { bg:'rgba(250,204,21,0.2)',  border:'#facc15', color:'#facc15' };
+    if (status==='FALTA')      return { bg:'rgba(239,68,68,0.15)', border:'#ef4444', color:'#ef4444' };
     return { bg:'rgba(255,255,255,0.05)', border:'rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.5)' };
   };
 
@@ -280,7 +284,9 @@ const EmployeeRecordsPage: React.FC = () => {
     if (!selectedMonth) return [];
     const [year, month] = selectedMonth.split('-').map(Number);
     const lastDay = new Date(year, month, 0).getDate();
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // Usar data local para evitar bug UTC+ onde toISOString() retorna dia anterior
+    const _n = new Date();
+    const todayISO = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
     const grouped: Record<string, TimeRecord[]> = {};
     selectedEmployeeRecords.forEach(r => {
       if (!r.data_hora) return;
@@ -293,10 +299,10 @@ const EmployeeRecordsPage: React.FC = () => {
     });
     const days: RegistroDia[] = [];
     for (let d = 1; d <= lastDay; d++) {
-      const dateObj = new Date(year, month - 1, d);
-      const iso = dateObj.toISOString().slice(0, 10);
+      // String formatting direto — sem conversão UTC
+      const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const records = grouped[iso] || [];
-      const dow = dateObj.getDay();
+      const dow = new Date(`${iso}T12:00:00`).getDay();
       const isPast = iso <= todayISO;
       const feriadoNome = activeHolidayMap[iso];
       const isHoliday = Boolean(feriadoNome);
@@ -309,23 +315,43 @@ const EmployeeRecordsPage: React.FC = () => {
         : minutosPrevistosDia(funcionarioSchedule, iso);
       const isWorkday = !isVariableSchedule && previstoMin > 0;
 
+      // ── Status determinado EXCLUSIVAMENTE pelo dailySummary (fonte canônica) ──
+      // rawRecords.length NUNCA é usado para determinar presença/falta.
+      // summary.status vem do backend (PRESENTE | INCOMPLETO | VARIAVEL).
+      const summaryStatus  = summary?.status as string | undefined;
+      const summaryWorked  = summary ? Number(summary.horas_trabalhadas_min || 0) : 0;
+      const summaryAtraso  = summary ? Number(summary.atraso_minutos || 0) : 0;
+      const summaryNPunches = summary ? Number((summary as any).n_punches || 0) : 0;
+      // Dia com batidas mas sem hora_saída → INCOMPLETO independente de summaryWorked
+      const hasPunchNoExit = summaryNPunches > 0 && !summary?.hora_saida;
+
       let status: RegistroDia['status'] = 'SEM_REGISTRO';
       let cor: RegistroDia['cor'] = 'cinza';
       if (isHoliday) {
         status = 'FERIADO';
         cor = 'azul';
-      } else if (records.length > 0) {
-        const hasAtraso = summary
-          ? Number(summary.atraso_minutos || 0) > 0
-          : records.some(r => (r.atraso_minutos || 0) > 0);
-        if (hasAtraso) { status = 'ATRASO'; cor = 'laranja'; } else { status = 'PRESENTE'; cor = 'verde'; }
+      } else if (summaryStatus === 'INCOMPLETO' || hasPunchNoExit) {
+        status = 'INCOMPLETO';
+        cor = 'amarelo';
+      } else if (summaryWorked > 0) {
+        if (summaryAtraso > 0) { status = 'ATRASO'; cor = 'laranja'; }
+        else { status = 'PRESENTE'; cor = 'verde'; }
       } else if (isWorkday && isPast) {
         status = 'FALTA'; cor = 'vermelho';
       }
 
-      const horasPrevisrasStr = isWorkday && !isHoliday
-        ? (summary?.horas_previstas_str || toHHMM(previstoMin))
-        : undefined;
+      // Crédito automático para feriados — APENAS jornada fixa.
+      // Horário variável não tem carga diária: crédito automático não se aplica.
+      const feriadoCreditMin = isHoliday && records.length === 0 && !isVariableSchedule
+        ? minutosPrevistosDia(funcionarioSchedule, iso)
+        : 0;
+
+      const horasPrevisrasStr =
+        (isWorkday && !isHoliday)
+          ? (summary?.horas_previstas_str || toHHMM(previstoMin))
+          : feriadoCreditMin > 0
+            ? toHHMM(feriadoCreditMin)
+            : undefined;
 
       days.push({
         data: iso,
@@ -339,6 +365,10 @@ const EmployeeRecordsPage: React.FC = () => {
         saida: summary?.hora_saida || undefined,
         horas_trabalhadas: summary?.horas_trabalhadas_str || undefined,
         horas_extras: summary?.banco_horas_dia_str || undefined,
+        atraso_min: summary?.atraso_minutos,
+        saida_antecipada_min: summary?.saida_antecipada_minutos,
+        horas_extras_min: summary ? Number((summary as any).horas_extras_min ?? summary.horas_extras ?? 0) : undefined,
+        feriado_credit_min: feriadoCreditMin > 0 ? feriadoCreditMin : undefined,
         status, cor, registros: records,
       });
     }
@@ -346,36 +376,91 @@ const EmployeeRecordsPage: React.FC = () => {
   };
 
   const calendarDays = buildCalendar();
-  const diasTrabalhados = calendarDays.filter(d => d.registros.length > 0);
-  const diasSorted = [...diasTrabalhados].sort((a,b) => { const c=a.data.localeCompare(b.data); return sortDir==='asc'?c:-c; });
+  // Inclui dias com registros reais OU days com status relevante via summary
+  const diasTrabalhados = calendarDays.filter(d =>
+    d.registros.length > 0 ||
+    d.status === 'INCOMPLETO' ||
+    (dailySummaries[d.data] && Number(dailySummaries[d.data].horas_trabalhadas_min || 0) > 0)
+  );
+  const feriadosAutoCredit = calendarDays.filter(
+    d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros.length === 0
+  );
+  const allDisplayDays = [...diasTrabalhados, ...feriadosAutoCredit];
+  const diasSorted = [...allDisplayDays].sort((a,b) => { const c=a.data.localeCompare(b.data); return sortDir==='asc'?c:-c; });
 
   const resumo = (() => {
-    const todayISO = new Date().toISOString().slice(0, 10);
-    const presentes = calendarDays.filter(d => d.status === 'PRESENTE' || d.status === 'ATRASO').length;
-    const faltas = calendarDays.filter(d => d.status === 'FALTA').length;
-    const atrasos = calendarDays.filter(d => d.status === 'ATRASO').length;
-    const diasUteisPrevistosAteHoje = calendarDays.filter(d => d.data <= todayISO && d.status !== 'FERIADO' && d.horas_previstas && d.horas_previstas !== '00:00').length;
+    const _rt = new Date();
+    const todayISO = `${_rt.getFullYear()}-${String(_rt.getMonth()+1).padStart(2,'0')}-${String(_rt.getDate()).padStart(2,'0')}`;
 
-    // Agregar valores do backend (source of truth), apenas dias <= hoje
     let totalMinTrabalhados = 0;
-    let totalMinPrevistos = 0;
-    let saldoMin = 0;
+    let totalMinPrevistos   = 0;
+    let totalMinExtras      = 0;
+    let totalMinAtrasos     = 0;
+
     Object.entries(dailySummaries).forEach(([iso, s]) => {
       if (iso > todayISO) return;
       totalMinTrabalhados += Number(s.horas_trabalhadas_min || 0);
-      totalMinPrevistos += Number(s.horas_previstas_min || 0);
-      saldoMin += Number(s.banco_horas_dia || 0);
+      totalMinPrevistos   += Number(s.horas_previstas_min  || 0);
+      totalMinExtras      += Number((s as any).horas_extras_min ?? (s as any).horas_extras ?? 0);
+      totalMinAtrasos     += Number(s.atraso_minutos || 0) + Number((s as any).saida_antecipada_minutos || 0);
     });
 
+    // Crédito automático de feriados — apenas jornada fixa
+    if (!isVariableSchedule) {
+      calendarDays.forEach(d => {
+        if (d.status !== 'FERIADO') return;
+        if (d.data > todayISO) return;
+        if (dailySummaries[d.data]) return;
+        const credit = d.feriado_credit_min ?? 0;
+        if (credit > 0) {
+          totalMinTrabalhados += credit;
+          totalMinPrevistos   += credit;
+        }
+      });
+    }
+
+    // Tolerância mensal
+    const saldoBruto = totalMinExtras - totalMinAtrasos;
+    const toleranciaAplicada = Math.abs(saldoBruto) <= MONTHLY_TOLERANCE_MIN;
+    const saldoFinal         = toleranciaAplicada ? 0 : saldoBruto;
+    const displayExtras      = toleranciaAplicada ? 0 : totalMinExtras;
+    const displayAtrasos     = toleranciaAplicada ? 0 : totalMinAtrasos;
+    const displayTrabalhado  = toleranciaAplicada ? totalMinPrevistos : totalMinTrabalhados;
+
+    const presentes = calendarDays.filter(d => {
+      if (d.status === 'PRESENTE' || d.status === 'ATRASO' || d.status === 'INCOMPLETO') return true;
+      if (d.status === 'FERIADO' && d.data <= todayISO && (d.feriado_credit_min ?? 0) > 0) return true;
+      return false;
+    }).length;
+
+    const faltas     = calendarDays.filter(d => d.status === 'FALTA').length;
+    const atrasos    = calendarDays.filter(d => d.status === 'ATRASO').length;
+    const incompletos = calendarDays.filter(d => d.status === 'INCOMPLETO').length;
+
+    const diasUteisPrevistosAteHoje = calendarDays.filter(d => {
+      if (d.data > todayISO) return false;
+      if (d.status === 'FERIADO') return (d.feriado_credit_min ?? 0) > 0;
+      return !!(d.horas_previstas && d.horas_previstas !== '00:00');
+    }).length;
+
+    const cumprimento = Math.round((displayTrabalhado / (totalMinPrevistos || 1)) * 100);
+
     return {
-      presentes, faltas, atrasos,
+      presentes, faltas, atrasos, incompletos,
+      diasUteisTotais: diasUteisPrevistosAteHoje,
       percent: Math.round((presentes / (diasUteisPrevistosAteHoje || 1)) * 100),
       totalMinPrevistos,
-      totalMinTrabalhados,
-      saldoMin,
-      previsto: toHHMM(totalMinPrevistos),
-      trabalhado: toHHMM(totalMinTrabalhados),
-      saldo: toHHMM(saldoMin),
+      totalMinTrabalhados: displayTrabalhado,
+      totalMinExtras: displayExtras,
+      totalMinAtrasos: displayAtrasos,
+      saldoMin: saldoFinal,
+      toleranciaAplicada,
+      cumprimento,
+      previsto:   toHHMM(totalMinPrevistos),
+      trabalhado: toHHMM(displayTrabalhado),
+      extras:     toHHMM(displayExtras),
+      atrasosStr: toHHMM(displayAtrasos),
+      saldo:      toHHMM(saldoFinal),
     };
   })();
 
@@ -397,7 +482,7 @@ const EmployeeRecordsPage: React.FC = () => {
 
   // Adicionar novo registro manual
   const openAddRecord = (date?: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const _d = new Date(); const today = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
     setAddRecordData({ date: date || today, time: '', tipo: 'entrada', justificativa: '' });
     setAddRecordOpen(true);
   };
@@ -464,7 +549,7 @@ const EmployeeRecordsPage: React.FC = () => {
     const wb = XLSXStyle.utils.book_new();
 
     const COLS = ['A','B','C','D','E','F','G','H'];
-    const pct = Math.round((resumo.totalMinTrabalhados / (resumo.totalMinPrevistos || 1)) * 100);
+    const pct = resumo.cumprimento;
 
     // ── Estilos preto e branco ──────────────────────────────────
     const bThin  = { style:'thin', color:{ rgb:'000000' } };
@@ -507,11 +592,13 @@ const EmployeeRecordsPage: React.FC = () => {
     const sEmpty = { font:{ sz:10 }, fill: W, border: bAll };
 
     // ── Dados ──────────────────────────────────────────────────
+    const geradoEm = new Date().toLocaleString('pt-BR');
     const aoa: any[][] = [
       ['ESPELHO DE PONTO — ' + selectedEmployee.nome.toUpperCase(), '', '', '', '', '', '', ''],
       ['Período: ' + (dateFrom || '—') + ' a ' + (dateTo || '—'), '', '', '', '', '', '', ''],
-      ['Dias Trabalhados', 'Faltas', 'H. Trabalhadas', 'H. Previstas', 'Banco de Horas', '% de Cumprimento', '', ''],
-      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, resumo.saldo, pct + '%', '', ''],
+      [`Gerado em: ${geradoEm}`, '', '', '', '', '', '', ''],
+      ['Presentes', 'Faltas', 'H. Trabalhadas', 'H. Previstas', 'H. Extras', 'Atrasos', 'Banco de Horas', '% Cumprimento'],
+      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, resumo.extras, resumo.atrasosStr, resumo.saldo, pct + '%'],
       ['', '', '', '', '', '', '', ''],
       ['Data', 'Dia', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas'],
     ];
@@ -533,24 +620,24 @@ const EmployeeRecordsPage: React.FC = () => {
 
     styleRow(1, () => sTitle);
     styleRow(2, () => sMeta);
-    styleRow(3, (ci) => ci < 6 ? sHdr() : sEmpty);
-    styleRow(4, (ci) => {
-      if (ci === 4) return sResumo(resumo.saldoMin >= 0);
-      if (ci === 5) return sCell(true);
-      if (ci >= 6)  return sEmpty;
+    styleRow(3, () => sMeta);
+    styleRow(4, (ci) => ci < 6 ? sHdr() : sEmpty);
+    styleRow(5, (ci) => {
+      if (ci === 6) return sResumo(resumo.saldoMin >= 0);
+      if (ci === 7) return sCell(true);
       return sCell();
     });
-    styleRow(5, () => sEmpty);
-    styleRow(6, (ci) => sHdr(ci === 0 || ci === 1));
+    styleRow(6, () => sEmpty);
+    styleRow(7, (ci) => sHdr(ci === 0 || ci === 1));
     diasSorted.forEach((_, ri) => {
-      styleRow(7 + ri, (ci) => {
+      styleRow(8 + ri, (ci) => {
         if (ci === 0 || ci === 1) return sCell(false, true);
         if (ci === 6)             return sCell(true);
         return sCell();
       });
     });
 
-    // Largura das colunas — todas generosas para impressão
+    // Largura das colunas
     ws['!cols'] = [
       {wch:14}, // Data
       {wch:10}, // Dia
@@ -564,7 +651,8 @@ const EmployeeRecordsPage: React.FC = () => {
     ws['!merges'] = [
       { s:{ r:0, c:0 }, e:{ r:0, c:7 } },
       { s:{ r:1, c:0 }, e:{ r:1, c:7 } },
-      { s:{ r:4, c:0 }, e:{ r:4, c:7 } },
+      { s:{ r:2, c:0 }, e:{ r:2, c:7 } },
+      { s:{ r:6, c:0 }, e:{ r:6, c:7 } },
     ];
     // Configuração de impressão: paisagem, ajustar à largura da página
     (ws as any)['!pageSetup'] = {
@@ -580,13 +668,6 @@ const EmployeeRecordsPage: React.FC = () => {
     XLSXStyle.utils.book_append_sheet(wb, ws, 'Espelho');
     XLSXStyle.writeFile(wb, `Espelho-${selectedEmployee.nome}-${selectedMonth}.xlsx`);
     showSnackbar('Exportado!', 'success');
-  };
-
-  const enviarPorEmail = async () => {
-    if (!emailDestino||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDestino)) { showSnackbar('Email invalido','error'); return; }
-    setEmailEnviando(true);
-    try { await new Promise(r=>setTimeout(r,1500)); showSnackbar('Enviado!','success'); setEmailDialogOpen(false); setEmailDestino(''); }
-    catch { showSnackbar('Erro ao enviar','error'); } finally { setEmailEnviando(false); }
   };
 
   const scrollToDate = (iso: string) => {
@@ -667,18 +748,39 @@ const EmployeeRecordsPage: React.FC = () => {
             </Box>
             <Box sx={{ display:'flex', gap:1.5 }}>
               <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportEmployeeHistory} disabled={diasTrabalhados.length===0} sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.8)', '&:hover':{ borderColor:'rgba(255,255,255,0.6)', background:'rgba(255,255,255,0.05)' } }}>Excel</Button>
-              <Button variant="outlined" size="small" startIcon={<EmailIcon />} onClick={() => setEmailDialogOpen(true)} disabled={diasTrabalhados.length===0} sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.8)', '&:hover':{ borderColor:'rgba(255,255,255,0.6)', background:'rgba(255,255,255,0.05)' } }}>Enviar</Button>
             </Box>
           </Box>
         </motion.div>
       </Box>
 
-      {/* CARDS RESUMO */}
+      {/* CARDS RESUMO — 6 cards */}
       <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5, delay:0.05 }}>
-        <Box sx={{ display:'grid', gridTemplateColumns:{ xs:'1fr 1fr', sm:'repeat(4,1fr)' }, gap:2, mb:4 }}>
+        <Box sx={{ display:'grid', gridTemplateColumns:{ xs:'1fr 1fr', md:'repeat(3,1fr)', xl:'repeat(6,1fr)' }, gap:2, mb:4 }}>
           {[
-            { icon:<CheckCircleIcon sx={{ color:'#10b981', fontSize:28 }} />, label:'Presentes', value:`${resumo.presentes} dias`, sub:`${resumo.percent}% dos dias úteis` },
-            { icon:<CancelIcon sx={{ color:'#ef4444', fontSize:28 }} />, label:'Faltas', value:`${resumo.faltas} dias`, sub: isVariableSchedule ? 'Horário variável' : (resumo.atrasos>0?`${resumo.atrasos} atraso(s)`:'Sem faltas') },
+            {
+              icon:<CheckCircleIcon sx={{ color:'#10b981', fontSize:28 }} />,
+              label:'Presentes',
+              value: isVariableSchedule
+                ? `${resumo.presentes} dias`
+                : `${resumo.presentes}/${resumo.diasUteisTotais || resumo.presentes} dias úteis`,
+              sub:`${resumo.percent}% de presença`,
+            },
+            {
+              icon:<CancelIcon sx={{ color: resumo.faltas > 0 ? '#ef4444' : 'rgba(255,255,255,0.35)', fontSize:28 }} />,
+              label:'Faltas',
+              value: isVariableSchedule
+                ? <Typography variant="h5" sx={{ fontWeight:800, color:'rgba(255,255,255,0.3)' }}>—</Typography>
+                : resumo.faltas > 0
+                  ? `${resumo.faltas} falta${resumo.faltas > 1 ? 's' : ''}`
+                  : 'Nenhuma falta',
+              sub: isVariableSchedule
+                ? 'Horário variável'
+                : resumo.incompletos > 0
+                  ? `⚠ ${resumo.incompletos} dia(s) incompleto(s)`
+                  : resumo.atrasos > 0
+                    ? `${resumo.atrasos} atraso(s)`
+                    : 'Sem atrasos',
+            },
             {
               icon:<AccessTimeIcon sx={{ color:'#3b82f6', fontSize:28 }} />,
               label:'Horas Trabalhadas',
@@ -692,26 +794,69 @@ const EmployeeRecordsPage: React.FC = () => {
                   )}
                 </Typography>
               ),
-              sub: isVariableSchedule ? 'Horas registradas' : `${Math.round(((resumo.totalMinPrevistos + resumo.saldoMin)/(resumo.totalMinPrevistos||1))*100)}% de cumprimento`,
+              sub: isVariableSchedule ? 'Horas registradas' : `${resumo.cumprimento}% de cumprimento`,
             },
             {
-              icon: <WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.saldoMin >= 0 ? '#10b981' : '#ef4444'), fontSize: 28 }} />,
-              label: 'Banco de Horas',
-              value: isVariableSchedule ? (
-                <Typography variant="h5" sx={{ fontWeight: 800, color: 'rgba(255,255,255,0.3)' }}>—</Typography>
-              ) : (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Typography variant="h5" sx={{ fontWeight: 800, color: resumo.saldoMin >= 0 ? '#10b981' : '#ef4444' }}>
-                    {resumo.saldo}
-                  </Typography>
+              icon:<WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.totalMinExtras > 0 ? '#a78bfa' : 'rgba(255,255,255,0.3)'), fontSize:28 }} />,
+              label:'Horas Extras',
+              value: isVariableSchedule
+                ? <Typography variant="h5" sx={{ fontWeight:800, color:'rgba(255,255,255,0.3)' }}>—</Typography>
+                : <Typography variant="h5" sx={{ fontWeight:800, color: resumo.totalMinExtras > 0 ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>{resumo.extras}</Typography>,
+              sub: isVariableSchedule ? 'Horário variável' : 'Tempo excedente acumulado',
+            },
+            {
+              icon:<WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.totalMinAtrasos > 0 ? '#f59e0b' : 'rgba(255,255,255,0.3)'), fontSize:28 }} />,
+              label:'Atrasos',
+              value: isVariableSchedule
+                ? <Typography variant="h5" sx={{ fontWeight:800, color:'rgba(255,255,255,0.3)' }}>—</Typography>
+                : <Typography variant="h5" sx={{ fontWeight:800, color: resumo.totalMinAtrasos > 0 ? '#f59e0b' : 'rgba(255,255,255,0.45)' }}>{resumo.atrasosStr}</Typography>,
+              sub: isVariableSchedule ? 'Horário variável' : 'Tempo abaixo da jornada',
+            },
+            {
+              icon:<WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.saldoMin > 0 ? '#10b981' : resumo.saldoMin < 0 ? '#ef4444' : 'rgba(255,255,255,0.3)'), fontSize:28 }} />,
+              label: (
+                <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
+                  <span>Banco de Horas</span>
+                  <Tooltip title={
+                    <Box sx={{ maxWidth:280 }}>
+                      <Typography sx={{ fontSize:12, fontWeight:700, mb:0.5 }}>Como funciona o Banco de Horas</Typography>
+                      <Typography sx={{ fontSize:11 }}>
+                        Banco = Horas Extras − Atrasos acumulados no período.<br/><br/>
+                        <strong>Tolerância mensal (2h):</strong> se o saldo absoluto for ≤ 2 horas, o sistema considera cumprimento integral — extras e atrasos são zerados no relatório. Isso evita penalizar flutuações mínimas.<br/><br/>
+                        <strong>Positivo (+):</strong> funcionário trabalhou além da jornada.<br/>
+                        <strong>Negativo (−):</strong> funcionário deve horas à empresa.
+                      </Typography>
+                    </Box>
+                  } placement="top" arrow>
+                    <InfoIcon sx={{ fontSize:14, color:'rgba(255,255,255,0.4)', cursor:'help', '&:hover':{ color:'rgba(255,255,255,0.7)' } }} />
+                  </Tooltip>
                 </Box>
               ),
-              sub: isVariableSchedule ? 'Horário variável' : (resumo.saldoMin >= 0 ? 'Saldo positivo acumulado' : 'Saldo negativo acumulado'),
+              value: isVariableSchedule
+                ? <Typography variant="h5" sx={{ fontWeight:800, color:'rgba(255,255,255,0.3)' }}>—</Typography>
+                : (
+                  <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
+                    <Typography variant="h5" sx={{ fontWeight:800, color: resumo.saldoMin > 0 ? '#10b981' : resumo.saldoMin < 0 ? '#ef4444' : 'rgba(255,255,255,0.45)' }}>
+                      {resumo.saldoMin > 0 ? '+' : ''}{resumo.saldo}
+                    </Typography>
+                  </Box>
+                ),
+              sub: isVariableSchedule
+                ? 'Horário variável'
+                : resumo.toleranciaAplicada
+                  ? '✓ Dentro da tolerância de 2h'
+                  : resumo.saldoMin > 0 ? 'Saldo positivo acumulado' : resumo.saldoMin < 0 ? 'Saldo negativo acumulado' : 'Zerado',
             },
           ].map((card,i) => (
             <Card key={i} sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2 }}>
               <CardContent sx={{ p:'20px !important' }}>
-                <Box sx={{ display:'flex', alignItems:'center', gap:1.5, mb:1 }}>{card.icon}<Typography sx={{ color:'rgba(255,255,255,0.7)', fontSize:13, fontWeight:600 }}>{card.label}</Typography></Box>
+                <Box sx={{ display:'flex', alignItems:'center', gap:1.5, mb:1 }}>
+                  {card.icon}
+                  {typeof card.label === 'string'
+                    ? <Typography sx={{ color:'rgba(255,255,255,0.7)', fontSize:13, fontWeight:600 }}>{card.label}</Typography>
+                    : <Typography component="div" sx={{ color:'rgba(255,255,255,0.7)', fontSize:13, fontWeight:600 }}>{card.label}</Typography>
+                  }
+                </Box>
                 {typeof card.value === 'string'
                   ? <Typography variant="h5" sx={{ color:'white', fontWeight:800 }}>{card.value}</Typography>
                   : card.value
@@ -760,18 +905,24 @@ const EmployeeRecordsPage: React.FC = () => {
                 <Tooltip key={day.data} title={
                   day.status==='FERIADO'
                     ? `${formatDateTime(day.data).date}: Feriado${day.feriado_nome ? ` - ${day.feriado_nome}` : ''}`
-                    : day.registros.length > 0
+                    : (day.status==='PRESENTE' || day.status==='ATRASO')
                     ? `${formatDateTime(day.data).date}: ${day.horas_trabalhadas||'-'} trabalhado / ${day.horas_previstas||'-'} previsto (${day.status})`
                     : day.status==='FALTA'
                       ? `${formatDateTime(day.data).date}: FALTA`
                       : day.dia_semana
                 }>
-                  <Box onClick={() => day.registros.length > 0 ? scrollToDate(day.data) : undefined} sx={{ py:1, px:0.5, borderRadius:1.5, textAlign:'center', minHeight:52, cursor:day.registros.length>0?'pointer':'default', background:day.status==='FERIADO'?'rgba(250,204,21,0.12)':day.registros.length>0?bg:day.status==='FALTA'?'rgba(239,68,68,0.08)':'transparent', border:`1px solid ${day.status==='FERIADO'?'rgba(250,204,21,0.65)':day.registros.length>0?border:day.status==='FALTA'?'rgba(239,68,68,0.3)':'rgba(255,255,255,0.05)'}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', transition:'all 0.15s', '&:hover': day.registros.length>0?{ opacity:0.85, transform:'scale(1.04)' }:{} }}>
-                    <Typography sx={{ fontWeight:700, color:day.status==='FERIADO'?'#facc15':day.registros.length>0?'white':day.status==='FALTA'?'rgba(239,68,68,0.7)':'rgba(255,255,255,0.3)', fontSize:13 }}>{day.dia_numero}</Typography>
-                    {day.registros.length > 0 && <Typography sx={{ fontSize:10, color }}>{day.status==='PRESENTE'?'✓':day.status==='ATRASO'?'!':''}</Typography>}
-                    {day.status==='FERIADO' && <Typography sx={{ fontSize:10, color:'#facc15' }}>F</Typography>}
-                    {day.status==='FALTA' && <Typography sx={{ fontSize:10, color:'rgba(239,68,68,0.7)' }}>✗</Typography>}
-                  </Box>
+                  {/* temTrabalho: verdadeiro se há registros brutos OU summary calculado (hasSummaryOnly) */}
+                  {(() => {
+                    const temTrabalho = day.registros.length > 0 || day.status === 'PRESENTE' || day.status === 'ATRASO' || day.status === 'INCOMPLETO';
+                    return (
+                      <Box onClick={() => temTrabalho ? scrollToDate(day.data) : undefined} sx={{ py:1, px:0.5, borderRadius:1.5, textAlign:'center', minHeight:52, cursor:temTrabalho?'pointer':'default', background:day.status==='FERIADO'?'rgba(250,204,21,0.12)':temTrabalho?bg:day.status==='FALTA'?'rgba(239,68,68,0.08)':'transparent', border:`1px solid ${day.status==='FERIADO'?'rgba(250,204,21,0.65)':temTrabalho?border:day.status==='FALTA'?'rgba(239,68,68,0.3)':'rgba(255,255,255,0.05)'}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', transition:'all 0.15s', '&:hover': temTrabalho?{ opacity:0.85, transform:'scale(1.04)' }:{} }}>
+                        <Typography sx={{ fontWeight:700, color:day.status==='FERIADO'?'#facc15':temTrabalho?'white':day.status==='FALTA'?'rgba(239,68,68,0.7)':'rgba(255,255,255,0.3)', fontSize:13 }}>{day.dia_numero}</Typography>
+                        {temTrabalho && <Typography sx={{ fontSize:10, color }}>{day.status==='PRESENTE'?'✓':day.status==='ATRASO'?'!':day.status==='INCOMPLETO'?'⚠':''}</Typography>}
+                        {day.status==='FERIADO' && <Typography sx={{ fontSize:10, color:'#facc15' }}>F</Typography>}
+                        {day.status==='FALTA' && <Typography sx={{ fontSize:10, color:'rgba(239,68,68,0.7)' }}>✗</Typography>}
+                      </Box>
+                    );
+                  })()}
                 </Tooltip>
               );
             });
@@ -783,10 +934,10 @@ const EmployeeRecordsPage: React.FC = () => {
                   {[
                     { symbol:'✓', color:'#10b981', label:'Presente' },
                     { symbol:'!', color:'#f59e0b', label:'Atraso' },
+                    { symbol:'⚠', color:'#eab308', label:'Incompleto' },
                     { symbol:'F', color:'#facc15', label:'Feriado' },
                     { symbol:'✗', color:'#ef4444', label:'Falta' },
                     { symbol:'○', color:'rgba(255,255,255,0.3)', label:'Sem registro' },
-                    { symbol:'Dom', color:'rgba(255,255,255,0.25)', label:'Domingo / Sábado' },
                   ].map(l => (
                     <Box key={l.label} sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
                       <Typography sx={{ fontSize:11, color:l.color, fontWeight:700 }}>{l.symbol}</Typography>
@@ -808,8 +959,8 @@ const EmployeeRecordsPage: React.FC = () => {
               <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
                 <AccessTimeIcon sx={{ color:'rgba(255,255,255,0.7)', fontSize:20 }} />
                 <Typography sx={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>
-                  Registros do Mes
-                  <Typography component="span" sx={{ color:'rgba(255,255,255,0.45)', fontSize:13, ml:1 }}>({diasTrabalhados.length} dias com registro)</Typography>
+                  Registros do Mês
+                  <Typography component="span" sx={{ color:'rgba(255,255,255,0.45)', fontSize:13, ml:1 }}>({diasSorted.length} dias)</Typography>
                 </Typography>
               </Box>
               <Box sx={{ display:'flex', gap:1, alignItems:'center' }}>
@@ -839,20 +990,81 @@ const EmployeeRecordsPage: React.FC = () => {
                 {diasSorted.length===0 ? (
                   <TableRow><TableCell colSpan={9} align="center" sx={{ py:8, border:'none' }}>
                     <AccessTimeIcon sx={{ color:'rgba(255,255,255,0.3)', fontSize:48, mb:2, display:'block', mx:'auto' }} />
-                    <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:16, fontWeight:600 }}>Nenhum registro neste periodo</Typography>
-                    <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.35)', mt:0.5 }}>Ajuste o mes ou o intervalo de datas</Typography>
+                    <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:16, fontWeight:600 }}>Nenhum registro neste período</Typography>
+                    <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.35)', mt:0.5 }}>Ajuste o mês ou o intervalo de datas</Typography>
                   </TableCell></TableRow>
                 ) : diasSorted.map(day => {
                   const { date } = formatDateTime(day.data);
                   const { bg, border, color } = chipColor(day.status);
                   const isOpen = expandedDate===day.data;
+                  const isFeriadoAutoCredit = day.status === 'FERIADO' && (day.feriado_credit_min ?? 0) > 0 && day.registros.length === 0;
+
+                  // ── Linha de feriado com crédito automático ──────────────────
+                  if (isFeriadoAutoCredit) {
+                    return (
+                      <React.Fragment key={day.data}>
+                        <TableRow sx={{ borderLeft:'3px solid #eab308', background:'rgba(234,179,8,0.05)', '& td':{ borderBottom:'1px solid rgba(255,255,255,0.06)' } }}>
+                          <TableCell sx={{ py:1, px:2 }}>
+                            <Typography sx={{ fontWeight:700, color:'white', fontSize:12, whiteSpace:'nowrap' }}>{day.data.split('-').reverse().join('-')}</Typography>
+                            <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.4)', textTransform:'uppercase', fontSize:10 }}>{day.dia_semana}</Typography>
+                          </TableCell>
+                          <TableCell align="center" colSpan={4}>
+                            <Box sx={{ display:'flex', alignItems:'center', justifyContent:'center', gap:1 }}>
+                              <Chip label="Feriado" size="small" sx={{ height:18, fontSize:10, background:'rgba(234,179,8,0.2)', border:'1px solid rgba(234,179,8,0.5)', color:'#eab308', fontWeight:700 }} />
+                              {day.feriado_nome && <Typography sx={{ color:'rgba(234,179,8,0.8)', fontSize:11 }}>{day.feriado_nome}</Typography>}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center"><Typography sx={{ fontWeight:700, fontSize:12, fontFamily:'monospace', color:'white' }}>{toHHMM(day.feriado_credit_min!)}</Typography></TableCell>
+                          <TableCell align="center"><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.5)' }}>{toHHMM(day.feriado_credit_min!)}</Typography></TableCell>
+                          <TableCell align="center"><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.4)' }}>00:00</Typography></TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </React.Fragment>
+                    );
+                  }
+
+                  // ── Linha com summary mas sem raw records ─────────────────
+                  const hasSummaryOnly = day.registros.length === 0 && (
+                    day.status === 'INCOMPLETO' ||
+                    (dailySummaries[day.data] && Number(dailySummaries[day.data].horas_trabalhadas_min || 0) > 0)
+                  );
+                  if (hasSummaryOnly) {
+                    const s = dailySummaries[day.data] || {};
+                    const isIncomp = day.status === 'INCOMPLETO';
+                    const leftColor = isIncomp ? '#eab308' : '#10b981';
+                    return (
+                      <React.Fragment key={day.data}>
+                        <TableRow sx={{ borderLeft:`3px solid ${leftColor}`, background: isIncomp ? 'rgba(234,179,8,0.04)' : 'rgba(16,185,129,0.04)', '& td':{ borderBottom:'1px solid rgba(255,255,255,0.06)' } }}>
+                          <TableCell sx={{ py:1, px:2 }}>
+                            <Typography sx={{ fontWeight:700, color:'white', fontSize:12, whiteSpace:'nowrap' }}>{day.data.split('-').reverse().join('-')}</Typography>
+                            <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.4)', textTransform:'uppercase', fontSize:10 }}>
+                              {day.dia_semana}
+                              {isIncomp && <span style={{ color:'#eab308', marginLeft:4 }}>⚠ incompleto</span>}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{color:'rgba(255,255,255,0.85)',fontSize:12,fontFamily:'monospace'}}>{s.hora_entrada||'—'}</Typography></TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{color:'rgba(255,255,255,0.4)',fontSize:12,fontFamily:'monospace'}}>{s.intervalo_saida||'—'}</Typography></TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{color:'rgba(255,255,255,0.4)',fontSize:12,fontFamily:'monospace'}}>{s.intervalo_volta||'—'}</Typography></TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{color:'rgba(255,255,255,0.85)',fontSize:12,fontFamily:'monospace'}}>{s.hora_saida||'—'}</Typography></TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{fontWeight:700,fontSize:12,fontFamily:'monospace',color:'white'}}>{s.horas_trabalhadas_str||'—'}</Typography></TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{fontSize:12,fontFamily:'monospace',color:'rgba(255,255,255,0.5)'}}>{s.horas_previstas_str||'—'}</Typography></TableCell>
+                          <TableCell align="center" sx={{py:1,px:1}}><Typography sx={{fontSize:12,fontFamily:'monospace',fontWeight:700,color:Number(s.banco_horas_dia??0)>=0?'#10b981':'#ef4444'}}>{s.banco_horas_dia_str||'00:00'}</Typography></TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </React.Fragment>
+                    );
+                  }
+
                   return (
                     <React.Fragment key={day.data}>
                       <TableRow id={`row-${day.data}`} hover onClick={() => setExpandedDate(isOpen?null:day.data)} sx={{ cursor:'pointer', borderLeft:`3px solid ${border}`, '& td':{ borderBottom: isOpen?'none':'1px solid rgba(255,255,255,0.06)' }, background:isOpen?'rgba(255,255,255,0.04)':'transparent' }}>
                         {/* Data + Dia */}
                         <TableCell sx={{ py:1, px:2 }}>
                           <Typography sx={{ fontWeight:700, color:'white', fontSize:12, whiteSpace:'nowrap' }}>{day.data.split('-').reverse().join('-')}</Typography>
-                          <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.4)', textTransform:'uppercase', fontSize:10 }}>{day.dia_semana}</Typography>
+                          <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.4)', textTransform:'uppercase', fontSize:10 }}>
+                            {day.dia_semana}
+                            {day.status === 'INCOMPLETO' && <span style={{ color:'#eab308', marginLeft:4 }}>⚠ incompleto</span>}
+                          </Typography>
                         </TableCell>
                         {/* Entrada */}
                         <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ color:'rgba(255,255,255,0.85)', fontSize:12, fontFamily:'monospace' }}>{day.entrada||'—'}</Typography></TableCell>
@@ -931,10 +1143,44 @@ const EmployeeRecordsPage: React.FC = () => {
 
       {/* DIALOG INVALIDAR */}
       <Dialog open={deleteDialogOpen} onClose={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }} PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
-        <DialogTitle sx={{ fontWeight:700, color:'white' }}>Invalidar Registro</DialogTitle>
+        <DialogTitle sx={{ fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:1 }}>
+          <BlockIcon sx={{ color:'#ef4444', fontSize:20 }} />
+          Invalidar Registro
+        </DialogTitle>
         <DialogContent>
-          <Typography sx={{ color:'rgba(255,255,255,0.7)', mb:2 }}>O registro sera marcado como <strong>INVALIDADO</strong>, nao excluido.</Typography>
-          <TextField fullWidth label="Justificativa *" placeholder="Motivo da invalidacao" value={invalidateJustificativa} onChange={e => setInvalidateJustificativa(e.target.value)} multiline rows={3} sx={dialogFieldSx} />
+          {recordToDelete && (() => {
+            const { date, time } = formatDateTime(recordToDelete.data_hora || '');
+            const tipo = getStatusText(recordToDelete.type || recordToDelete.tipo || 'entrada');
+            const dateKey = (recordToDelete.data_hora || '').includes('T')
+              ? recordToDelete.data_hora!.split('T')[0]
+              : (recordToDelete.data_hora || '').split(' ')[0];
+            const rawKey = dateKey.split('-').length === 3 && dateKey.split('-')[0].length === 2
+              ? `${dateKey.split('-')[2]}-${dateKey.split('-')[1]}-${dateKey.split('-')[0]}`
+              : dateKey;
+            const summary = dailySummaries[rawKey] || dailySummaries[dateKey];
+            const bancoDia = summary ? Number(summary.banco_horas_dia ?? 0) : null;
+            return (
+              <Box>
+                <Box sx={{ p:1.5, background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:1.5, mb:2 }}>
+                  <Typography sx={{ color:'rgba(255,255,255,0.85)', fontSize:13, fontWeight:600, mb:0.5 }}>Registro a invalidar:</Typography>
+                  <Typography sx={{ color:'rgba(255,255,255,0.6)', fontSize:12 }}>
+                    {date} às {time} — <span style={{ color:'#f59e0b' }}>{tipo}</span>
+                  </Typography>
+                  {bancoDia !== null && (
+                    <Typography sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, mt:0.5 }}>
+                      Banco de horas do dia: <strong style={{ color: bancoDia >= 0 ? '#10b981' : '#ef4444' }}>{bancoDia >= 0 ? '+' : ''}{toHHMM(bancoDia)}</strong>
+                      <span style={{ color:'rgba(255,255,255,0.35)', marginLeft:4 }}>(será recalculado após invalidação)</span>
+                    </Typography>
+                  )}
+                </Box>
+                <Typography sx={{ color:'rgba(255,255,255,0.6)', mb:2, fontSize:13 }}>
+                  O registro ficará marcado como <strong style={{ color:'#ef4444' }}>INVALIDADO</strong> — não é excluído e pode ser auditado depois.
+                </Typography>
+                <TextField fullWidth label="Justificativa *" placeholder="Motivo da invalidação" value={invalidateJustificativa} onChange={e => setInvalidateJustificativa(e.target.value)} multiline rows={3} sx={dialogFieldSx} />
+              </Box>
+            );
+          })()}
+          {!recordToDelete && <TextField fullWidth label="Justificativa *" placeholder="Motivo da invalidação" value={invalidateJustificativa} onChange={e => setInvalidateJustificativa(e.target.value)} multiline rows={3} sx={dialogFieldSx} />}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setDeleteDialogOpen(false); setInvalidateJustificativa(''); }} disabled={submitting} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
@@ -959,24 +1205,6 @@ const EmployeeRecordsPage: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setAdjustDialogOpen(false)} disabled={submitting} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
           <Button onClick={handleAdjustConfirm} variant="contained" disabled={submitting||!adjustData.justificativa.trim()||!adjustData.date||!adjustData.time} sx={{ background:'#2563eb','&:hover':{ background:'#1d4ed8' } }}>{submitting?'Ajustando...':'Confirmar'}</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* DIALOG EMAIL */}
-      <Dialog open={emailDialogOpen} onClose={() => !emailEnviando&&setEmailDialogOpen(false)} PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
-        <DialogTitle sx={{ fontWeight:700, color:'white' }}>
-          Enviar Relatorio por Email
-          <IconButton onClick={() => !emailEnviando&&setEmailDialogOpen(false)} sx={{ position:'absolute', right:12, top:12, color:'rgba(255,255,255,0.6)' }}><CloseIcon /></IconButton>
-        </DialogTitle>
-        <DialogContent>
-          <TextField autoFocus margin="dense" label="Email destinatario" type="email" fullWidth value={emailDestino} onChange={e => setEmailDestino(e.target.value)} disabled={emailEnviando} sx={{ mt:1,...dialogFieldSx }} />
-          <Box sx={{ mt:2, p:1.5, background:'rgba(255,255,255,0.04)', borderRadius:1 }}>
-            <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)' }}>Funcionario: <strong style={{ color:'rgba(255,255,255,0.8)' }}>{selectedEmployee?.nome}</strong> - {diasTrabalhados.length} dias - {selectedMonth}</Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEmailDialogOpen(false)} disabled={emailEnviando} sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
-          <Button onClick={enviarPorEmail} disabled={emailEnviando||!emailDestino} variant="contained" startIcon={emailEnviando?<CircularProgress size={18} color="inherit" />:<EmailIcon />}>{emailEnviando?'Enviando...':'Enviar'}</Button>
         </DialogActions>
       </Dialog>
 

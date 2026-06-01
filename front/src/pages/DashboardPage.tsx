@@ -656,30 +656,128 @@ const DashboardPage = () => {
         </Box>
       </motion.div>
 
-      {/* Cards de Métricas Principais */}
-      <Box 
-        sx={{ 
-          display: 'grid', 
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-          gap: 3, 
-          mb: 4 
-        }}
-      >
-        <MetricCard
-          title="Registros Hoje"
-          value={`${data.presentEmployees}/${data.totalEmployees}`}
-          icon={Users}
-          color="#1976d2"
-          subtitle="Funcionários com registro hoje"
-        />
+      {/* Horas do mês */}
+      <Box sx={{ mb: 4 }}>
         <MetricCard
           title="Horas do Mês"
           value={`${data.hoursMonth}h`}
           icon={Clock}
           color="#2e7d32"
-          subtitle="Total de horas trabalhadas"
+          subtitle="Total de horas trabalhadas no mês"
         />
       </Box>
+
+      {/* Presença de hoje */}
+      {data.totalEmployees > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.05 }}
+        >
+          <Card sx={{
+            mb: 4,
+            bgcolor: 'rgba(255, 255, 255, 0.1)',
+            border: data.presentEmployees < data.totalEmployees
+              ? '1px solid rgba(239,68,68,0.35)'
+              : '1px solid rgba(16,185,129,0.35)',
+            borderRadius: '16px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+            backdropFilter: 'blur(20px)'
+          }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                <Box display="flex" alignItems="center">
+                  <Box sx={{
+                    p: 1.5, borderRadius: '12px',
+                    bgcolor: data.presentEmployees < data.totalEmployees ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', mr: 2
+                  }}>
+                    <AlertTriangle size={24} color={data.presentEmployees < data.totalEmployees ? '#ef4444' : '#10b981'} />
+                  </Box>
+                  <Box>
+                    <Typography variant="h6" sx={{ color: 'white', fontWeight: 600 }}>
+                      Presença de Hoje
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                      {new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="h4" sx={{
+                    color: data.presentEmployees < data.totalEmployees ? '#f87171' : '#34d399',
+                    fontWeight: 800, lineHeight: 1
+                  }}>
+                    {data.presentEmployees}/{data.totalEmployees}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                    {data.totalEmployees - data.presentEmployees > 0
+                      ? `${data.totalEmployees - data.presentEmployees} sem registro`
+                      : 'Todos registraram'}
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Barra de progresso visual */}
+              <Box sx={{ height: 6, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.1)', mb: 2, overflow: 'hidden' }}>
+                <Box sx={{
+                  height: '100%',
+                  width: `${data.totalEmployees > 0 ? Math.round((data.presentEmployees / data.totalEmployees) * 100) : 0}%`,
+                  bgcolor: data.presentEmployees < data.totalEmployees ? '#ef4444' : '#10b981',
+                  borderRadius: 3, transition: 'width 0.5s ease'
+                }} />
+              </Box>
+
+              {/* Lista de quem está presente */}
+              {data.employeesPresent && data.employeesPresent.length > 0 && (
+                <Box>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 1 }}>
+                    Presentes ({data.employeesPresent.length})
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {data.employeesPresent.slice(0, 12).map((emp, i) => (
+                      <Chip
+                        key={i}
+                        avatar={
+                          <Avatar sx={{ width: 20, height: 20, bgcolor: '#1976d2', fontSize: 10 }}>
+                            {emp.name?.charAt(0) || 'F'}
+                          </Avatar>
+                        }
+                        label={`${emp.name?.split(' ')[0]} — ${emp.entryTime}`}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(16,185,129,0.12)',
+                          border: '1px solid rgba(16,185,129,0.3)',
+                          color: 'rgba(255,255,255,0.85)',
+                          fontSize: 11,
+                          height: 24,
+                        }}
+                      />
+                    ))}
+                    {data.employeesPresent.length > 12 && (
+                      <Chip
+                        label={`+${data.employeesPresent.length - 12} mais`}
+                        size="small"
+                        sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontSize: 11, height: 24 }}
+                      />
+                    )}
+                  </Box>
+                </Box>
+              )}
+
+              {/* Aviso se há ausentes */}
+              {data.totalEmployees - data.presentEmployees > 0 && (
+                <Box sx={{ mt: data.employeesPresent.length > 0 ? 2 : 0, p: 1.5, bgcolor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 1.5 }}>
+                  <Typography sx={{ color: '#fca5a5', fontSize: 13, fontWeight: 500 }}>
+                    ⚠ {data.totalEmployees - data.presentEmployees} funcionário(s) ainda não registraram ponto hoje.
+                    {' '}Verifique se estão de folga, férias ou atestado.
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* Alertas */}
       {data.alerts && data.alerts.filter(a => a.type !== 'atraso').length > 0 && (

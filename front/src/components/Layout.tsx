@@ -61,34 +61,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     setDrawerCollapsed(!drawerCollapsed);
   };
 
-  // Abrir submenu automaticamente se estiver em página de registros
-  const [recordsSubmenuOpen, setRecordsSubmenuOpen] = useState(
-    location.pathname.startsWith('/records')
-  );
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Funcionários', icon: <PeopleIcon />, path: '/employees' },
-    { 
-      text: 'Registros', 
-      icon: <AccessTimeIcon />, 
-      path: '/records',
-      submenu: [
-        { text: 'Espelho de Ponto', path: '/records' },
-        { text: 'Registros Diários', path: '/records/daily' },
-        { text: 'Registros Gerais', path: '/records/detailed' },
-      ]
-    },
+    { text: 'Registros', icon: <AccessTimeIcon />, path: '/records' },
     { text: 'Configurações', icon: <SettingsIcon />, path: '/settings' },
     { text: 'Assistente RH', icon: <SmartToyIcon />, path: '/chatbot-rh' },
   ];
-
-  // Atualizar submenu quando a rota mudar
-  React.useEffect(() => {
-    if (location.pathname.startsWith('/records')) {
-      setRecordsSubmenuOpen(true);
-    }
-  }, [location.pathname]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -166,101 +146,41 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <List disablePadding>
           {menuItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            const isRecordsSection = location.pathname.startsWith('/records');
-            const hasSubmenu = item.submenu && item.submenu.length > 0;
-            const highlighted = isActive || (hasSubmenu && isRecordsSection);
+            const isActive = location.pathname === item.path ||
+              (item.path === '/records' && location.pathname.startsWith('/records'));
 
             return (
-              <React.Fragment key={item.text}>
-                <ListItem disablePadding sx={{ mb: 0.5 }}>
-                  <ListItemButton
-                    onClick={() => {
-                      if (hasSubmenu && item.text === 'Registros') {
-                        if (drawerCollapsed) { setDrawerCollapsed(false); setRecordsSubmenuOpen(true); }
-                        else { setRecordsSubmenuOpen(!recordsSubmenuOpen); }
-                      } else {
-                        handleNavigation(item.path);
-                      }
-                    }}
-                    sx={{
-                      borderRadius: '9px',
-                      mx: 0,
-                      justifyContent: drawerCollapsed ? 'center' : 'flex-start',
-                      px: drawerCollapsed ? 1.5 : 1.5,
-                      py: 1.1,
-                      color: highlighted ? 'white' : 'rgba(255,255,255,0.65)',
-                      background: highlighted
-                        ? 'rgba(255,255,255,0.12)'
-                        : 'transparent',
-                      borderLeft: highlighted ? '3px solid rgba(255,255,255,0.75)' : '3px solid transparent',
-                      '&:hover': {
-                        background: 'rgba(255,255,255,0.08)',
-                        color: 'white',
-                        borderLeft: highlighted ? '3px solid rgba(255,255,255,0.75)' : '3px solid rgba(255,255,255,0.3)',
-                      },
-                      transition: 'all 0.18s ease',
-                    }}
-                    title={drawerCollapsed ? item.text : undefined}
-                  >
-                    <ListItemIcon
-                      sx={{
-                        color: highlighted ? 'white' : 'rgba(255,255,255,0.6)',
-                        minWidth: drawerCollapsed ? 0 : 36,
-                        justifyContent: 'center',
-                        '& svg': { fontSize: '20px' },
-                      }}
-                    >
-                      {item.icon}
-                    </ListItemIcon>
-                    {!drawerCollapsed && (
-                      <ListItemText
-                        primary={item.text}
-                        sx={{
-                          '& .MuiListItemText-primary': {
-                            fontWeight: highlighted ? 600 : 400,
-                            fontSize: '13.5px',
-                            letterSpacing: '0.01em',
-                          }
-                        }}
-                      />
-                    )}
-                  </ListItemButton>
-                </ListItem>
-
-                {/* Submenu de Registros */}
-                {hasSubmenu && item.text === 'Registros' && recordsSubmenuOpen && !drawerCollapsed && (
-                  <Box sx={{ pl: 2.5, mb: 0.5 }}>
-                    {item.submenu.map((subItem) => {
-                      const isSubActive = location.pathname === subItem.path;
-                      return (
-                        <ListItemButton
-                          key={subItem.path}
-                          onClick={() => handleNavigation(subItem.path)}
-                          sx={{
-                            borderRadius: '7px',
-                            py: 0.7,
-                            px: 1.5,
-                            mb: 0.25,
-                            color: isSubActive ? 'white' : 'rgba(255,255,255,0.55)',
-                            background: isSubActive ? 'rgba(255,255,255,0.09)' : 'transparent',
-                            borderLeft: isSubActive ? '2px solid rgba(255,255,255,0.6)' : '2px solid transparent',
-                            '&:hover': {
-                              background: 'rgba(255,255,255,0.06)',
-                              color: 'rgba(255,255,255,0.9)',
-                            },
-                            transition: 'all 0.15s ease',
-                          }}
-                        >
-                          <Typography variant="caption" sx={{ fontSize: '12.5px', fontWeight: isSubActive ? 600 : 400 }}>
-                            {subItem.text}
-                          </Typography>
-                        </ListItemButton>
-                      );
-                    })}
-                  </Box>
-                )}
-              </React.Fragment>
+              <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  onClick={() => handleNavigation(item.path)}
+                  sx={{
+                    borderRadius: '9px',
+                    justifyContent: drawerCollapsed ? 'center' : 'flex-start',
+                    px: 1.5,
+                    py: 1.1,
+                    color: isActive ? 'white' : 'rgba(255,255,255,0.65)',
+                    background: isActive ? 'rgba(255,255,255,0.12)' : 'transparent',
+                    borderLeft: isActive ? '3px solid rgba(255,255,255,0.75)' : '3px solid transparent',
+                    '&:hover': {
+                      background: 'rgba(255,255,255,0.08)',
+                      color: 'white',
+                      borderLeft: isActive ? '3px solid rgba(255,255,255,0.75)' : '3px solid rgba(255,255,255,0.3)',
+                    },
+                    transition: 'all 0.18s ease',
+                  }}
+                  title={drawerCollapsed ? item.text : undefined}
+                >
+                  <ListItemIcon sx={{ color: isActive ? 'white' : 'rgba(255,255,255,0.6)', minWidth: drawerCollapsed ? 0 : 36, justifyContent: 'center', '& svg': { fontSize: '20px' } }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  {!drawerCollapsed && (
+                    <ListItemText
+                      primary={item.text}
+                      sx={{ '& .MuiListItemText-primary': { fontWeight: isActive ? 600 : 400, fontSize: '13.5px', letterSpacing: '0.01em' } }}
+                    />
+                  )}
+                </ListItemButton>
+              </ListItem>
             );
           })}
         </List>

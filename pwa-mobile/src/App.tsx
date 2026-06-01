@@ -1,6 +1,7 @@
 import React, { Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
+import { useFullscreen } from './hooks/useFullscreen';
 import KioskErrorBoundary from './components/KioskErrorBoundary';
 import SwUpdateToast from './components/SwUpdateToast';
 
@@ -58,12 +59,15 @@ function RedirectIfSigned({ children }: { children: React.ReactNode }) {
 function KioskAutoReturn({ children }: { children: React.ReactNode }) {
   const { signed, userType, loading, kioskShouldRestore } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
+    // Se o usuário clicou em "Voltar" intencionalmente, não retorna ao kiosk
+    if ((location.state as any)?.fromKioskExit) return;
     if (!loading && signed && userType === 'empresa' && kioskShouldRestore) {
       navigate('/kiosk', { replace: true });
     }
-  }, [loading, signed, userType, kioskShouldRestore, navigate]);
+  }, [loading, signed, userType, kioskShouldRestore, navigate, location]);
 
   return <>{children}</>;
 }
@@ -71,6 +75,8 @@ function KioskAutoReturn({ children }: { children: React.ReactNode }) {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function AppRoutes() {
+  useFullscreen();
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>

@@ -11,10 +11,8 @@ import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import EmployeesPage from './pages/EmployeesPage';
-import RecordsPage from './pages/RecordsPage';
-import RecordsPageDetails from './pages/RecordsPageDetails';
+import RecordsTabsPage from './pages/RecordsTabsPage';
 import EmployeeRecordsPage from './pages/EmployeeRecordsPage';
-import DailyRecordsPage from './pages/DailyRecordsPage';
 import SettingsPage from './pages/SettingsPage';
 import ChatBotRHPage from './pages/ChatBotRHPage';
 
@@ -342,17 +340,7 @@ const AppRoutes: React.FC = () => {
         element={
           <ProtectedRoute>
             <Layout>
-              <RecordsPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/records/detailed"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <RecordsPageDetails />
+              <RecordsTabsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -363,16 +351,6 @@ const AppRoutes: React.FC = () => {
           <ProtectedRoute>
             <Layout>
               <EmployeeRecordsPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/records/daily"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <DailyRecordsPage />
             </Layout>
           </ProtectedRoute>
         }

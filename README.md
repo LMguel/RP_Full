@@ -1,427 +1,215 @@
-# RegistraPonto - Sistema de Controle de Ponto Eletrônico
+# REGISTRA.PONTO — Employee Time-Tracking Platform
 
-Sistema completo de controle de ponto eletrônico com reconhecimento facial e geolocalização, desenvolvido para empresas de diversos portes.
-
-## 🚀 Visão Geral
-
-O RegistraPonto é uma plataforma integrada que permite o registro de ponto de funcionários através de múltiplas interfaces: web, PWA mobile e portal administrativo. Utiliza tecnologias avançadas como reconhecimento facial via AWS Rekognition e geolocalização para garantir precisão e segurança nos registros.
-
-A solução centraliza operações administrativas em um painel único, com foco em segurança, precisão de registros e experiência fluida para equipes e administradores.
-
-## 🖼️ Preview do Sistema
-
-### Dashboard
-<img src="landingpage/image/dashboard.png" alt="Dashboard Administrativo" width="600" />
-
-Painel principal com indicadores de presença, estatísticas e visão geral dos registros.
-
-### Gestão de Registros
-<img src="landingpage/image/registros.png" alt="Lista de Registros" width="600" />
-
-Visualização completa de todos os registros de ponto com filtros avançados.
-
-### Registros Detalhados
-<img src="landingpage/image/registros_detalhados.png" alt="Detalhes do Registro" width="600" />
-
-Informações detalhadas de cada registro incluindo foto, localização e horários.
-
-### Gestão de Funcionários
-<img src="landingpage/image/funcionario.png" alt="Cadastro de Funcionários" width="600" />
-
-CRUD completo de funcionários com upload de fotos para reconhecimento facial.
-
-### Configurações
-<img src="landingpage/image/configuracoes.png" alt="Painel de Configurações" width="600" />
-
-Configurações da empresa, horários de trabalho e parâmetros do sistema.
-
-### Sistema em Uso Real
-<img src="landingpage/image/captura.jpg" alt="Tablet em uso para registro de ponto" width="600" />
-
-Dispositivo tablet configurado em modo kiosk para registro de ponto com reconhecimento facial.
-
-## 🏗️ Arquitetura e Organização do Projeto
-
-O projeto é dividido em módulos independentes, cada um responsável por uma parte específica do sistema:
-
-```
-RP_Full/
-├── backend/                    # API REST em Flask + Python
-│   ├── app.py                 # Servidor principal
-│   ├── requirements.txt       # Dependências Python
-│   ├── testar_sistema.py      # Suite de testes
-│   └── .env                   # Configurações AWS e JWT
-│
-├── front/                      # Frontend Web (React + TypeScript)
-│   ├── src/
-│   │   ├── components/        # Componentes reutilizáveis
-│   │   ├── pages/            # Páginas da aplicação
-│   │   ├── services/         # Integrações com API
-│   │   └── App.tsx           # Componente raiz
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── admin-portal/              # Portal Administrativo
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── App.tsx
-│   └── package.json
-│
-├── pwa-mobile/                # Progressive Web App
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── App.tsx
-│   ├── public/
-│   │   └── manifest.json     # Configuração PWA
-│   └── vite.config.ts
-│
-└── landingpage/               # Landing page do projeto
-    └── image/                 # Screenshots do sistema
-```
-
-### Backend (Flask + Python)
-- **Localização**: `backend/`
-- **Tecnologias**: Flask, AWS Rekognition, DynamoDB, S3, JWT, boto3
-- **Responsabilidades**:
-  - API RESTful para todas as operações
-  - Integração com AWS para reconhecimento facial
-  - Gerenciamento de dados e autenticação
-  - Cálculos de horas extras e relatórios
-  - Validação de permissões e isolamento por empresa
-
-### Frontend Web (React)
-- **Localização**: `front/`
-- **Tecnologias**: React 18, TypeScript, Vite, Material UI, TailwindCSS
-- **Funcionalidades**:
-  - Dashboard administrativo com indicadores
-  - Gestão completa de funcionários
-  - Visualização e filtros de registros
-  - Relatórios e estatísticas
-  - Exportação de dados
-
-### Portal Administrativo (React)
-- **Localização**: `admin-portal/`
-- **Tecnologias**: React, TypeScript, Vite
-- **Propósito**: Interface dedicada para administradores do sistema com funcionalidades avançadas
-
-### PWA Mobile (Progressive Web App)
-- **Localização**: `pwa-mobile/`
-- **Tecnologias**: React, Vite, Tailwind CSS, PWA APIs
-- **Funcionalidades**:
-  - Registro de ponto via geolocalização
-  - Modo kiosk para reconhecimento facial
-  - Funciona offline com sincronização
-  - Instalável como app nativo
-  - Interface otimizada para dispositivos móveis
-
-## 🔧 Tecnologias e Serviços
-
-### Backend
-- **Flask** - Framework web Python
-- **JWT** - Autenticação segura
-- **boto3** - SDK AWS para Python
-- **AWS Rekognition** - Reconhecimento facial
-- **DynamoDB** - Banco de dados NoSQL
-- **S3** - Armazenamento de fotos
-
-### Frontend
-- **React 18** - Biblioteca UI
-- **TypeScript** - Tipagem estática
-- **Vite** - Build tool e dev server
-- **Material UI** - Componentes prontos
-- **TailwindCSS** - Framework CSS utility-first
-
-### Infraestrutura AWS
-- **Lambda** - Funções serverless
-- **API Gateway** - Exposição da API
-- **S3 + CloudFront** - Hospedagem e CDN
-- **Route 53** - Gerenciamento DNS
-- **Certificate Manager** - SSL/TLS
-
-## ✨ Funcionalidades Principais
-
-### ✅ Implementadas
-- **Autenticação JWT** - Login seguro para empresas e funcionários
-- **Reconhecimento Facial** - Integração com AWS Rekognition para validação de identidade
-- **Geolocalização** - Registro de ponto baseado em localização com validação de raio
-- **Dashboard Completo** - Visualização de estatísticas, indicadores e relatórios em tempo real
-- **Gestão de Funcionários** - CRUD completo com upload de fotos e validação
-- **Registros de Ponto** - Listagem, filtros avançados e exportação para CSV
-- **Multi-empresa** - Isolamento completo de dados por empresa
-- **PWA** - Experiência mobile nativa com instalação e modo offline
-- **Modo Kiosk** - Interface dedicada para tablets em pontos de registro
-- **Controle de Permissões** - Diferentes níveis de acesso (admin, gerente, funcionário)
-
-### 🚧 Em Desenvolvimento
-- Exportação avançada (PDF com formatação personalizada)
-- Notificações push para alertas de registro
-- Modo escuro para todas as interfaces
-- Relatórios mensais detalhados com gráficos
-- Integração com folha de pagamento
-
-## 📋 Pré-requisitos
-
-- **Python 3.8+** (para backend)
-- **Node.js 18+** e npm (para frontends)
-- **AWS Account** com acesso a:
-  - AWS Rekognition
-  - Amazon S3
-  - Amazon DynamoDB
-- **Git** para controle de versão
-
-## 🔧 Instalação e Configuração
-
-### 1. Clonagem do Repositório
-```bash
-git clone <url-do-repositorio>
-cd RP_Full
-```
-
-### 2. Configuração do Backend
-```bash
-cd backend
-
-# Instalar dependências
-pip install -r requirements.txt
-
-# Configurar variáveis de ambiente
-cp .env.example .env
-# Edite o arquivo .env com suas credenciais AWS
-
-# Executar servidor de desenvolvimento
-python app.py
-```
-
-O backend estará disponível em `http://localhost:5000`
-
-### 3. Configuração do Frontend Web
-```bash
-cd front
-
-# Instalar dependências
-npm install
-
-# Configurar variáveis de ambiente
-cp .env.example .env
-# Edite o arquivo .env se necessário
-
-# Executar em desenvolvimento
-npm run dev
-```
-
-Acesse em `http://localhost:5173`
-
-### 4. Configuração do Portal Administrativo
-```bash
-cd admin-portal
-
-# Instalar dependências
-npm install
-
-# Executar em desenvolvimento
-npm run dev
-```
-
-Acesse em `http://localhost:5174`
-
-### 5. Configuração do PWA Mobile
-```bash
-cd pwa-mobile
-
-# Instalar dependências
-npm install
-
-# Executar em desenvolvimento
-npm run dev
-```
-
-Acesse em `http://localhost:5175`
-
-## 🌐 Configurações de Ambiente
-
-### Backend (.env)
-```env
-# AWS Credentials
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
-AWS_REGION=us-east-1
-
-# AWS Services
-DYNAMODB_TABLE=registraponto-table
-S3_BUCKET=registraponto-bucket
-REKOGNITION_COLLECTION=registraponto-faces
-
-# Security
-JWT_SECRET=your_super_secret_jwt_key_here
-JWT_EXPIRATION=86400
-
-# Flask
-FLASK_ENV=development
-FLASK_DEBUG=True
-```
-
-### Frontend (.env)
-```env
-# API Configuration
-VITE_API_URL=http://localhost:5000
-
-# App Configuration
-VITE_APP_NAME=REGISTRA.PONTO
-VITE_APP_VERSION=1.0.0
-
-# Features
-VITE_ENABLE_FACIAL_RECOGNITION=true
-VITE_ENABLE_GEOLOCATION=true
-```
-
-## 🔒 Segurança
-
-- **Autenticação JWT** com tokens de expiração automática
-- **HTTPS obrigatório** para funcionalidades de câmera e geolocalização em produção
-- **Isolamento de dados** por empresa com chaves compostas no DynamoDB
-- **Validação de permissões** em todas as rotas protegidas
-- **Armazenamento seguro** de tokens no localStorage com criptografia
-- **Sanitização de inputs** para prevenção de SQL/NoSQL injection
-- **CORS configurado** para aceitar apenas origens confiáveis
-- **Rate limiting** nas rotas de API sensíveis
-
-## 📊 Banco de Dados
-
-### DynamoDB
-Tabela principal com estrutura otimizada para queries:
-- **Partition Key**: `empresa_id`
-- **Sort Key**: `tipo#id` (funcionario#001, registro#20240101120000)
-- **Índices secundários**: GSI para queries por CPF, data, status
-
-### S3
-Organização de buckets:
-- Política de acesso com presigned URLs
-- Versionamento habilitado para auditoria
-
-## 🚀 Deploy
-
-### Backend (AWS Lambda + API Gateway)
-```bash
-cd backend
-
-# Instalar dependências de produção
-pip install -r requirements.txt -t ./package
-
-# Criar pacote de deploy
-cd package
-zip -r ../deployment.zip .
-cd ..
-zip -g deployment.zip app.py
-
-# Deploy via AWS CLI ou Console
-```
-
-### Frontend (S3 + CloudFront)
-```bash
-cd front
-
-# Build de produção
-npm run build
-
-# Deploy para S3
-aws s3 sync dist/ s3://
-
-# Invalidar cache do CloudFront
-aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
-```
-
-### Infraestrutura como Código
-Considere usar AWS CloudFormation ou Terraform para provisionamento automatizado de recursos.
-
-## 📝 Scripts Disponíveis
-
-### Backend
-```bash
-python app.py              # Executar servidor de desenvolvimento
-python testar_sistema.py   # Executar suite de testes
-```
-
-### Frontend/Portal/PWA
-```bash
-npm run dev        # Servidor de desenvolvimento com hot reload
-npm run build      # Build otimizado para produção
-npm run preview    # Preview local do build de produção
-npm run lint       # Verificar código com ESLint
-npm run type-check # Verificar tipagem TypeScript
-```
-
-## 📱 Uso do Sistema
-
-### Para Administradores
-1. Acesse o portal web e faça login com credenciais de empresa
-2. Cadastre funcionários no módulo "Funcionários"
-3. Configure horários de trabalho em "Configurações"
-4. Monitore registros em tempo real no Dashboard
-5. Gere relatórios e exporte dados conforme necessário
-
-### Para Funcionários
-1. Acesse o PWA mobile ou utilize tablet em modo kiosk
-2. Posicione-se em frente à câmera para reconhecimento facial
-3. Confirme registro quando localização estiver dentro do raio permitido
-4. Visualize histórico de registros no app
-
-## 🎯 Destaques de Arquitetura
-
-- **Separação de Responsabilidades**: Módulos independentes com APIs bem definidas
-- **Escalabilidade**: Uso de serviços gerenciados AWS para crescimento horizontal
-- **Resiliência**: Fallbacks e tratamento de erros em todas as camadas
-- **Performance**: Lazy loading, code splitting e otimização de assets
-- **Manutenibilidade**: TypeScript, linting e padrões de código consistentes
-- **Segurança**: Múltiplas camadas de validação e autenticação
-
-## 🤝 Contribuição
-
-Contribuições são bem-vindas! Para contribuir:
-
-1. Faça um Fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Commit suas mudanças (`git commit -m 'feat: adiciona nova feature'`)
-4. Push para a branch (`git push origin feature/nova-feature`)
-5. Abra um Pull Request
-
-### Padrões de Commit
-Utilize [Conventional Commits](https://www.conventionalcommits.org/):
-- `feat:` - Nova funcionalidade
-- `fix:` - Correção de bug
-- `docs:` - Documentação
-- `style:` - Formatação
-- `refactor:` - Refatoração de código
-- `test:` - Testes
-- `chore:` - Manutenção
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
-
-## 👨‍💻 Suporte e Contato
-
-Para dúvidas, problemas ou sugestões:
-
-1. Consulte a documentação específica de cada módulo
-2. Verifique os logs de erro no console
-3. Abra uma issue no repositório
-4. Entre em contato: [seu-email@exemplo.com]
-
-## 🎓 Projeto de Portfólio
-
-Este projeto foi desenvolvido como demonstração de habilidades em:
-- Desenvolvimento full-stack com Python e React
-- Integração com serviços AWS
-- Arquitetura de sistemas escaláveis
-- Implementação de PWAs
-- Segurança e autenticação
-- UI/UX moderno e responsivo
+A production-grade, multi-tenant employee clock-in platform built around biometric verification and geofencing. The system spans a serverless Python backend, a React admin dashboard, a Progressive Web App for browser-based kiosk use, and a native Android kiosk application with fully on-device facial recognition.
 
 ---
 
-**Desenvolvido para controle de ponto eletrônico moderno e seguro**  
-📍 Versão 1.0.0  
-🔧 Stack: Python • React • TypeScript • AWS  
-📅 Última atualização: Fevereiro 2025
+## System Screenshots
+
+### Admin Dashboard
+<img src="landingpage/image/dashboard.png" alt="Admin Dashboard" width="600" />
+
+Real-time attendance indicators, daily statistics, and record overview.
+
+### Record Management
+<img src="landingpage/image/registros.png" alt="Record List" width="600" />
+
+Paginated record list with advanced server-side filtering.
+
+### Record Detail
+<img src="landingpage/image/registros_detalhados.png" alt="Record Detail" width="600" />
+
+Per-entry detail showing capture photo, GPS coordinates, and timestamps.
+
+### Employee Management
+<img src="landingpage/image/funcionario.png" alt="Employee Management" width="600" />
+
+Full CRUD with photo upload pipeline into AWS Rekognition face collections.
+
+### Configuration
+<img src="landingpage/image/configuracoes.png" alt="Settings" width="600" />
+
+Per-company work schedule, geofence radius, and feature toggles.
+
+### Kiosk in Production
+<img src="landingpage/image/captura.jpg" alt="Tablet in kiosk mode" width="600" />
+
+Android tablet running the native app in locked-down kiosk mode.
+
+---
+
+## Architecture Overview
+
+```
+RP_Full/
+├── backend/          # Python · Flask · AWS Lambda
+├── front/            # React 19 · TypeScript · Vite 7 (admin SPA)
+├── pwa-mobile/       # React 18 · Vite · PWA (browser kiosk)
+├── mobile/           # React Native 0.75 · Android (native kiosk)
+└── landingpage/      # Marketing site (Vite + React)
+```
+
+The platform is multi-tenant at the data layer. Every DynamoDB item is partitioned by `empresa_id`, and every API route enforces ownership via JWT claims — one tenant can never read another's data.
+
+---
+
+## Backend — Python · Flask · AWS Serverless
+
+**Runtime:** Python 3.11 on AWS Lambda (Mangum ASGI adapter), exposed through API Gateway HTTP API.
+
+**Framework:** Flask with Blueprint-based modular routing. Domain boundaries are enforced at the Blueprint level: authentication, attendance records, facial biometrics, dashboard aggregations, HR chatbot, and public holiday lookups each live in their own Blueprint and are mounted at distinct prefixes.
+
+**Database — Amazon DynamoDB (single-table design):**
+- Partition key: `empresa_id` — hard tenant boundary at the storage layer.
+- Sort key: `tipo#id` composite (e.g., `funcionario#uuid`, `registro#20240615T083000`).
+- Global Secondary Indexes enable efficient queries by CPF, date range, and record status without full scans.
+- Timestamps are stored in ISO 8601 with timezone offset to support multi-region deployments correctly.
+
+**Object storage — Amazon S3:**
+- Employee face photos stored with server-side AES-256 encryption.
+- Access served via presigned URLs (short TTL) rather than public bucket policies — the bucket itself has no public access.
+- Versioning enabled per bucket for audit and rollback.
+
+**Biometric — AWS Rekognition:**
+- Each company has its own Rekognition Face Collection, giving hard namespace isolation between tenants.
+- The enrollment flow indexes a face into the collection and stores the `FaceId` on the employee record.
+- At clock-in, the API calls `SearchFacesByImage` against the company collection — only that company's face vectors are searched.
+- Confidence thresholds and similarity floors are configurable per company.
+
+**Authentication:** Stateless JWT (PyJWT, HS256). Tokens carry `empresa_id` and `role` claims validated on every protected route. Separate token flows for company admins and individual employees.
+
+**Infrastructure:**
+- Lambda + API Gateway HTTP API (lower latency and cost than REST API).
+- S3 + CloudFront for frontend assets; origin access control (OAC) keeps the bucket private.
+- Route 53 for DNS; ACM for TLS certificates with automatic renewal.
+- All secrets (JWT key, AWS credentials for local dev) are environment variables; Lambda reads them from Lambda environment config — no secrets in source.
+
+---
+
+## Admin Frontend — React 19 · TypeScript · Vite 7
+
+A single-page application serving company administrators.
+
+**Core stack:**
+- **React 19** with concurrent features; hooks-based architecture throughout.
+- **TypeScript** with strict mode — all API response shapes typed end-to-end.
+- **Vite 7** with `@vitejs/plugin-react` (SWC transform); production bundle split by route via dynamic `import()`.
+
+**UI layer:**
+- **Material UI v7** (MUI) for the component system, including `@mui/x-data-grid` for server-paged record tables and `@mui/x-date-pickers` for date range filters.
+- **TailwindCSS v4** for layout and utility composition alongside MUI.
+- **Framer Motion** for transition animations and skeleton loaders.
+- **Recharts** for attendance trend charts (daily/weekly/monthly aggregations).
+- **React Leaflet + Leaflet** to render the geofence boundary and per-record GPS pin on an interactive map.
+
+**State management:**
+- **Zustand v5** for global client state (authenticated session, UI preferences).
+- **Axios** with request/response interceptors: automatic JWT header injection, 401 → logout redirect, centralized error normalization.
+
+**Data export:**
+- `xlsx` + `xlsx-js-style` for styled Excel exports with frozen header rows, column autowidth, and conditional cell formatting.
+
+**Routing:** React Router v7 (data router API) with lazy-loaded route modules.
+
+---
+
+## PWA Mobile — React 18 · Vite · Service Worker
+
+A browser-based kiosk interface deployed as a Progressive Web App. Designed for tablets or fixed terminals where installing a native app is not feasible.
+
+**PWA mechanics (`vite-plugin-pwa`):**
+- Generates a Workbox service worker with a precache manifest for the full app shell.
+- `NetworkFirst` strategy for API calls with a fallback to cached responses when offline.
+- `web app manifest` with `display: standalone` and `orientation: portrait` for a native-app feel when installed to the home screen.
+
+**Geolocation API:** Browser Geolocation API with high-accuracy mode. Captures `latitude`, `longitude`, and `accuracy` radius; the backend validates that the coordinate falls within the company's configured geofence before accepting the record.
+
+**Camera API:** MediaDevices `getUserMedia` with `facingMode: environment` for rear camera access on tablets; frames are captured as JPEG blobs and uploaded to the backend for Rekognition verification.
+
+**Stack:** React 18, React Router v6, Axios, React Leaflet, Framer Motion, TailwindCSS v3.
+
+---
+
+## Native Android App — React Native · On-Device ML · Offline-First
+
+The most technically complex module: a locked-down Android kiosk app that performs facial recognition **entirely on-device**, with zero network dependency at clock-in time.
+
+### On-Device Facial Recognition Pipeline
+
+**Camera — React Native Vision Camera v4:**
+- Frame processor runs in a dedicated JS worklet thread (via `react-native-worklets-core`) — the hot path never blocks the React UI thread.
+- Frames are processed at native speed using the Vision Camera frame processor plugin API.
+
+**Face detection — Google ML Kit (`@react-native-ml-kit/face-detection`):**
+- Detects bounding box, landmark positions, and per-frame probability scores for left/right eye open state, head yaw, pitch, and roll.
+- Used both in the live frame processor and in the one-shot enrollment path.
+
+**Embedding model — MobileFaceNet (TFLite, `react-native-fast-tflite`):**
+- Model: `mobilefacenet@112x112-192d` — 112×112 RGB input, 192-dimensional L2-normalized face embedding output.
+- Loaded once at app boot; the `TensorflowModel` instance is shared via a module-level singleton so the frame processor worklet can call `model.runSync()` without re-loading.
+- Input preprocessing: face crop from ML Kit bounding box → `@bam.tech/react-native-image-resizer` to 112×112 → typed Float32Array normalization → L2 normalization of the output vector.
+
+**Matching:** Cosine similarity (equivalent to dot product on L2-normalized vectors) between the live embedding and all enrolled embeddings cached in SQLite. A confidence gap between the top-1 and top-2 candidates is used to reject ambiguous matches.
+
+**Anti-spoofing (no extra model required):**
+A lightweight liveness check runs on a sliding window of recent frames:
+1. Minimum face-to-frame size ratio to reject tiny/distant faces.
+2. Minimum ML Kit detection confidence.
+3. **Blink detection:** requires a complete open→closed→open eye state transition within the window.
+4. **Head movement:** requires minimum yaw variance across the window to reject still photos.
+
+**Cloud fallback:** When the local engine reports `AMBIGUOUS` or `EMPTY_CACHE`, the app falls back to uploading the frame to the backend for AWS Rekognition verification.
+
+### Offline-First Architecture
+
+The app writes clock-in records to local storage immediately and syncs to the server asynchronously — network connectivity is never a hard dependency for core functionality.
+
+**Local database — SQLite (`react-native-sqlite-storage`):**
+- WAL journal mode for concurrent read/write performance.
+- Versioned schema migrations: the bootstrap routine compares `PRAGMA user_version` against the migration array length and runs only pending migrations sequentially.
+- Repository pattern: `EmployeeRepository`, `EmbeddingRepository`, `TimeRecordRepository`, `SyncQueueRepository` each encapsulate all SQL for their entity — no raw queries outside the repository layer.
+
+**Sync queue:** Clock-in events are enqueued as `PENDING` rows in `sync_queue`. The `QueueProcessor` runs them in batches, marking rows `OK` or `FAILED` with retry metadata.
+
+**Background sync (`react-native-background-fetch`):**
+- Registers a periodic background task (Android `JobScheduler`) that fires the sync queue even when the app is not in the foreground.
+- Headless JS handler keeps the sync logic running without a React root.
+- The foreground sync ticker (`setInterval`) and the connectivity listener (NetInfo) both call the same `tick()` function — no duplicated logic.
+
+**Embedding cache:** Enrolled face embeddings are pulled from the server and stored in SQLite. A pull is scheduled every 10 minutes when online, so new employees become recognizable without a manual refresh.
+
+**Secure storage:**
+- `react-native-keychain` for JWT tokens — stored in Android Keystore-backed secure storage, not AsyncStorage.
+- `react-native-mmkv` (C++ backed) for high-frequency read/write app state (sync counters, last sync timestamp) — ~30× faster than AsyncStorage.
+
+**State management:** Zustand v4 stores (`authStore`, `syncStore`, `kioskStore`, `configStore`) mirror the relevant SQLite state into React's render cycle. TanStack Query v5 manages server-state for any screens that require fresh remote data.
+
+---
+
+## Security Model
+
+| Layer | Mechanism |
+|---|---|
+| Transport | TLS 1.2+ enforced by CloudFront and API Gateway |
+| Authentication | Stateless JWT (HS256); tokens carry tenant + role claims |
+| Tenant isolation | DynamoDB partition key + Rekognition collection per company |
+| Photo access | S3 presigned URLs with short TTL; bucket is not public |
+| Mobile credentials | Android Keystore via `react-native-keychain` |
+| Liveness | Blink + head-movement anti-spoofing on every clock-in attempt |
+| Input validation | Pydantic-style validation on all API inputs; no raw SQL |
+| CORS | Allowlist of trusted origins; no wildcard in production |
+
+---
+
+## Tech Stack Summary
+
+| Layer | Technologies |
+|---|---|
+| **Backend** | Python 3.11, Flask, AWS Lambda, API Gateway, DynamoDB, S3, Rekognition, CloudFront, Route 53, ACM, JWT |
+| **Admin SPA** | React 19, TypeScript, Vite 7, MUI v7, MUI X DataGrid, TailwindCSS v4, Zustand v5, Recharts, React Leaflet, Framer Motion |
+| **PWA** | React 18, Vite, vite-plugin-pwa, Workbox, TailwindCSS, Service Worker, Web Geolocation API |
+| **Native Android** | React Native 0.75, TypeScript, Vision Camera v4, react-native-fast-tflite, MobileFaceNet TFLite, ML Kit Face Detection, SQLite (WAL), react-native-mmkv, Keychain, TanStack Query v5, Zustand v4, Background Fetch |
+
+---
+
+*Stack: Python · React · TypeScript · React Native · AWS · TFLite · SQLite*
