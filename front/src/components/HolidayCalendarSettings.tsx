@@ -139,6 +139,7 @@ const HolidayCalendarSettings: React.FC = () => {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loadingHolidays, setLoadingHolidays] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
   // Vista: 'list' | 'calendar'
@@ -348,6 +349,22 @@ const HolidayCalendarSettings: React.FC = () => {
     toast.success('Feriado adicionado');
   };
 
+  const saveLocation = async () => {
+    const uf   = locationMode === 'auto' ? (location?.uf || '') : manualUF;
+    const city = locationMode === 'auto' ? (location?.city || '') : manualCity;
+    if (!uf) { toast.error('Selecione um estado antes de salvar'); return; }
+    setSavingLocation(true);
+    try {
+      await apiService.post('/api/feriados/salvar-localizacao', { uf, cidade: city });
+      setLoadedFromBackend(true);
+      toast.success(`Localização ${city ? `${city} (${uf})` : uf} salva como padrão`);
+    } catch {
+      toast.error('Erro ao salvar localização');
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
   const saveAll = async () => {
     setSaving(true);
     const uf   = locationMode === 'auto' ? (location?.uf || '') : manualUF;
@@ -493,7 +510,7 @@ const HolidayCalendarSettings: React.FC = () => {
                   </Button>
                 )}
               </Box>
-              <Box sx={{ display:'flex', gap:2 }}>
+              <Box sx={{ display:'flex', gap:2, flexWrap:'wrap', alignItems:'center' }}>
                 <FormControl size="small" sx={{ minWidth:180, ...fieldSx }}>
                   <InputLabel>Estado (UF)</InputLabel>
                   <Select value={manualUF} label="Estado (UF)" onChange={e => { setManualUF(e.target.value); setLoadedFromBackend(false); }}
@@ -509,6 +526,25 @@ const HolidayCalendarSettings: React.FC = () => {
                   sx={{ minWidth:200, ...fieldSx }}
                   placeholder="Ex: São Paulo"
                 />
+                {manualUF && !loadedFromBackend && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={savingLocation ? <CircularProgress size={14} color="inherit" /> : <StarIcon />}
+                    onClick={saveLocation}
+                    disabled={savingLocation}
+                    sx={{
+                      borderColor: 'rgba(59,130,246,0.5)',
+                      color: '#60a5fa',
+                      fontSize: '13px',
+                      textTransform: 'none',
+                      whiteSpace: 'nowrap',
+                      '&:hover': { borderColor: '#3b82f6', background: 'rgba(59,130,246,0.08)' },
+                    }}
+                  >
+                    {savingLocation ? 'Salvando...' : 'Salvar como padrão'}
+                  </Button>
+                )}
               </Box>
             </Box>
           )}

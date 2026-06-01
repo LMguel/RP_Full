@@ -334,7 +334,11 @@ const EmployeeRecordsPage: React.FC = () => {
         status = 'INCOMPLETO';
         cor = 'amarelo';
       } else if (summaryWorked > 0) {
-        if (summaryAtraso > 0) { status = 'ATRASO'; cor = 'laranja'; }
+        // Usa banco_horas_dia como fonte única de verdade para o status do dia.
+        // banco < 0 → déficit real (entrada atrasada não compensada, saída antecipada, etc.)
+        // banco >= 0 → jornada cumprida (inclusive quem chegou atrasado mas compensou)
+        const bancoDia = summary ? Number((summary as any).banco_horas_dia ?? 0) : 0;
+        if (bancoDia < 0) { status = 'ATRASO'; cor = 'laranja'; }
         else { status = 'PRESENTE'; cor = 'verde'; }
       } else if (isWorkday && isPast) {
         status = 'FALTA'; cor = 'vermelho';
@@ -385,7 +389,12 @@ const EmployeeRecordsPage: React.FC = () => {
   const feriadosAutoCredit = calendarDays.filter(
     d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros.length === 0
   );
-  const allDisplayDays = [...diasTrabalhados, ...feriadosAutoCredit];
+  // Dias de falta: dia útil passado sem registro — aparece na tabela para o gestor
+  const _todayForFilter = (() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
+  const diasFalta = calendarDays.filter(
+    d => d.status === 'FALTA' && d.data < _todayForFilter
+  );
+  const allDisplayDays = [...diasTrabalhados, ...feriadosAutoCredit, ...diasFalta];
   const diasSorted = [...allDisplayDays].sort((a,b) => { const c=a.data.localeCompare(b.data); return sortDir==='asc'?c:-c; });
 
   const resumo = (() => {
@@ -425,7 +434,11 @@ const EmployeeRecordsPage: React.FC = () => {
     const saldoFinal         = toleranciaAplicada ? 0 : saldoBruto;
     const displayExtras      = toleranciaAplicada ? 0 : totalMinExtras;
     const displayAtrasos     = toleranciaAplicada ? 0 : totalMinAtrasos;
-    const displayTrabalhado  = toleranciaAplicada ? totalMinPrevistos : totalMinTrabalhados;
+    // Só substitui trabalhado por previsto quando há previsto real (> 0).
+    // Horário variável: previsto = 0 → sem substituição, exibe horas reais.
+    const displayTrabalhado  = (toleranciaAplicada && totalMinPrevistos > 0)
+      ? totalMinPrevistos
+      : totalMinTrabalhados;
 
     const presentes = calendarDays.filter(d => {
       if (d.status === 'PRESENTE' || d.status === 'ATRASO' || d.status === 'INCOMPLETO') return true;
@@ -602,16 +615,34 @@ const EmployeeRecordsPage: React.FC = () => {
       ['', '', '', '', '', '', '', ''],
       ['Data', 'Dia', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas'],
     ];
-    diasSorted.forEach(day => aoa.push([
-      day.data.split('-').reverse().join('-'),
-      day.dia_semana.toUpperCase(),
-      day.entrada || '-',
-      day.saida_intervalo || '-',
-      day.volta_intervalo || '-',
-      day.saida || '-',
-      day.horas_trabalhadas || '-',
-      day.horas_previstas || '-',
-    ]));
+    diasSorted.forEach(day => {
+      if (day.status === 'FALTA') {
+        aoa.push([
+          day.data.split('-').reverse().join('-'),
+          day.dia_semana.toUpperCase(),
+          'FALTA', '', '', '', '00:00', day.horas_previstas || '-',
+        ]);
+      } else if (day.status === 'FERIADO' && day.registros.length === 0) {
+        aoa.push([
+          day.data.split('-').reverse().join('-'),
+          day.dia_semana.toUpperCase(),
+          `FERIADO${day.feriado_nome ? ': ' + day.feriado_nome : ''}`, '', '', '',
+          day.horas_trabalhadas || toHHMM(day.feriado_credit_min ?? 0),
+          day.horas_previstas || '-',
+        ]);
+      } else {
+        aoa.push([
+          day.data.split('-').reverse().join('-'),
+          day.dia_semana.toUpperCase(),
+          day.entrada || '-',
+          day.saida_intervalo || '-',
+          day.volta_intervalo || '-',
+          day.saida || '-',
+          day.horas_trabalhadas || '-',
+          day.horas_previstas || '-',
+        ]);
+      }
+    });
 
     const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
 
@@ -998,6 +1029,32 @@ const EmployeeRecordsPage: React.FC = () => {
                   const { bg, border, color } = chipColor(day.status);
                   const isOpen = expandedDate===day.data;
                   const isFeriadoAutoCredit = day.status === 'FERIADO' && (day.feriado_credit_min ?? 0) > 0 && day.registros.length === 0;
+
+                  // ── Linha de FALTA ────────────────────────────────────────────
+                  if (day.status === 'FALTA') {
+                    return (
+                      <React.Fragment key={day.data}>
+                        <TableRow sx={{ borderLeft:'3px solid #ef4444', background:'rgba(239,68,68,0.04)', '& td':{ borderBottom:'1px solid rgba(255,255,255,0.06)' } }}>
+                          <TableCell sx={{ py:1, px:2 }}>
+                            <Typography sx={{ fontWeight:700, color:'rgba(239,68,68,0.85)', fontSize:12, whiteSpace:'nowrap' }}>{day.data.split('-').reverse().join('-')}</Typography>
+                            <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.4)', textTransform:'uppercase', fontSize:10 }}>{day.dia_semana}</Typography>
+                          </TableCell>
+                          <TableCell align="center" colSpan={6}>
+                            <Box sx={{ display:'flex', alignItems:'center', justifyContent:'center', gap:1 }}>
+                              <Chip label="Falta" size="small" sx={{ height:18, fontSize:10, background:'rgba(239,68,68,0.18)', border:'1px solid rgba(239,68,68,0.5)', color:'#ef4444', fontWeight:700 }} />
+                              <Typography sx={{ color:'rgba(239,68,68,0.6)', fontSize:11 }}>Sem registro de ponto</Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography sx={{ fontSize:12, fontFamily:'monospace', color:'#ef4444', fontWeight:700 }}>
+                              {day.horas_previstas ? `-${day.horas_previstas}` : '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </React.Fragment>
+                    );
+                  }
 
                   // ── Linha de feriado com crédito automático ──────────────────
                   if (isFeriadoAutoCredit) {

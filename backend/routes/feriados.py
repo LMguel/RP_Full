@@ -76,6 +76,46 @@ def get_feriados():
         return jsonify({'error': str(e)}), 500
 
 
+# ── POST /api/feriados/salvar-localizacao ────────────────────────────────────
+
+@feriados_routes.route('/api/feriados/salvar-localizacao', methods=['POST', 'OPTIONS'])
+def salvar_localizacao():
+    """Salva apenas a UF e cidade da empresa como padrão para feriados."""
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    try:
+        data = request.get_json(force=True) or {}
+        uf     = data.get('uf', '')
+        cidade = data.get('cidade', '')
+
+        company_id = 'global'
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            payload = verify_token(token)
+            if payload:
+                company_id = payload.get('company_id') or 'global'
+
+        if not uf:
+            return jsonify({'error': 'uf obrigatório'}), 400
+
+        update_expr = 'SET empresa_uf = :uf'
+        expr_values = {':uf': uf}
+        if cidade:
+            update_expr += ', empresa_cidade = :cidade'
+            expr_values[':cidade'] = cidade
+
+        tabela_configuracoes.update_item(
+            Key={'company_id': company_id},
+            UpdateExpression=update_expr,
+            ExpressionAttributeValues=expr_values,
+        )
+        return jsonify({'ok': True, 'uf': uf, 'cidade': cidade}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── POST /api/feriados/salvar ─────────────────────────────────────────────────
 
 @feriados_routes.route('/api/feriados/salvar', methods=['POST', 'OPTIONS'])
