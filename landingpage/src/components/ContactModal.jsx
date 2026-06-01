@@ -202,9 +202,9 @@ export default function ContactModal({ open, plan, onClose }) {
                         style={{ background: '#050B18' }}
                       >
                         <option value="">Selecione um plano...</option>
-                        <option value="Tablet">Tablet — R$ 129/mês</option>
-                        <option value="Mobile">Mobile (GPS) — R$ 149/mês</option>
-                        <option value="Híbrido">Híbrido — R$ 189/mês</option>
+                        <option value="Plano 10">Plano 10 — até 10 funcionários — R$ 179/mês</option>
+                        <option value="Plano 20">Plano 20 — até 20 funcionários — R$ 239/mês</option>
+                        <option value="Plano 30">Plano 30 — até 30 funcionários — R$ 299/mês</option>
                         <option value="Ainda não sei">Ainda não sei</option>
                       </select>
                     </div>

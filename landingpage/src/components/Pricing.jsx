@@ -5,6 +5,15 @@ import { Check, Star, ArrowRight, MessageCircle, Package } from 'lucide-react'
 const WA_BASE = 'https://wa.me/5524992272778?text='
 const WA_IMPL = `${WA_BASE}${encodeURIComponent('Olá! Gostaria de solicitar um orçamento para a Implantação Completa do REGISTRA.PONTO.')}`
 
+const sharedFeatures = [
+  'Reconhecimento facial',
+  'Dashboard web',
+  'Relatórios de ponto',
+  'Gestão de funcionários',
+  'Exportação Excel',
+  'Suporte técnico',
+]
+
 const plans = [
   {
     id: 'plano10',
@@ -13,13 +22,7 @@ const plans = [
     price: 179,
     popular: false,
     waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 10 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
-    features: [
-      'Reconhecimento facial',
-      'Dashboard web',
-      'Relatórios de ponto',
-      'Gestão de funcionários',
-      'Suporte técnico',
-    ],
+    features: sharedFeatures,
   },
   {
     id: 'plano20',
@@ -28,12 +31,7 @@ const plans = [
     price: 239,
     popular: true,
     waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 20 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
-    features: [
-      'Tudo do Plano 10',
-      'Relatórios completos',
-      'Controle avançado',
-      'Suporte prioritário',
-    ],
+    features: sharedFeatures,
   },
   {
     id: 'plano30',
@@ -42,12 +40,7 @@ const plans = [
     price: 299,
     popular: false,
     waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 30 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
-    features: [
-      'Tudo do Plano 20',
-      'Multiusuários',
-      'Gestão avançada',
-      'Recursos empresariais',
-    ],
+    features: sharedFeatures,
   },
   {
     id: 'enterprise',

@@ -1,34 +1,34 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Tablet, Users, Camera, LayoutDashboard } from 'lucide-react'
+import { Settings, Tablet, Users, LayoutDashboard } from 'lucide-react'
 
 const steps = [
   {
     number: '01',
-    icon: Tablet,
-    title: 'Instalação do tablet',
-    description: 'Levamos o tablet configurado até sua empresa e instalamos na entrada. Tudo pronto em menos de 1 hora.',
+    icon: Settings,
+    title: 'Configuração da empresa',
+    description: 'Cadastramos horários, jornadas, feriados e regras de banco de horas.',
     color: 'blue',
   },
   {
     number: '02',
-    icon: Users,
-    title: 'Cadastro dos funcionários',
-    description: 'Realizamos o cadastro inicial da equipe com foto facial para o reconhecimento automático.',
+    icon: Tablet,
+    title: 'Instalação do tablet',
+    description: 'Configuramos o dispositivo que será utilizado para os registros de ponto.',
     color: 'cyan',
   },
   {
     number: '03',
-    icon: Camera,
-    title: 'Registro facial automático',
-    description: 'A partir daí, cada funcionário registra o ponto em segundos — apenas olhando para o tablet.',
+    icon: Users,
+    title: 'Cadastro da equipe',
+    description: 'Realizamos o cadastro dos funcionários e do reconhecimento facial.',
     color: 'blue',
   },
   {
     number: '04',
     icon: LayoutDashboard,
-    title: 'Gestão pelo painel web',
-    description: 'Acesse o dashboard de qualquer lugar, veja registros em tempo real e exporte relatórios com um clique.',
+    title: 'Operação em funcionamento',
+    description: 'Sua equipe registra o ponto em segundos e a gestão acompanha tudo pelo painel online.',
     color: 'cyan',
   },
 ]
@@ -71,8 +71,8 @@ export default function HowItWorks() {
             transition={{ delay: 0.1 }}
             className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white tracking-tight mt-2 mb-4"
           >
-            Do zero ao funcionando em{' '}
-            <span className="gradient-text">menos de 1 dia</span>
+            Implantação acompanhada{' '}
+            <span className="gradient-text">do início ao fim</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 18 }}
@@ -81,7 +81,7 @@ export default function HowItWorks() {
             transition={{ delay: 0.2 }}
             className="text-slate-400 text-lg max-w-2xl mx-auto"
           >
-            Implantação simples e rápida. Cuidamos de tudo — você só precisa de um local para fixar o tablet.
+            Cuidamos de toda a configuração para que sua empresa comece a registrar ponto com reconhecimento facial sem complicação.
           </motion.p>
         </div>
 
