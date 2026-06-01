@@ -220,12 +220,12 @@ def calculate_expected_minutes(
     break_duration: int = 0,
 ) -> int:
     """
-    Calcula minutos previstos de trabalho a partir do horário da empresa/funcionário.
+    Calcula minutos previstos de trabalho.
 
-    O break_duration é sempre descontado quando configurado (> 0), independente do modo.
-    - intervalo_automatico=True:  break não aparece nas batidas; descontado de worked E expected.
-    - intervalo_automatico=False: break aparece como batidas reais; positional pairing já
-      exclui o intervalo de worked; expected também deve descontar para o banco ficar correto.
+    intervalo_automatico=True:  desconta break_duration (intervalo não aparece nas batidas).
+    intervalo_automatico=False: previsto = jornada bruta (saída - entrada cadastradas).
+      O intervalo aparece como batidas reais; o pareamento posicional já exclui a pausa
+      do worked. Descontar break do expected geraria previsto incorreto.
     """
     start_min = _parse_hhmm(scheduled_start)
     end_min = _parse_hhmm(scheduled_end)
@@ -234,7 +234,7 @@ def calculate_expected_minutes(
     total = end_min - start_min
     if total <= 0:
         return 0
-    if break_duration > 0:
+    if intervalo_automatico and break_duration > 0:
         total = max(0, total - break_duration)
     return total
 
@@ -245,9 +245,10 @@ def calculate_delay_minutes(
     tolerance_minutes: int = 0,
 ) -> int:
     """
-    Calcula atraso em minutos.
+    Calcula atraso em minutos medido A PARTIR do limiar de tolerância.
     Retorna 0 se dentro da tolerância.
-    Retorna minutos de atraso se além da tolerância.
+
+    Exemplo: entrada 07:15, contratado 07:00, tolerância 10 min → atraso = 5 min.
     """
     if not first_punch_iso or not scheduled_start:
         return 0
@@ -259,7 +260,7 @@ def calculate_delay_minutes(
     if actual_min is None:
         return 0
     diff = actual_min - scheduled_min
-    return max(0, diff) if diff > tolerance_minutes else 0
+    return max(0, diff - tolerance_minutes)
 
 
 def calculate_early_departure_minutes(
@@ -268,7 +269,7 @@ def calculate_early_departure_minutes(
     tolerance_minutes: int = 0,
 ) -> int:
     """
-    Calcula saída antecipada em minutos (valor positivo = saiu antes).
+    Calcula saída antecipada em minutos medido A PARTIR do limiar de tolerância.
     Retorna 0 se dentro da tolerância.
     """
     if not last_punch_iso or not scheduled_end:
@@ -281,7 +282,36 @@ def calculate_early_departure_minutes(
     if actual_min is None:
         return 0
     diff = scheduled_min - actual_min  # positivo = saiu antes
-    return max(0, diff) if diff > tolerance_minutes else 0
+    return max(0, diff - tolerance_minutes)
+
+
+def calculate_overtime_exit_minutes(
+    last_punch_iso: Optional[str],
+    scheduled_end: Optional[str],
+    tolerance_minutes: int = 0,
+) -> int:
+    """
+    Calcula hora extra baseada no horário de saída real vs contratado.
+    Usado exclusivamente no modo manual (intervalo_automatico=False).
+
+    hora_extra = max(0, saida_real - (saida_contratada + tolerancia))
+
+    Exemplo: contratado 17:00, tolerância 10 min.
+      Saiu 17:05 → 0 min.
+      Saiu 17:15 → 5 min.
+      Saiu 17:30 → 20 min.
+    """
+    if not last_punch_iso or not scheduled_end:
+        return 0
+    scheduled_min = _parse_hhmm(scheduled_end)
+    if scheduled_min is None:
+        return 0
+    hhmm = _extract_hhmm_from_iso(last_punch_iso)
+    actual_min = _parse_hhmm(hhmm)
+    if actual_min is None:
+        return 0
+    diff = actual_min - scheduled_min  # positivo = saiu depois
+    return max(0, diff - tolerance_minutes)
 
 
 def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:

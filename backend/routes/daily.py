@@ -18,6 +18,7 @@ from services.calculation_engine import (
     calculate_expected_minutes as eng_expected,
     calculate_delay_minutes as eng_delay,
     calculate_early_departure_minutes as eng_early_dep,
+    calculate_overtime_exit_minutes as eng_overtime_exit,
     apply_bank_tolerance,
     minutes_to_hhmm,
     count_valid_punches,
@@ -509,14 +510,32 @@ def get_daily_summaries():
                 saida_antecipada_min = None
                 banco_horas_dia = None
                 horas_extras_min = None
-            else:
-                # Previsto usa break_duration CONFIGURADO, não effective_break.
-                # effective_break varia com a quantidade de batidas (0 para n≤2),
-                # o que faria previsto = jornada bruta quando o funcionário não
-                # registrou os intervalos. O previsto deve ser constante.
+            elif not intervalo_automatico:
+                # ── MODO MANUAL (intervalo_automatico=False) ──────────────────
+                # Previsto = jornada bruta cadastrada (saída - entrada), SEM
+                # desconto de intervalo. O pareamento posicional já exclui
+                # a pausa de worked; descontar break do expected geraria banco errado.
                 expected_min = eng_expected(
                     scheduled_start, scheduled_end,
-                    intervalo_automatico, break_duration
+                    intervalo_automatico=False,
+                    break_duration=0,
+                )
+                atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
+                saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
+                # Hora extra = baseada no horário de SAÍDA REAL vs contratado + tolerância.
+                # NÃO usa worked vs expected (geraria falsos positivos com 2 batidas).
+                horas_extras_min = eng_overtime_exit(last_iso, scheduled_end, tolerancia_atraso)
+                # Banco diário = worked - expected (reflete pausa longa/curta).
+                # apply_bank_tolerance zera micro-diferenças dentro da tolerância.
+                banco_horas_dia = apply_bank_tolerance(worked_min - expected_min, tolerancia_atraso)
+            else:
+                # ── MODO AUTOMÁTICO (intervalo_automatico=True) ───────────────
+                # Previsto = jornada bruta - break configurado (intervalo não
+                # aparece nas batidas, é descontado automaticamente).
+                expected_min = eng_expected(
+                    scheduled_start, scheduled_end,
+                    intervalo_automatico=True,
+                    break_duration=break_duration,
                 )
                 atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
