@@ -6,13 +6,13 @@ const WA_CONSULTOR = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Gostaria%20de
 
 const links = [
   { label: 'Funcionalidades', href: '#dashboard' },
-  { label: 'Planos', href: '#planos' },
-  { label: 'FAQ', href: '#faq' },
+  { label: 'Planos',          href: '#planos' },
+  { label: 'FAQ',             href: '#faq' },
 ]
 
 export default function Navbar() {
-  const [scrolled, setScrolled] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const [scrolled,    setScrolled]    = useState(false)
+  const [mobileOpen,  setMobileOpen]  = useState(false)
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20)
@@ -22,9 +22,7 @@ export default function Navbar() {
 
   function handleMobileLink(href) {
     setMobileOpen(false)
-    setTimeout(() => {
-      document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' })
-    }, 100)
+    setTimeout(() => document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
   return (
@@ -34,9 +32,7 @@ export default function Navbar() {
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
         style={{
-          background: scrolled
-            ? 'rgba(5,10,22,0.96)'
-            : 'rgba(5,10,22,0.82)',
+          background: scrolled ? 'rgba(5,12,24,0.96)' : 'rgba(5,12,24,0.82)',
           backdropFilter: 'blur(28px) saturate(160%)',
           WebkitBackdropFilter: 'blur(28px) saturate(160%)',
           borderBottom: scrolled
@@ -53,8 +49,7 @@ export default function Navbar() {
 
             {/* Logo */}
             <a href="#" className="flex items-center gap-3 select-none group">
-              {/* Logo maior com fundo branco discreto */}
-              <div className="bg-transparent rounded-full p-[1px] flex-shrink-0">
+              <div className="flex-shrink-0">
                 <img
                   src="/image/logo.png"
                   alt="REGISTRA.PONTO"
@@ -62,23 +57,28 @@ export default function Navbar() {
                   draggable={false}
                 />
               </div>
-              <span className="font-bold text-[#F1F5F9] tracking-tight text-[15px] sm:text-base leading-none">
-                REGISTRA<span className="text-blue-400">.</span>PONTO
+              <span
+                className="font-bold tracking-tight text-[15px] sm:text-base leading-none text-slate-100"
+                style={{ fontFamily: 'Outfit, sans-serif' }}
+              >
+                REGISTRA<span style={{ color: '#00E87A' }}>.</span>PONTO
               </span>
             </a>
 
             {/* Desktop nav */}
             <nav className="hidden md:flex items-center gap-8">
               {links.map((l) => (
-                <motion.a
+                <a
                   key={l.href}
                   href={l.href}
                   className="relative text-sm font-medium text-slate-400 hover:text-white transition-colors duration-150 group py-1"
-                  whileHover={{ color: '#fff' }}
                 >
                   {l.label}
-                  <span className="absolute bottom-0 left-0 w-0 h-px bg-gradient-to-r from-blue-400 to-cyan-400 group-hover:w-full transition-all duration-250 ease-out" />
-                </motion.a>
+                  <span
+                    className="absolute bottom-0 left-0 w-0 h-px group-hover:w-full transition-all duration-250 ease-out"
+                    style={{ background: 'linear-gradient(90deg, #00E87A, #22D3EE)' }}
+                  />
+                </a>
               ))}
             </nav>
 
@@ -114,7 +114,8 @@ export default function Navbar() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-x-0 top-[68px] z-40 bg-[#07111F]/98 backdrop-blur-xl border-b border-white/[0.06] md:hidden"
+            className="fixed inset-x-0 top-[68px] z-40 backdrop-blur-xl border-b md:hidden"
+            style={{ background: 'rgba(5,12,24,0.98)', borderColor: 'rgba(255,255,255,0.06)' }}
           >
             <div className="px-4 py-4 flex flex-col gap-1">
               {links.map((l) => (

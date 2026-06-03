@@ -4,6 +4,7 @@ import Hero from './components/Hero'
 import Features from './components/Features'
 import Showcase from './components/Showcase'
 import HowItWorks from './components/HowItWorks'
+import Testimonial from './components/Testimonial'
 import Pricing from './components/Pricing'
 import FAQ from './components/FAQ'
 import FinalCTA from './components/FinalCTA'
@@ -103,6 +104,7 @@ export default function App() {
         <Showcase key={s.id} {...s} />
       ))}
       <HowItWorks />
+      <Testimonial />
       <Pricing />
       <FAQ />
       <FinalCTA />

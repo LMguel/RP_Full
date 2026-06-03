@@ -46,7 +46,7 @@ export default function FAQ() {
 
   return (
     <section id="faq" className="py-24 bg-rp-bg relative overflow-hidden">
-      <div className="absolute inset-0 bg-hero-grid opacity-30" />
+      <div className="absolute inset-0 bg-dot-grid opacity-30" />
 
       <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-14">
@@ -59,16 +59,16 @@ export default function FAQ() {
             Dúvidas frequentes
           </motion.span>
           <motion.h2
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
             className="text-3xl sm:text-4xl font-bold text-white tracking-tight mt-2 mb-4"
           >
             Perguntas frequentes
           </motion.h2>
           <motion.p
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.2 }}
@@ -76,7 +76,7 @@ export default function FAQ() {
           >
             Não encontrou sua dúvida?{' '}
             <a
-              href="https://wa.me/5524992272778?text=Olá!%20Tenho%20uma%20dúvida%20sobre%20o%20REGISTRA.PONTO."
+              href="https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20uma%20d%C3%BAvida%20sobre%20o%20REGISTRA.PONTO."
               target="_blank"
               rel="noopener noreferrer"
               className="text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
@@ -91,10 +91,10 @@ export default function FAQ() {
           {faqs.map((faq, i) => (
             <motion.div
               key={i}
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ opacity: 0, y: 14 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-40px' }}
-              transition={{ delay: i * 0.05 }}
+              transition={{ delay: i * 0.05, ease: [0.22, 1, 0.36, 1] }}
               className={`card-dark overflow-hidden transition-colors duration-200 ${open === i ? 'bg-rp-elevated' : ''}`}
             >
               <button
@@ -105,12 +105,17 @@ export default function FAQ() {
                 <span className={`font-medium text-sm sm:text-base transition-colors duration-150 ${open === i ? 'text-white' : 'text-slate-200'}`}>
                   {faq.q}
                 </span>
-                <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  open === i
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white/5 text-slate-400'
-                }`}>
-                  {open === i ? <Minus size={13} strokeWidth={2.5} /> : <Plus size={13} strokeWidth={2.5} />}
+                <span
+                  className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200"
+                  style={{
+                    background: open === i ? '#00E87A' : 'rgba(255,255,255,0.05)',
+                    color: open === i ? '#050C18' : 'rgba(148,163,184,1)',
+                  }}
+                >
+                  {open === i
+                    ? <Minus size={13} strokeWidth={2.5} />
+                    : <Plus  size={13} strokeWidth={2.5} />
+                  }
                 </span>
               </button>
 
@@ -120,10 +125,11 @@ export default function FAQ() {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    transition={{ duration: 0.26, ease: 'easeInOut' }}
                     className="overflow-hidden"
                   >
-                    <p className="px-5 pb-5 text-sm text-slate-400 leading-relaxed border-t border-white/[0.05] pt-4">
+                    <p className="px-5 pb-5 text-sm text-slate-400 leading-relaxed pt-4"
+                       style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                       {faq.a}
                     </p>
                   </motion.div>
