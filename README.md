@@ -6,35 +6,30 @@ A production-grade, multi-tenant employee clock-in platform built around biometr
 
 ## System Screenshots
 
-### Admin Dashboard
-<img src="landingpage/image/dashboard.png" alt="Admin Dashboard" width="600" />
+### Login
+<img src="images/01_login.png" alt="Login" width="700" />
 
-Real-time attendance indicators, daily statistics, and record overview.
+Branded login screen with company identity panel on the left and credential form on the right. Supports "remember me" for persistent sessions.
 
-### Record Management
-<img src="landingpage/image/registros.png" alt="Record List" width="600" />
+### Dashboard — Visão Geral
+<img src="images/02_dashboard.png" alt="Dashboard" width="700" />
 
-Paginated record list with advanced server-side filtering.
+Real-time attendance overview: present/absent counters, hours-per-month balance, daily presence chart, and an alert feed for employees who haven't clocked in yet.
 
-### Record Detail
-<img src="landingpage/image/registros_detalhados.png" alt="Record Detail" width="600" />
+### Espelho de Ponto — Registros
+<img src="images/03_registros.png" alt="Registro de Ponto" width="700" />
 
-Per-entry detail showing capture photo, GPS coordinates, and timestamps.
+Full clock-in/out record table with per-employee filtering, date-range picker, and one-click Excel export. Supports manual record entry for corrections.
 
-### Employee Management
-<img src="landingpage/image/funcionario.png" alt="Employee Management" width="600" />
+### Funcionários
+<img src="images/04_funcionarios.png" alt="Funcionários" width="700" />
 
-Full CRUD with photo upload pipeline into AWS Rekognition face collections.
+Employee roster with photo, role, shift schedule, and status badges. Full CRUD with biometric enrollment pipeline into AWS Rekognition face collections.
 
-### Configuration
-<img src="landingpage/image/configuracoes.png" alt="Settings" width="600" />
+### Configurações
+<img src="images/05_configuracoes.png" alt="Configurações" width="700" />
 
-Per-company work schedule, geofence radius, and feature toggles.
-
-### Kiosk in Production
-<img src="landingpage/image/captura.jpg" alt="Tablet in kiosk mode" width="600" />
-
-Android tablet running the native app in locked-down kiosk mode.
+Per-company configuration: work schedule (punch tolerance, auto-checkout, automatic intervals), geofence radius, public holiday calendar, and shift presets per employee group.
 
 ---
 
