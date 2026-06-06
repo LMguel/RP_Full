@@ -10,6 +10,7 @@ from routes import (
     routes_facial,
     feriados_routes,
     chatbot_rh_routes,
+    admin_aws_routes,
 )
 import os
 import json
@@ -86,6 +87,7 @@ app.register_blueprint(admin_routes)
 app.register_blueprint(routes_facial)
 app.register_blueprint(feriados_routes)
 app.register_blueprint(chatbot_rh_routes)
+app.register_blueprint(admin_aws_routes)
 
 
 @app.before_request

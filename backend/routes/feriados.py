@@ -62,13 +62,31 @@ def get_feriados():
         try:
             resp = tabela_configuracoes.get_item(Key={'company_id': company_id})
             item = resp.get('Item', {})
-            campo = _feriados_key(ano, uf)
-            raw = item.get(campo)
-            if raw:
-                feriados = json.loads(raw) if isinstance(raw, str) else raw
-                return jsonify(feriados), 200
-        except Exception:
-            pass  # tabela pode não existir em dev
+
+            # Leitura robusta: procura TODAS as chaves feriados_{ano}* no item
+            # (independente do UF), fazendo merge por data. Isso torna a leitura
+            # tolerante a divergências de UF entre o salvamento e a leitura.
+            prefixo = f'feriados_{ano}'
+            merged = {}
+            for k, raw in item.items():
+                if not k.startswith(prefixo):
+                    continue
+                try:
+                    lista = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    continue
+                if not isinstance(lista, list):
+                    continue
+                for h in lista:
+                    data = h.get('date') or h.get('data')
+                    if data:
+                        merged[str(data)] = h  # chave mais recente sobrescreve
+
+            feriados = sorted(merged.values(), key=lambda h: str(h.get('date') or h.get('data') or ''))
+            print(f"[FERIADOS] GET ano={ano} uf={uf!r} company={company_id} → {len(feriados)} feriados (chaves: {[k for k in item.keys() if k.startswith(prefixo)]})")
+            return jsonify(feriados), 200
+        except Exception as e:
+            print(f"[FERIADOS] Erro na leitura: {e}")
 
         return jsonify([]), 200
 
@@ -144,11 +162,14 @@ def salvar_feriados():
 
         campo = _feriados_key(ano, uf)
 
+        # Salvar apenas feriados ATIVOS reduz ruído; o front controla active/inactive,
+        # mas para crédito no espelho só importam os ativos. Persistimos todos para
+        # preservar o estado de edição, e a leitura filtra por active.
         try:
             update_expr = 'SET #campo = :val'
             expr_names  = {'#campo': campo}
             expr_values = {':val': json.dumps(feriados, ensure_ascii=False)}
-            # Persistir cidade e UF no config da empresa para reuso futuro
+            # Sempre persistir UF/cidade quando informados (chave de localização da empresa)
             if uf:
                 update_expr += ', empresa_uf = :uf'
                 expr_values[':uf'] = uf
@@ -161,8 +182,11 @@ def salvar_feriados():
                 ExpressionAttributeNames=expr_names,
                 ExpressionAttributeValues=expr_values,
             )
-        except Exception:
-            pass  # tabela pode não existir em dev; front usa localStorage como fallback
+            print(f"[FERIADOS] SALVO company={company_id} campo={campo} uf={uf!r} → {len(feriados)} feriados")
+        except Exception as e:
+            # NÃO silenciar: o gestor precisa saber se a gravação falhou
+            print(f"[FERIADOS] ERRO ao salvar: {e}")
+            return jsonify({'error': f'Falha ao salvar feriados: {str(e)}'}), 500
 
         return jsonify({'ok': True, 'saved': len(feriados)}), 200
 

@@ -1,367 +1,213 @@
 import { useEffect, useState } from "react";
-import { Plus, Eye, Pause, Play, Trash, Users } from "lucide-react";
+import { Plus, Eye, Pause, Play, Trash, Users, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { fetchCompanies, type CompanySummary } from "../../services/api";
 
-interface Filters {
-  companyName: string;
-  month: string;
+const statusLabel: Record<string, string> = {
+  active: "Ativa", suspended: "Suspensa", inactive: "Inativa", deleted: "Excluída",
+};
+const statusStyle: Record<string, string> = {
+  active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  suspended: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  inactive: "bg-white/[0.06] text-white/35 border-white/[0.1]",
+  deleted: "bg-red-500/15 text-red-400 border-red-500/25",
+};
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse rounded-xl ${className}`} style={{ background: "rgba(255,255,255,0.06)" }} />;
 }
 
 export function CompaniesPage() {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Get current month in YYYY-MM format
-  const getCurrentMonth = () => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  };
-  
-  const [filters, setFilters] = useState<Filters>({
-    companyName: "",
-    month: getCurrentMonth(),
+  const [search, setSearch] = useState("");
+  const [month, setMonth] = useState(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
   });
-  const [showEmployeesModal, setShowEmployeesModal] = useState(false);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadCompanies() {
-      try {
-        const response = await fetchCompanies();
-        setCompanies(response);
-      } catch (error) {
-        toast.error("Falha ao buscar empresas cadastradas.");
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadCompanies();
+    fetchCompanies()
+      .then(setCompanies)
+      .catch(() => toast.error("Falha ao buscar empresas."))
+      .finally(() => setLoading(false));
   }, []);
 
-  // Filter companies based on name (regardless of payment status)
-  const filteredCompanies = companies.filter((company) => {
-    const nameMatch = company.companyName
-      .toLowerCase()
-      .includes(filters.companyName.toLowerCase());
-    
-    return nameMatch;
-  });
+  const filtered = companies.filter((c) =>
+    c.companyName.toLowerCase().includes(search.toLowerCase())
+  );
 
-  // Get payment status for current month
-  const getCurrentMonthKey = () => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const isPaid = (c: CompanySummary) => c.payments?.[month] === true;
+
+  const handleAction = (label: string, company: CompanySummary) => {
+    toast.info(`${label}: ${company.companyName} — em desenvolvimento`);
   };
-
-  const getPaymentStatus = (company: CompanySummary) => {
-    if (!filters.month) {
-      const currentMonth = getCurrentMonthKey();
-      return company.payments?.[currentMonth] === true ? "Pagou" : "Não Pagou";
-    }
-    return company.payments?.[filters.month] === true ? "Pagou" : "Não Pagou";
-  };
-
-  const getPaymentBadgeColor = (company: CompanySummary) => {
-    const isPaid = filters.month 
-      ? company.payments?.[filters.month] === true
-      : company.payments?.[getCurrentMonthKey()] === true;
-    return isPaid ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800";
-  };
-
-  const getStatusBadgeColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800";
-      case "suspended":
-        return "bg-yellow-100 text-yellow-800";
-      case "inactive":
-        return "bg-gray-100 text-gray-800";
-      case "deleted":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-blue-100 text-blue-800";
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "active":
-        return "Ativa";
-      case "suspended":
-        return "Suspensa";
-      case "inactive":
-        return "Inativa";
-      case "deleted":
-        return "Deletada";
-      default:
-        return status;
-    }
-  };
-
-  const handleSuspend = async (company: CompanySummary) => {
-    toast.info(`Suspender empresa ${company.companyName} - em desenvolvimento`);
-    // TODO: Implement suspend API call
-  };
-
-  const handleResume = async (company: CompanySummary) => {
-    toast.info(`Reativar empresa ${company.companyName} - em desenvolvimento`);
-    // TODO: Implement resume API call
-  };
-
-  const handleDelete = async (company: CompanySummary) => {
-    if (confirm(`Tem certeza que deseja deletar ${company.companyName}?`)) {
-      toast.info(`Deletar empresa ${company.companyName} - em desenvolvimento`);
-      // TODO: Implement delete API call
-    }
-  };
-
-  const handleViewEmployees = (companyId: string) => {
-    setSelectedCompanyId(companyId);
-    setShowEmployeesModal(true);
-  };
-
-  const selectedCompany = companies.find((c) => c.companyId === selectedCompanyId);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+
+      {/* header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Empresas</h1>
-          <p className="mt-2 text-gray-600">Gestão das empresas vinculadas ao ecossistema RP</p>
+          <h1 className="text-[28px] font-bold text-white leading-none tracking-tight">Empresas</h1>
+          <p className="mt-1 text-[13px] text-white/38">
+            {companies.length} empresa{companies.length !== 1 ? "s" : ""} · gestão e controle
+          </p>
         </div>
-        <Button onClick={() => navigate("/companies/create")} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" /> Cadastrar Empresa
-        </Button>
+        <button
+          onClick={() => navigate("/companies/create")}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white transition-all hover:opacity-90 active:scale-95 self-start sm:self-auto"
+          style={{ background: "linear-gradient(90deg,#1d4ed8,#3b82f6)" }}
+        >
+          <Plus className="h-4 w-4" />
+          Cadastrar Empresa
+        </button>
       </div>
 
-      {/* Filters */}
-      <Card className="border-0 bg-white shadow-md">
-        <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg pb-4">
-          <CardTitle>Filtros</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Buscar por Nome da Empresa
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: Acme Corp..."
-                value={filters.companyName}
-                onChange={(e) =>
-                  setFilters({ ...filters, companyName: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Filtrar por Mês (Status de Pagamento)
-              </label>
-              <input
-                type="month"
-                value={filters.month}
-                onChange={(e) =>
-                  setFilters({ ...filters, month: e.target.value ? e.target.value.replace("-", "-") : "" })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Companies Table */}
-      <Card className="border-0 bg-white shadow-md">
-        <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
-          <CardTitle>
-            Lista de Empresas ({filteredCompanies.length} de {companies.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b-2 border-blue-200">
-                <TableHead className="text-blue-900 font-bold">ID</TableHead>
-                <TableHead className="text-blue-900 font-bold">Nome</TableHead>
-                <TableHead className="text-blue-900 font-bold">Email</TableHead>
-                <TableHead className="text-blue-900 font-bold">Status</TableHead>
-                <TableHead className="text-blue-900 font-bold">Pagamento</TableHead>
-                <TableHead className="text-blue-900 font-bold text-center">Funcionários</TableHead>
-                <TableHead className="text-blue-900 font-bold">Data Criação</TableHead>
-                <TableHead className="text-right text-blue-900 font-bold">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="py-10 text-center text-gray-500">
-                    Carregando...
-                  </TableCell>
-                </TableRow>
-              ) : filteredCompanies.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="py-10 text-center text-gray-500">
-                    {companies.length === 0
-                      ? "Nenhuma empresa cadastrada no momento."
-                      : "Nenhuma empresa encontrada com os filtros selecionados."}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredCompanies.map((company) => (
-                  <TableRow
-                    key={company.companyId}
-                    className="border-b border-gray-200 hover:bg-blue-50 transition-colors"
-                  >
-                    <TableCell className="font-mono text-xs text-gray-600">
-                      {company.companyId.substring(0, 8)}...
-                    </TableCell>
-                    <TableCell className="font-semibold text-gray-900">
-                      {company.companyName}
-                    </TableCell>
-                    <TableCell className="text-gray-700">{company.email}</TableCell>
-                    <TableCell>
-                      <Badge className={getStatusBadgeColor(company.status)}>
-                        {getStatusLabel(company.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getPaymentBadgeColor(company)}>
-                        {getPaymentStatus(company)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <button
-                        onClick={() => handleViewEmployees(company.companyId)}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors font-medium text-sm"
-                      >
-                        <Users className="h-4 w-4" />
-                        {company.activeEmployees}/{company.expectedEmployees || 0}
-                      </button>
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-600">
-                      {new Date(company.dateCreated).toLocaleDateString("pt-BR")}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => navigate(`/companies/${company.companyId}`)}
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          title="Ver detalhes"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {company.status === "active" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleSuspend(company)}
-                            className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50"
-                            title="Suspender empresa"
-                          >
-                            <Pause className="h-4 w-4" />
-                          </Button>
-                        ) : company.status === "suspended" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleResume(company)}
-                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                            title="Reativar empresa"
-                          >
-                            <Play className="h-4 w-4" />
-                          </Button>
-                        ) : null}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(company)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          title="Deletar empresa"
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* Employees Modal */}
-      {showEmployeesModal && selectedCompany && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-2xl mx-4 border-0 shadow-xl">
-            <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Funcionários Ativos</CardTitle>
-                  <p className="text-sm text-blue-100 mt-1">
-                    {selectedCompany.companyName}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowEmployeesModal(false)}
-                  className="text-white hover:bg-blue-800 rounded-full p-2"
-                >
-                  ✕
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {selectedCompany.activeEmployees > 0 ? (
-                  <div className="text-gray-600">
-                    <p className="font-semibold text-lg mb-3">
-                      Total: {selectedCompany.activeEmployees} funcionários ativos
-                    </p>
-                    {/* TODO: Fetch and display employee list here */}
-                    <p className="text-sm text-gray-500">
-                      Lista de funcionários será carregada em breve...
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-center text-gray-500 py-8">
-                    Nenhum funcionário ativo cadastrado
-                  </p>
-                )}
-              </div>
-              <div className="flex justify-end gap-2 mt-6">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowEmployeesModal(false)}
-                  className="text-gray-700"
-                >
-                  Fechar
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+      {/* filters */}
+      <div
+        className="flex flex-col sm:flex-row gap-3 rounded-2xl border border-white/[0.07] p-4"
+        style={{ background: "rgba(255,255,255,0.03)" }}
+      >
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/28 pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nome da empresa..."
+            className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl pl-9 pr-3 py-2.5 text-[13px] text-white placeholder-white/22 focus:outline-none focus:border-blue-500/50 transition-all"
+          />
         </div>
-      )}
+        <input
+          type="month"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+          className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-3 py-2.5 text-[13px] text-white/65 focus:outline-none focus:border-blue-500/50 transition-all"
+        />
+      </div>
+
+      {/* table */}
+      <div
+        className="rounded-2xl border border-white/[0.07] overflow-hidden"
+        style={{ background: "rgba(255,255,255,0.025)" }}
+      >
+        <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
+          <p className="text-[13px] font-semibold text-white/65">
+            Lista de Empresas
+          </p>
+          <span className="text-[11.5px] text-white/30">{filtered.length} de {companies.length}</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-white/[0.05]">
+                {["ID", "Nome", "Email", "Status", "Pagamento", "Funcionários", "Criação", ""].map((h) => (
+                  <th key={h} className="px-5 py-3 text-left text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/25">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={8} className="px-5 py-3">
+                      <Skeleton className="h-8 w-full" />
+                    </td>
+                  </tr>
+                ))
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-12 text-center text-white/25 text-[13px]">
+                    {companies.length === 0 ? "Nenhuma empresa cadastrada." : "Nenhuma empresa encontrada."}
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((c, i) => {
+                  const paid = isPaid(c);
+                  return (
+                    <tr
+                      key={c.companyId}
+                      className={`border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors ${i % 2 === 1 ? "bg-white/[0.01]" : ""}`}
+                    >
+                      <td className="px-5 py-3.5">
+                        <span className="font-mono text-[11px] text-white/30">{c.companyId.slice(0, 8)}…</span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <p className="font-semibold text-white/85">{c.companyName}</p>
+                      </td>
+                      <td className="px-5 py-3.5 text-white/50 text-[12.5px]">{c.email}</td>
+                      <td className="px-5 py-3.5">
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${statusStyle[c.status] ?? statusStyle.inactive}`}>
+                          {statusLabel[c.status] ?? c.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${paid ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" : "bg-white/[0.06] text-white/35 border-white/[0.09]"}`}>
+                          {paid ? "Pago" : "Pendente"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <button
+                          onClick={() => navigate(`/companies/${c.companyId}`)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-medium text-blue-400/80 bg-blue-500/10 border border-blue-500/15 hover:bg-blue-500/18 transition-all"
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                          {c.activeEmployees}/{c.expectedEmployees || 0}
+                        </button>
+                      </td>
+                      <td className="px-5 py-3.5 text-white/35 text-[12px]">
+                        {c.dateCreated ? new Date(c.dateCreated).toLocaleDateString("pt-BR") : "—"}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => navigate(`/companies/${c.companyId}`)}
+                            title="Ver detalhes"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-white/28 hover:bg-blue-500/15 hover:text-blue-400 transition-all"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          {c.status === "active" ? (
+                            <button
+                              onClick={() => handleAction("Suspender", c)}
+                              title="Suspender"
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-white/28 hover:bg-amber-500/15 hover:text-amber-400 transition-all"
+                            >
+                              <Pause className="h-3.5 w-3.5" />
+                            </button>
+                          ) : c.status === "suspended" ? (
+                            <button
+                              onClick={() => handleAction("Reativar", c)}
+                              title="Reativar"
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-white/28 hover:bg-emerald-500/15 hover:text-emerald-400 transition-all"
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => {
+                              if (confirm(`Deletar ${c.companyName}?`)) handleAction("Deletar", c);
+                            }}
+                            title="Deletar"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-white/28 hover:bg-red-500/15 hover:text-red-400 transition-all"
+                          >
+                            <Trash className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

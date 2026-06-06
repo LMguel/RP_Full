@@ -1,30 +1,32 @@
-import { Menu, Search } from "lucide-react";
-import { Button } from "../ui/button";
+import { Menu } from "lucide-react";
 
 export function Topbar({ title, onMenuClick }: { title: string; onMenuClick?: () => void }) {
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-white/70 px-4 shadow-sm backdrop-blur">
+    <header
+      className="flex h-14 flex-shrink-0 items-center justify-between px-5 border-b"
+      style={{
+        background: "rgba(5,12,26,0.65)",
+        borderColor: "rgba(255,255,255,0.07)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+      }}
+    >
       <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="lg:hidden"
+        <button
+          className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg text-white/45 hover:bg-white/[0.06] hover:text-white/80 transition-all"
           onClick={onMenuClick}
+          aria-label="Abrir menu"
         >
-          <Menu className="h-5 w-5" />
-        </Button>
-        <h2 className="text-xl font-semibold text-foreground">{title}</h2>
+          <Menu className="h-4.5 w-4.5" />
+        </button>
+        <h2 className="text-[15px] font-semibold text-white/80 tracking-[-0.01em]">{title}</h2>
       </div>
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            placeholder="Buscar..."
-            className="hidden md:block h-10 w-64 rounded-md border border-input bg-background pl-10 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+
+      <div className="flex items-center gap-2">
+        <div
+          className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-bold text-white/70"
+          style={{ background: "linear-gradient(135deg,#1d4ed8,#3b82f6)", fontSize: "9px" }}
+        >
           ADM
         </div>
       </div>

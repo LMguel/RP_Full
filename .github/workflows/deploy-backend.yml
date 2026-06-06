@@ -36,27 +36,37 @@ jobs:
           AWS_DEFAULT_REGION: us-east-1
         run: python -c "from app import app; print('Syntax OK')"
 
-      - name: Deploy to EC2
+      - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
         run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "$EC2_SSH_KEY" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
+          echo "$EC2_HOST_KEY" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
+      - name: Deploy to EC2
+        run: |
           rsync -avz --delete \
             --exclude='.env' \
             --exclude='venv/' \
             --exclude='__pycache__/' \
             --exclude='*.pyc' \
-            -e "ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no" \
+            -e "ssh -i /tmp/deploy_key" \
             backend/ \
             ubuntu@registra-ponto.duckdns.org:~/RP_Full/backend/
 
-          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no \
+          ssh -i /tmp/deploy_key \
             ubuntu@registra-ponto.duckdns.org \
             'cd ~/RP_Full/backend && source venv/bin/activate && pip install -r requirements.txt -q && pkill -f gunicorn || true && sleep 2 && gunicorn --workers 3 --bind 127.0.0.1:8000 --timeout 120 app:app --daemon && sleep 3 && curl -sf http://localhost:8000/health'
 
-          rm /tmp/deploy_key
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f /tmp/deploy_key
 
       - name: Summary
-        run: echo "✅ Backend em produção: https://registra-ponto.duckdns.org"
+        run: |
+          echo "Backend em producao: https://registra-ponto.duckdns.org"

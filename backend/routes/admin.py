@@ -13,6 +13,7 @@ import boto3
 import os
 import jwt
 from botocore.exceptions import ClientError
+from collections import defaultdict
 from decimal import Decimal
 from datetime import datetime
 from boto3.dynamodb.conditions import Attr, Key
@@ -163,15 +164,15 @@ def get_dashboard_stats():
         # Get last created companies (sort by creation date, get last 5)
         last_companies = sorted(
             companies_list,
-            key=lambda x: x.get('createdAt', ''),
+            key=lambda x: x.get('data_criacao', ''),
             reverse=True
         )[:5]
-        
+
         last_created_companies = [
             {
-                'companyId': company.get('companyId', ''),
-                'companyName': company.get('companyName', ''),
-                'dateCreated': company.get('createdAt', ''),
+                'companyId': company.get('company_id', ''),
+                'companyName': company.get('empresa_nome', ''),
+                'dateCreated': company.get('data_criacao', ''),
                 'status': company.get('status', 'active')
             }
             for company in last_companies
@@ -211,7 +212,23 @@ def get_companies():
             )
             companies.extend(response.get('Items', []))
 
-        # Enrich companies with employee counts
+        # Single scan of TimeRecords to aggregate records count per company
+        try:
+            rec_response = table_time_records.scan(ProjectionExpression='company_id')
+            rec_items = rec_response.get('Items', [])
+            while 'LastEvaluatedKey' in rec_response:
+                rec_response = table_time_records.scan(
+                    ProjectionExpression='company_id',
+                    ExclusiveStartKey=rec_response['LastEvaluatedKey']
+                )
+                rec_items.extend(rec_response.get('Items', []))
+            records_per_company: dict = defaultdict(int)
+            for item in rec_items:
+                records_per_company[item.get('company_id', '')] += 1
+        except Exception:
+            records_per_company = defaultdict(int)
+
+        # Enrich companies with employee and record counts
         enriched_companies = []
         for company in companies:
             company_id = company.get('company_id', '')
@@ -246,7 +263,8 @@ def get_companies():
                 'activeEmployees': active_employees,
                 'expectedEmployees': company.get('numero_funcionarios', 0),
                 'payments': payments,
-                'userId': company.get('user_id', '')
+                'userId': company.get('user_id', ''),
+                'recordsCount': int(records_per_company.get(company_id, 0)),
             })
 
         return jsonify({
@@ -444,6 +462,57 @@ def get_company_employees(company_id: str):
     except Exception as e:
         print(f"Error in get_company_employees: {e}")
         return jsonify({'error': 'Erro interno do servidor'}), 500
+
+
+@admin_routes.route('/api/admin/companies/<company_id>/employees', methods=['POST'])
+@admin_required
+def create_company_employee(company_id: str):
+    """Create a new employee for a specific company via admin panel."""
+    try:
+        data = request.get_json() or {}
+        nome = data.get('nome', '').strip()
+        email = data.get('email', '').strip()
+        cargo = data.get('cargo', '').strip()
+        password = data.get('password', '')
+
+        if not all([nome, email, cargo, password]):
+            return jsonify({'error': 'nome, email, cargo e password são obrigatórios'}), 400
+
+        employee_id = str(uuid.uuid4())
+        senha_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+        item = {
+            'employee_id': employee_id,
+            'company_id': company_id,
+            'nome': nome,
+            'email': email,
+            'cargo': cargo,
+            'senha_hash': senha_hash,
+            'ativo': True,
+            'data_cadastro': datetime.now().isoformat(),
+            'home_office': False,
+        }
+
+        table_employees.put_item(Item=item)
+
+        return jsonify({
+            'employee': {
+                'id': employee_id,
+                'nome': nome,
+                'email': email,
+                'cargo': cargo,
+                'ativo': True,
+                'data_cadastro': item['data_cadastro'],
+                'empresa_nome': '',
+            }
+        }), 201
+
+    except ClientError as e:
+        return jsonify({'error': 'Erro ao criar funcionário', 'details': str(e)}), 500
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Erro interno do servidor', 'details': str(e)}), 500
 
 
 @admin_routes.route('/api/admin/companies/<company_id>/records', methods=['GET'])

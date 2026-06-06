@@ -7,6 +7,8 @@ import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { CompaniesPage } from "../pages/Companies/CompaniesPage";
 import { CompanyDetailsPage } from "../pages/CompanyDetails/CompanyDetailsPage";
 import { CompanyCreatePage } from "../pages/CompanyCreate/CompanyCreatePage";
+import { ClientsPage } from "../pages/Clients/ClientsPage";
+import { AwsCostsPage } from "../pages/AwsCosts/AwsCostsPage";
 
 export function AppRoutes() {
   return (
@@ -17,9 +19,11 @@ export function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/clients" element={<ClientsPage />} />
           <Route path="/companies" element={<CompaniesPage />} />
           <Route path="/companies/create" element={<CompanyCreatePage />} />
           <Route path="/companies/:companyId" element={<CompanyDetailsPage />} />
+          <Route path="/aws-costs" element={<AwsCostsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>

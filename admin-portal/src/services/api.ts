@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL || "https://registra-ponto.duckdns.org";
+// Dev: VITE_API_URL vazio → URL relativa → proxy Vite encaminha para Flask local
+// Prod: VITE_API_URL preenchido via secret no GitHub Actions
+const API_URL = (import.meta.env.VITE_API_URL as string) ?? "";
 
 export type CompanyStatus = "active" | "inactive" | "suspended" | "deleted";
 
@@ -13,19 +15,27 @@ export interface CompanySummary {
   status: CompanyStatus;
   dateCreated: string;
   userId: string;
-  activeEmployees: number; // Count of active employees
-  expectedEmployees: number; // Total expected employees
-  payments: Payment; // Payment history by month/year
-  senha?: string; // Password (optional, returned from backend)
+  activeEmployees: number;
+  expectedEmployees: number;
+  payments: Payment;
+  recordsCount?: number;
+  senha?: string;
 }
 
 export interface CreateCompanyPayload {
-  userId: string; // user_id for UserCompany table
+  userId: string;
   companyName: string;
   email: string;
   password: string;
   confirmPassword: string;
-  expectedEmployees?: number; // Total expected employees
+  expectedEmployees?: number;
+}
+
+export interface CreateEmployeePayload {
+  nome: string;
+  email: string;
+  cargo: string;
+  password: string;
 }
 
 export interface DashboardStats {
@@ -34,17 +44,18 @@ export interface DashboardStats {
   totalTimeEntries: number;
   activeCompanies: number;
   inactiveCompanies: number;
-  lastCreatedCompanies: Array<Pick<CompanySummary, "companyId" | "companyName" | "dateCreated" | "status" >>;
+  lastCreatedCompanies: Array<Pick<CompanySummary, "companyId" | "companyName" | "dateCreated" | "status">>;
   paidCompanies: number;
   unpaidCompanies: number;
 }
+
 export interface CompanyEmployee {
   id: string;
-  nome: string; // name in Portuguese
-  cargo: string; // role/position
+  nome: string;
+  cargo: string;
   email: string;
-  ativo: boolean; // active status
-  empresa_nome: string; // company name
+  ativo: boolean;
+  empresa_nome: string;
   data_cadastro: string;
   face_id?: string;
   foto_url?: string;
@@ -64,21 +75,97 @@ export interface CompanyRecord {
   empresa_nome: string;
 }
 
-// Helper function to add header with auth token
-function getHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
+// ── AWS types ────────────────────────────────────────────────────────────────
+
+export interface DynamoTableStat {
+  label: string;
+  table_name: string;
+  item_count: number;
+  size_bytes: number;
+  size_mb: number;
+  status: string;
+  billing_mode: string;
+  error?: string;
+}
+
+export interface AwsMetrics {
+  region: string;
+  timestamp: string;
+  dynamodb: {
+    tables: DynamoTableStat[];
+    total_items: number;
+    total_size_bytes: number;
+    total_size_mb: number;
+  };
+  s3: {
+    bucket: string;
+    size_bytes: number;
+    size_gb: number;
+    size_mb: number;
+    object_count: number;
+    error?: string;
+  };
+  rekognition: {
+    collection: string;
+    face_count: number;
+    face_model_version: string;
+    creation_timestamp: string;
+    error?: string;
   };
 }
 
-// Helper to make fetch requests to backend
+export interface AwsServiceCost {
+  service: string;
+  full_name?: string;
+  cost: number;
+}
+
+export interface AwsMonthCost {
+  month: string;
+  services: AwsServiceCost[];
+  total: number;
+}
+
+export interface AwsCosts {
+  monthly_costs: AwsMonthCost[];
+  current_month: {
+    month: string;
+    total: number;
+    services: AwsServiceCost[];
+  } | null;
+  currency: string;
+  error: string | null;
+  error_hint?: string;
+}
+
+export interface CompanyAwsUsage {
+  company_id: string;
+  employee_count: number | null;
+  record_count: number | null;
+  s3_objects: number | null;
+  s3_size_bytes: number | null;
+  s3_size_mb: number | null;
+  rekognition_faces: number | null;
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function getHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const raw = localStorage.getItem("rp_admin_portal_session");
+    if (raw) {
+      const session = JSON.parse(raw) as { token?: string };
+      if (session?.token) headers["Authorization"] = `Bearer ${session.token}`;
+    }
+  } catch { /* ignore */ }
+  return headers;
+}
+
 async function fetchFromBackend(endpoint: string, options?: RequestInit) {
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
-    headers: {
-      ...getHeaders(),
-      ...options?.headers,
-    },
+    headers: { ...getHeaders(), ...options?.headers },
   });
 
   if (!response.ok) {
@@ -88,6 +175,8 @@ async function fetchFromBackend(endpoint: string, options?: RequestInit) {
 
   return response.json();
 }
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   try {
@@ -117,6 +206,8 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
   }
 }
 
+// ── Companies ────────────────────────────────────────────────────────────────
+
 export async function fetchCompanies(): Promise<CompanySummary[]> {
   try {
     const response = await fetchFromBackend("/api/admin/companies");
@@ -128,49 +219,47 @@ export async function fetchCompanies(): Promise<CompanySummary[]> {
 }
 
 export async function createCompany(payload: CreateCompanyPayload): Promise<CompanySummary> {
-  try {
-    if (payload.password !== payload.confirmPassword) {
-      throw new Error("As senhas informadas não conferem.");
-    }
-
-    const response = await fetchFromBackend("/api/admin/companies", {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: payload.userId,
-        company_name: payload.companyName,
-        email: payload.email,
-        password: payload.password,
-        expected_employees: payload.expectedEmployees || 0,
-      }),
-    });
-
-    return response.company;
-  } catch (error) {
-    console.error("Erro ao criar empresa:", error);
-    throw error;
+  if (payload.password !== payload.confirmPassword) {
+    throw new Error("As senhas informadas não conferem.");
   }
+  const response = await fetchFromBackend("/api/admin/companies", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: payload.userId,
+      company_name: payload.companyName,
+      email: payload.email,
+      password: payload.password,
+      expected_employees: payload.expectedEmployees || 0,
+    }),
+  });
+  return response.company;
 }
 
 export async function fetchCompanyDetails(companyId: string): Promise<CompanySummary> {
-  try {
-    const response = await fetchFromBackend(`/api/admin/companies/${companyId}`);
-    return response.company;
-  } catch (error) {
-    console.error("Erro ao buscar detalhes da empresa:", error);
-    throw error;
-  }
+  const response = await fetchFromBackend(`/api/admin/companies/${companyId}`);
+  return response.company;
 }
 
 export async function fetchCompanyEmployees(companyId: string): Promise<CompanyEmployee[]> {
   try {
     const response = await fetchFromBackend(`/api/admin/companies/${companyId}/employees`);
-    // Backend returns array directly in response.employees
     const employees = response.employees || [];
     return Array.isArray(employees) ? employees : [employees];
   } catch (error) {
     console.error("Erro ao buscar funcionários da empresa:", error);
     return [];
   }
+}
+
+export async function createCompanyEmployee(
+  companyId: string,
+  payload: CreateEmployeePayload
+): Promise<CompanyEmployee> {
+  const response = await fetchFromBackend(`/api/admin/companies/${companyId}/employees`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return response.employee;
 }
 
 export async function fetchCompanyRecords(companyId: string): Promise<CompanyRecord[]> {
@@ -188,16 +277,37 @@ export async function updateCompanyPaymentStatus(
   monthYear: string,
   isPaid: boolean
 ): Promise<void> {
+  await fetchFromBackend(`/api/admin/companies/${companyId}/payment-status`, {
+    method: "POST",
+    body: JSON.stringify({ monthYear, isPaid }),
+  });
+}
+
+// ── AWS ──────────────────────────────────────────────────────────────────────
+
+export async function fetchAwsMetrics(): Promise<AwsMetrics | null> {
   try {
-    await fetchFromBackend(`/api/admin/companies/${companyId}/payment-status`, {
-      method: "POST",
-      body: JSON.stringify({
-        monthYear,
-        isPaid,
-      }),
-    });
+    return await fetchFromBackend("/api/admin/aws/metrics");
   } catch (error) {
-    console.error("Erro ao atualizar status de pagamento:", error);
-    throw error;
+    console.error("Erro ao buscar métricas AWS:", error);
+    return null;
+  }
+}
+
+export async function fetchAwsCosts(months = 6): Promise<AwsCosts> {
+  try {
+    return await fetchFromBackend(`/api/admin/aws/costs?months=${months}`);
+  } catch (error) {
+    console.error("Erro ao buscar custos AWS:", error);
+    return { monthly_costs: [], current_month: null, currency: "USD", error: String(error) };
+  }
+}
+
+export async function fetchCompanyAwsUsage(companyId: string): Promise<CompanyAwsUsage | null> {
+  try {
+    return await fetchFromBackend(`/api/admin/aws/company/${companyId}/usage`);
+  } catch (error) {
+    console.error("Erro ao buscar uso AWS da empresa:", error);
+    return null;
   }
 }

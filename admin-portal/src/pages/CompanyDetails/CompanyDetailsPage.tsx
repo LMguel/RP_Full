@@ -1,19 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Mail, Calendar, Users, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Mail, Calendar, Users, Eye, EyeOff, CreditCard, UserCheck } from "lucide-react";
 
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
 import {
   fetchCompanyDetails,
   fetchCompanyEmployees,
@@ -23,13 +12,21 @@ import {
 } from "../../services/api";
 
 export interface CompanyDetail extends CompanySummary {
-  senhaHash?: string; // Password hash from backend
+  senhaHash?: string;
 }
 
-interface PaymentMonth {
-  monthYear: string;
-  label: string;
-  isPaid: boolean;
+const statusLabel: Record<string, string> = {
+  active: "Ativa", suspended: "Suspensa", inactive: "Inativa", deleted: "Excluída",
+};
+const statusStyle: Record<string, string> = {
+  active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  suspended: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  inactive: "bg-white/[0.06] text-white/35 border-white/[0.1]",
+  deleted: "bg-red-500/15 text-red-400 border-red-500/25",
+};
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse rounded-xl ${className}`} style={{ background: "rgba(255,255,255,0.06)" }} />;
 }
 
 export function CompanyDetailsPage() {
@@ -43,10 +40,7 @@ export function CompanyDetailsPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    if (!companyId) {
-      navigate("/companies", { replace: true });
-      return;
-    }
+    if (!companyId) { navigate("/companies", { replace: true }); return; }
 
     async function loadDetails() {
       try {
@@ -55,19 +49,11 @@ export function CompanyDetailsPage() {
           fetchCompanyDetails(companyId),
           fetchCompanyEmployees(companyId),
         ]);
-
         setCompany(companyData);
         setEmployees(employeesData);
-
-        // Store creation month
         const createdDate = new Date(companyData.dateCreated);
-        const creationMonthStr = createdDate.toISOString().slice(0, 7);
-        setCreationMonth(creationMonthStr);
-        
-        // Initialize selected center month to current month
-        const now = new Date();
-        const currentMonthStr = now.toISOString().slice(0, 7);
-        setSelectedCenterMonth(currentMonthStr);
+        setCreationMonth(createdDate.toISOString().slice(0, 7));
+        setSelectedCenterMonth(new Date().toISOString().slice(0, 7));
       } catch (error) {
         toast.error("Não foi possível carregar os dados da empresa.");
         console.error(error);
@@ -76,48 +62,17 @@ export function CompanyDetailsPage() {
         setLoading(false);
       }
     }
-
     loadDetails();
   }, [companyId, navigate]);
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      active: "Ativa",
-      inactive: "Inativa",
-      suspended: "Suspensa",
-      deleted: "Deletada",
-    };
-    return labels[status] || status;
-  };
-
-  const getStatusBadgeColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800";
-      case "suspended":
-        return "bg-yellow-100 text-yellow-800";
-      case "inactive":
-      case "deleted":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
   const handlePaymentToggle = async (monthYear: string, currentState: boolean) => {
     if (!company) return;
-    
     try {
       await updateCompanyPaymentStatus(companyId!, monthYear, !currentState);
-      
-      // Update local state
       if (company.payments) {
-        const newPayments = { ...company.payments };
-        newPayments[monthYear] = !currentState;
-        setCompany({ ...company, payments: newPayments });
+        setCompany({ ...company, payments: { ...company.payments, [monthYear]: !currentState } });
       }
-      
-      toast.success(`Pagamento de ${monthYear} ${!currentState ? "marcado" : "desmarcado"}`);
+      toast.success(`Pagamento de ${monthYear} ${!currentState ? "marcado como pago" : "desmarcado"}`);
     } catch (error) {
       toast.error("Erro ao atualizar status de pagamento");
       console.error(error);
@@ -125,312 +80,273 @@ export function CompanyDetailsPage() {
   };
 
   const getMonthStatus = (monthYear: string) => {
-    const now = new Date();
-    const currentMonth = now.toISOString().slice(0, 7);
-    
-    if (monthYear < currentMonth) {
-      return "past";
-    } else if (monthYear === currentMonth) {
-      return "current";
-    } else {
-      return "future";
-    }
+    const current = new Date().toISOString().slice(0, 7);
+    if (monthYear < current) return "past";
+    if (monthYear === current) return "current";
+    return "future";
   };
 
-  const getMonthRowStyle = (monthYear: string) => {
-    const status = getMonthStatus(monthYear);
-    switch (status) {
-      case "past":
-        return "bg-gray-50";
-      case "current":
-        return "bg-blue-50";
-      case "future":
-        return "bg-green-50";
-      default:
-        return "";
-    }
+  const getMonthRowAccent = (monthYear: string) => {
+    const s = getMonthStatus(monthYear);
+    if (s === "current") return "bg-blue-500/[0.06] border-l-2 border-blue-500/40";
+    if (s === "future") return "bg-white/[0.01]";
+    return "";
   };
 
   const getMonthStatusLabel = (monthYear: string) => {
-    const status = getMonthStatus(monthYear);
-    switch (status) {
-      case "past":
-        return "(Passado)";
-      case "current":
-        return "(Atual)";
-      case "future":
-        return "(Futuro)";
-      default:
-        return "";
-    }
+    const s = getMonthStatus(monthYear);
+    if (s === "current") return <span className="ml-2 text-[10px] font-semibold text-blue-400 uppercase tracking-wide">Atual</span>;
+    if (s === "future") return <span className="ml-2 text-[10px] text-white/25 uppercase tracking-wide">Futuro</span>;
+    return <span className="ml-2 text-[10px] text-white/20 uppercase tracking-wide">Passado</span>;
   };
 
-  const generatePaymentMonthsForView = () => {
+  const generatePaymentMonths = () => {
     if (!company || !selectedCenterMonth) return [];
-
     const [year, month] = selectedCenterMonth.split("-").map(Number);
-    const centerDate = new Date(year, month - 1, 1);
-    
-    // Start 4 months before the selected month
-    const startDate = new Date(centerDate.getFullYear(), centerDate.getMonth() - 4, 1);
-    const months: PaymentMonth[] = [];
-
-    // Show 9 months: 4 before + center month + 4 after
-    for (let i = 0; i < 9; i++) {
-      const currentDate = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
-      const monthYear = currentDate.toISOString().slice(0, 7);
-      const label = currentDate.toLocaleDateString("pt-BR", {
-        month: "long",
-        year: "numeric",
-      });
-      const isPaid = company.payments && company.payments[monthYear] === true;
-
-      months.push({
-        monthYear,
-        label: label.charAt(0).toUpperCase() + label.slice(1),
-        isPaid,
-      });
-    }
-
-    return months;
+    const startDate = new Date(year, month - 5, 1);
+    return Array.from({ length: 9 }, (_, i) => {
+      const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+      const monthYear = d.toISOString().slice(0, 7);
+      const label = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+      return { monthYear, label: label.charAt(0).toUpperCase() + label.slice(1), isPaid: company.payments?.[monthYear] === true };
+    });
   };
 
-  const displayedPaymentMonths = generatePaymentMonthsForView();
+  const displayedPaymentMonths = generatePaymentMonths();
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-10 w-40 rounded bg-gray-200" />
-          <div className="h-32 rounded bg-gray-100" />
-          <div className="h-64 rounded bg-gray-100" />
-        </div>
+      <div className="space-y-5">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-44 w-full" />
+        <Skeleton className="h-72 w-full" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
 
   if (!company) {
     return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <p className="mb-4 text-gray-600">Empresa não encontrada</p>
-        <Button onClick={() => navigate("/companies")} variant="outline">
-          <ArrowLeft className="mr-2 h-4 w-4" />
+      <div className="flex flex-col items-center justify-center py-20">
+        <p className="mb-4 text-white/40 text-[14px]">Empresa não encontrada</p>
+        <button
+          onClick={() => navigate("/companies")}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium text-white/60 bg-white/[0.05] border border-white/[0.08] hover:bg-white/[0.08] transition-all"
+        >
+          <ArrowLeft className="h-4 w-4" />
           Voltar para Empresas
-        </Button>
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-5">
+
+      {/* header */}
       <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
+        <button
           onClick={() => navigate("/companies")}
-          className="text-gray-600 hover:text-gray-900"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.05] transition-all"
         >
-          <ArrowLeft className="mr-2 h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" />
           Voltar
-        </Button>
+        </button>
       </div>
 
-      {/* Company Info Card */}
-      <Card className="border-0 bg-gradient-to-r from-blue-50 to-white shadow-md">
-        <CardHeader className="border-b-2 border-blue-100">
-          <div className="flex items-start justify-between">
+      {/* company info */}
+      <div
+        className="rounded-2xl border border-white/[0.07] overflow-hidden"
+        style={{ background: "rgba(255,255,255,0.025)" }}
+      >
+        <div
+          className="px-6 py-5 border-b border-white/[0.06]"
+          style={{ background: "linear-gradient(90deg, rgba(29,78,216,0.12) 0%, rgba(255,255,255,0.02) 100%)" }}
+        >
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle className="text-3xl font-bold text-gray-900">
-                {company.companyName}
-              </CardTitle>
-              <CardDescription className="mt-2 text-gray-600">
-                Detalhes da empresa e documentos
-              </CardDescription>
+              <h1 className="text-[22px] font-bold text-white leading-tight">{company.companyName}</h1>
+              <p className="mt-1 text-[12.5px] text-white/40">Detalhes da empresa e documentos</p>
             </div>
-            <Badge className={getStatusBadgeColor(company.status)}>
-              {getStatusLabel(company.status)}
-            </Badge>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium flex-shrink-0 ${statusStyle[company.status] ?? statusStyle.inactive}`}>
+              {statusLabel[company.status] ?? company.status}
+            </span>
           </div>
-        </CardHeader>
-        <CardContent className="grid gap-6 pt-6 md:grid-cols-2 lg:grid-cols-4">
-          <div className="space-y-2 border-l-4 border-blue-600 pl-4">
-            <p className="text-xs font-bold uppercase text-blue-600">ID da Empresa</p>
-            <p className="font-mono text-sm font-semibold text-gray-900 break-all">
-              {company.companyId}
-            </p>
-          </div>
-          <div className="space-y-2 border-l-4 border-blue-500 pl-4">
-            <p className="text-xs font-bold uppercase text-blue-600">Email</p>
-            <p className="flex items-center text-sm text-gray-700">
-              <Mail className="mr-2 h-4 w-4" />
-              {company.email}
-            </p>
-          </div>
-          <div className="space-y-2 border-l-4 border-blue-400 pl-4">
-            <p className="text-xs font-bold uppercase text-blue-600">Data de Criação</p>
-            <p className="flex items-center text-sm text-gray-700">
-              <Calendar className="mr-2 h-4 w-4" />
-              {company.dateCreated}
-            </p>
-          </div>
-          <div className="space-y-2 border-l-4 border-blue-300 pl-4">
-            <p className="text-xs font-bold uppercase text-blue-600">ID do Usuário</p>
-            <p className="font-mono text-sm font-semibold text-gray-900 break-all">
-              {company.userId}
-            </p>
-          </div>
-          <div className="space-y-2 border-l-4 border-blue-200 pl-4">
-            <p className="text-xs font-bold uppercase text-blue-600">Funcionários</p>
-            <p className="flex items-center text-sm text-gray-700">
-              <Users className="mr-2 h-4 w-4" />
-              {company.activeEmployees}/{company.expectedEmployees || 0}
-            </p>
-          </div>
-          <div className="space-y-2 border-l-4 border-blue-100 pl-4">
-            <p className="text-xs font-bold uppercase text-blue-600">Senha</p>
+        </div>
+
+        <div className="grid gap-0 md:grid-cols-2 lg:grid-cols-3 divide-y divide-white/[0.04] md:divide-y-0 md:divide-x md:divide-white/[0.04]">
+          {[
+            { icon: null, label: "ID da Empresa", value: <span className="font-mono text-[11.5px] text-white/55 break-all">{company.companyId}</span> },
+            { icon: <Mail className="h-3.5 w-3.5" />, label: "Email", value: <span className="text-white/70 text-[13px]">{company.email}</span> },
+            { icon: <Calendar className="h-3.5 w-3.5" />, label: "Data de Criação", value: <span className="text-white/70 text-[13px]">{company.dateCreated ? new Date(company.dateCreated).toLocaleDateString("pt-BR") : "—"}</span> },
+            { icon: <Users className="h-3.5 w-3.5" />, label: "Funcionários", value: <span className="text-white/70 text-[13px]">{company.activeEmployees}/{company.expectedEmployees || 0}</span> },
+            { icon: null, label: "ID do Usuário", value: <span className="font-mono text-[11.5px] text-white/55 break-all">{company.userId}</span> },
+          ].map(({ icon, label, value }) => (
+            <div key={label} className="px-5 py-4 space-y-1.5">
+              <p className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/28 flex items-center gap-1.5">
+                {icon}<span>{label}</span>
+              </p>
+              <div>{value}</div>
+            </div>
+          ))}
+
+          {/* password field */}
+          <div className="px-5 py-4 space-y-1.5">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/28">Senha</p>
             <div className="flex items-center gap-2">
               <input
                 type={showPassword ? "text" : "password"}
                 value={company.senha || ""}
                 readOnly
-                className="flex-1 px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm text-gray-900 font-mono"
+                className="flex-1 px-2.5 py-1.5 rounded-lg text-[12px] font-mono text-white/60 focus:outline-none border border-white/[0.08]"
+                style={{ background: "rgba(255,255,255,0.04)" }}
               />
               <button
                 onClick={() => setShowPassword(!showPassword)}
-                className="p-1 text-gray-600 hover:text-gray-900 transition-colors"
-                title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 hover:text-white/65 hover:bg-white/[0.06] transition-all"
+                title={showPassword ? "Ocultar" : "Mostrar"}
               >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* Payment History */}
-      <Card className="border-0 bg-white shadow-md">
-        <CardHeader className="rounded-t-lg bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Histórico de Pagamentos</CardTitle>
-              <CardDescription className="text-blue-100">
-                4 meses anteriores, mês selecionado e 4 meses seguintes
-              </CardDescription>
+      {/* payment history */}
+      <div
+        className="rounded-2xl border border-white/[0.07] overflow-hidden"
+        style={{ background: "rgba(255,255,255,0.025)" }}
+      >
+        <div className="px-5 py-3.5 border-b border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: "rgba(59,130,246,0.15)" }}>
+              <CreditCard className="h-3.5 w-3.5 text-blue-400" />
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-blue-100">Centralizar em:</label>
-              <input
-                type="month"
-                value={selectedCenterMonth}
-                onChange={(e) => setSelectedCenterMonth(e.target.value)}
-                min={creationMonth}
-                className="px-3 py-2 bg-blue-500 border border-blue-400 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-white"
-              />
+            <div>
+              <p className="text-[13px] font-semibold text-white/75">Histórico de Pagamentos</p>
+              <p className="text-[11px] text-white/30">4 meses anteriores, atual e 4 seguintes</p>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="overflow-x-auto pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b-2 border-blue-200">
-                <TableHead className="font-bold text-blue-900">Mês</TableHead>
-                <TableHead className="font-bold text-blue-900">Status</TableHead>
-                <TableHead className="font-bold text-blue-900">Ação</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayedPaymentMonths.map((month) => (
-                <TableRow
-                  key={month.monthYear}
-                  className={`border-b border-gray-200 hover:bg-blue-50 transition-colors ${getMonthRowStyle(month.monthYear)}`}
-                >
-                  <TableCell className="font-medium text-gray-900">
-                    {month.label} <span className="text-xs text-gray-500 ml-2">{getMonthStatusLabel(month.monthYear)}</span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      className={
-                        month.isPaid
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
-                      }
-                    >
-                      {month.isPaid ? "Pagou" : "Não Pagou"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={month.isPaid}
-                        onChange={() => handlePaymentToggle(month.monthYear, month.isPaid)}
-                        className="w-4 h-4 rounded border-gray-300"
-                      />
-                      <span className="text-lg">$</span>
-                    </label>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+          <div className="flex items-center gap-2">
+            <span className="text-[11.5px] text-white/35">Centralizar em:</span>
+            <input
+              type="month"
+              value={selectedCenterMonth}
+              onChange={(e) => setSelectedCenterMonth(e.target.value)}
+              min={creationMonth}
+              className="bg-white/[0.05] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] text-white/65 focus:outline-none focus:border-blue-500/50 transition-all"
+            />
+          </div>
+        </div>
 
-      {/* Active Employees */}
-      <Card className="border-0 bg-white shadow-md">
-        <CardHeader className="rounded-t-lg bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-          <CardTitle>Funcionários Ativos</CardTitle>
-          <CardDescription className="text-blue-100">
-            {employees.length} funcionários cadastrados na empresa
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b-2 border-blue-200">
-                <TableHead className="font-bold text-blue-900">Nome</TableHead>
-                <TableHead className="font-bold text-blue-900">Cargo</TableHead>
-                <TableHead className="font-bold text-blue-900">Email</TableHead>
-                <TableHead className="font-bold text-blue-900">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-white/[0.05]">
+                {["Mês", "Status", "Ação"].map((h) => (
+                  <th key={h} className="px-5 py-3 text-left text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/25">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {displayedPaymentMonths.map((month) => (
+                <tr
+                  key={month.monthYear}
+                  className={`border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors ${getMonthRowAccent(month.monthYear)}`}
+                >
+                  <td className="px-5 py-3.5">
+                    <span className="text-white/75 font-medium">{month.label}</span>
+                    {getMonthStatusLabel(month.monthYear)}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${month.isPaid ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" : "bg-white/[0.06] text-white/35 border-white/[0.09]"}`}>
+                      {month.isPaid ? "Pago" : "Pendente"}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <label className="flex items-center gap-2.5 cursor-pointer group">
+                      <div className="relative flex-shrink-0">
+                        <input type="checkbox" checked={month.isPaid} onChange={() => handlePaymentToggle(month.monthYear, month.isPaid)} className="sr-only" />
+                        <div
+                          className="h-4 w-4 rounded border flex items-center justify-center transition-all"
+                          style={{ background: month.isPaid ? "#10b981" : "rgba(255,255,255,0.04)", borderColor: month.isPaid ? "#10b981" : "rgba(255,255,255,0.15)" }}
+                        >
+                          {month.isPaid && (
+                            <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                              <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[12px] text-white/35 group-hover:text-white/60 transition-colors select-none">
+                        {month.isPaid ? "Marcar como pendente" : "Marcar como pago"}
+                      </span>
+                    </label>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* employees */}
+      <div
+        className="rounded-2xl border border-white/[0.07] overflow-hidden"
+        style={{ background: "rgba(255,255,255,0.025)" }}
+      >
+        <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: "rgba(167,139,250,0.15)" }}>
+              <UserCheck className="h-3.5 w-3.5 text-purple-400" />
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold text-white/75">Funcionários Ativos</p>
+              <p className="text-[11px] text-white/30">{employees.length} funcionários cadastrados</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-white/[0.05]">
+                {["Nome", "Cargo", "Email", "Status"].map((h) => (
+                  <th key={h} className="px-5 py-3 text-left text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/25">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
               {employees.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-gray-500">
+                <tr>
+                  <td colSpan={4} className="px-5 py-12 text-center text-white/25 text-[13px]">
                     Nenhum funcionário ativo nesta empresa.
-                  </TableCell>
-                </TableRow>
+                  </td>
+                </tr>
               ) : (
-                employees.slice(0, 10).map((employee) => (
-                  <TableRow
+                employees.slice(0, 10).map((employee, i) => (
+                  <tr
                     key={employee.id}
-                    className="border-b border-gray-200 hover:bg-blue-50 transition-colors"
+                    className={`border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors ${i % 2 === 1 ? "bg-white/[0.01]" : ""}`}
                   >
-                    <TableCell className="font-semibold text-gray-900">
-                      {employee.nome}
-                    </TableCell>
-                    <TableCell className="text-gray-700">{employee.cargo}</TableCell>
-                    <TableCell className="text-gray-600 text-sm">{employee.email}</TableCell>
-                    <TableCell>
-                      <Badge
-                        className={
-                          employee.ativo
-                            ? "bg-green-100 text-green-800"
-                            : "bg-red-100 text-red-800"
-                        }
-                      >
+                    <td className="px-5 py-3.5">
+                      <span className="font-semibold text-white/80">{employee.nome}</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-white/50">{employee.cargo}</td>
+                    <td className="px-5 py-3.5 text-white/40 text-[12.5px]">{employee.email}</td>
+                    <td className="px-5 py-3.5">
+                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${employee.ativo ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" : "bg-red-500/15 text-red-400 border-red-500/25"}`}>
                         {employee.ativo ? "Ativo" : "Inativo"}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
+                      </span>
+                    </td>
+                  </tr>
                 ))
               )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
-

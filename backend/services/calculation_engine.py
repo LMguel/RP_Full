@@ -109,6 +109,25 @@ def get_actual_break_minutes(records: List[Dict]) -> Optional[int]:
     return max(0, gap)
 
 
+def calculate_interval_excess_minutes(
+    records: List[Dict],
+    intervalo_padrao: int,
+    tolerance_minutes: int = 0,
+) -> int:
+    """
+    Calcula excesso do intervalo real vs (intervalo_padrao + tolerância).
+    Só aplica quando há 4+ batidas (intervalo completo registrado).
+
+    Exemplo: intervalo=60, tol=5, real=66 → excesso=1.
+    Retorna 0 se real <= intervalo_padrao + tolerância.
+    """
+    actual_break = get_actual_break_minutes(records)
+    if actual_break is None:
+        return 0
+    diff = actual_break - intervalo_padrao
+    return max(0, diff - tolerance_minutes)
+
+
 def minutes_to_hhmm(minutes: int) -> str:
     """Converte minutos (pode ser negativo) para 'HH:MM'."""
     sign = '-' if minutes < 0 else ''

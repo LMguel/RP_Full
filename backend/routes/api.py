@@ -438,7 +438,7 @@ def atualizar_funcionario(payload, funcionario_id):
         # Atualizar home_office
         funcionario['home_office'] = home_office
 
-        # Atualizar intervalo personalizado se fornecido
+        # Atualizar intervalo personalizado (legado)
         ip_val = request.form.get('intervalo_personalizado')
         if ip_val is not None:
             intervalo_personalizado = ip_val.lower() == 'true'
@@ -449,6 +449,14 @@ def atualizar_funcionario(payload, funcionario_id):
                     funcionario['intervalo_emp'] = int(emp_val) if emp_val else None
                 except Exception:
                     funcionario['intervalo_emp'] = None
+
+        # Novo campo: intervalo_padrao_minutos (0 é válido = sem intervalo)
+        ipm_val = request.form.get('intervalo_padrao_minutos')
+        if ipm_val is not None and ipm_val.strip() != '':
+            try:
+                funcionario['intervalo_padrao_minutos'] = int(ipm_val)
+            except Exception:
+                pass
 
         # Aplicar regras de horário por dia
         if tipo_horario == 'variavel':
@@ -715,6 +723,7 @@ def cadastrar_funcionario(payload):
             # Intervalo personalizado (JSON mode)
             intervalo_personalizado = bool(data.get('intervalo_personalizado', False))
             intervalo_emp = data.get('intervalo_emp')
+            intervalo_padrao_minutos = data.get('intervalo_padrao_minutos')
             
             if not all([nome, cargo]):
                 return jsonify({"error": "Nome e cargo são obrigatórios"}), 400
@@ -743,6 +752,7 @@ def cadastrar_funcionario(payload):
                     intervalo_emp = int(intervalo_emp_val)
                 except Exception:
                     intervalo_emp = None
+            intervalo_padrao_minutos = request.form.get('intervalo_padrao_minutos')
 
             if not all([nome, cargo, foto]):
                 return jsonify({"error": "Nome, cargo e foto são obrigatórios"}), 400
@@ -879,6 +889,13 @@ def cadastrar_funcionario(payload):
                         funcionario_item['intervalo_emp'] = None
                 except Exception:
                     funcionario_item['intervalo_emp'] = None
+
+        # Novo campo: intervalo_padrao_minutos (0 é válido = sem intervalo)
+        if intervalo_padrao_minutos is not None and str(intervalo_padrao_minutos).strip() != '':
+            try:
+                funcionario_item['intervalo_padrao_minutos'] = int(intervalo_padrao_minutos)
+            except Exception:
+                pass
 
         # Aplicar regras de horário por dia
         if tipo_horario == 'variavel':
@@ -1822,6 +1839,7 @@ def listar_funcionarios(payload):
                 'must_change_password': f.get('must_change_password', False),
                 'intervalo_personalizado': f.get('intervalo_personalizado', False),
                 'intervalo_emp': f.get('intervalo_emp'),
+                'intervalo_padrao_minutos': f.get('intervalo_padrao_minutos'),
                 'tolerancia_atraso': f.get('tolerancia_atraso'),
                 'custom_schedule': f.get('custom_schedule'),
                 'pred_hora': f.get('pred_hora'),
@@ -3129,6 +3147,7 @@ def configuracoes_empresa():
             intervalo_automatico = data.get('intervalo_automatico', False)
             duracao_intervalo = data.get('duracao_intervalo', 60)
             compensar_saldo_horas = data.get('compensar_saldo_horas', False)
+            intervalo_padrao_global = data.get('intervalo_padrao_global')  # None = não aplicar
 
             # Dados da empresa para relatórios
             empresa_nome_display = data.get('empresa_nome_display', '').strip()
@@ -3184,9 +3203,51 @@ def configuracoes_empresa():
             if longitude_empresa is not None:
                 config_item['longitude_empresa'] = Decimal(str(float(longitude_empresa)))
             
+            # Salvar valor do intervalo_padrao_global nas configurações (para exibir na UI)
+            if intervalo_padrao_global is not None:
+                config_item['intervalo_padrao_global'] = int(intervalo_padrao_global)
+
             # Salvar configurações (preserva campos existentes como horarios_preset)
             tabela_configuracoes.put_item(Item=config_item)
-            
+
+            # Aplicar intervalo_padrao_global aos funcionários sem intervalo definido
+            funcionarios_atualizados = 0
+            if intervalo_padrao_global is not None:
+                intervalo_int = int(intervalo_padrao_global)
+                query_kwargs = {
+                    'KeyConditionExpression': Key('company_id').eq(empresa_id)
+                }
+                done = False
+                start_key = None
+                while not done:
+                    if start_key:
+                        query_kwargs['ExclusiveStartKey'] = start_key
+                    resp_q = tabela_funcionarios.query(**query_kwargs)
+                    for emp in resp_q.get('Items', []):
+                        emp_id = emp.get('id')
+                        if not emp_id:
+                            continue
+                        # Pular horário variável
+                        if emp.get('horario_variavel') is True:
+                            continue
+                        # Pular se já tem intervalo_padrao_minutos definido (inclusive 0)
+                        if emp.get('intervalo_padrao_minutos') is not None:
+                            continue
+                        try:
+                            tabela_funcionarios.update_item(
+                                Key={'company_id': empresa_id, 'id': emp_id},
+                                UpdateExpression='SET intervalo_padrao_minutos = :v',
+                                ExpressionAttributeValues={':v': intervalo_int}
+                            )
+                            funcionarios_atualizados += 1
+                            print(f"[CONFIGURACOES] Atualizado funcionário {emp_id} -> intervalo={intervalo_int}")
+                        except Exception as e_upd:
+                            print(f"[CONFIGURACOES] Erro ao atualizar funcionário {emp_id}: {str(e_upd)}")
+                    start_key = resp_q.get('LastEvaluatedKey')
+                    if not start_key:
+                        done = True
+                print(f"[CONFIGURACOES] intervalo_padrao_global={intervalo_int} aplicado a {funcionarios_atualizados} funcionário(s)")
+
             response_data = {
                 'success': True,
                 'tolerancia_atraso': tolerancia_atraso,
@@ -3196,7 +3257,8 @@ def configuracoes_empresa():
                 'duracao_intervalo': duracao_intervalo,
                 'compensar_saldo_horas': compensar_saldo_horas,
                 'exigir_localizacao': exigir_localizacao,
-                'raio_permitido': raio_permitido
+                'raio_permitido': raio_permitido,
+                'funcionarios_atualizados': funcionarios_atualizados,
             }
             
             if latitude_empresa is not None:
