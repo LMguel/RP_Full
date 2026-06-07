@@ -61,7 +61,7 @@ jobs:
 
           ssh -i /tmp/deploy_key \
             ubuntu@registra-ponto.duckdns.org \
-            'cd ~/RP_Full/backend && source venv/bin/activate && pip install -r requirements.txt -q && pkill -f gunicorn || true && sleep 2 && gunicorn --workers 3 --bind 127.0.0.1:8000 --timeout 120 app:app --daemon && sleep 3 && curl -sf http://localhost:8000/health'
+            'cd ~/RP_Full/backend && source venv/bin/activate && pip install -r requirements.txt -q && pkill -f gunicorn || true && sleep 2 && gunicorn -c config/gunicorn.py --bind 127.0.0.1:8000 --access-logfile /var/log/gunicorn/access.log --error-logfile /var/log/gunicorn/error.log --daemon app:app && sleep 3 && curl -sf http://localhost:8000/health'
 
       - name: Cleanup SSH key
         if: always()

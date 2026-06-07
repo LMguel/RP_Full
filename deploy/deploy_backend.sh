@@ -13,7 +13,7 @@ EC2_USER="${EC2_USER:-ubuntu}"
 EC2_SSH_KEY="${EC2_SSH_KEY:-~/.ssh/registraponto.pem}"
 EC2_APP_DIR="${EC2_APP_DIR:-/home/ubuntu/RP_Full/backend}"
 SKIP_INSTALL="${1:-}"
-SSH_OPTS="-i $EC2_SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15"
+SSH_OPTS="-i $EC2_SSH_KEY -o StrictHostKeyChecking=yes -o ConnectTimeout=15"
 
 echo "━━━ Deploy Backend → $EC2_HOST ━━━"
 echo "    Diretório: $EC2_APP_DIR"
@@ -48,13 +48,12 @@ ssh $SSH_OPTS "$EC2_USER@$EC2_HOST" bash <<'REMOTE'
   cd ~/RP_Full/backend
   source venv/bin/activate
   gunicorn \
-    --workers 3 \
+    -c config/gunicorn.py \
     --bind 127.0.0.1:8000 \
-    --timeout 120 \
     --access-logfile /var/log/gunicorn/access.log \
     --error-logfile /var/log/gunicorn/error.log \
-    app:app \
-    --daemon
+    --daemon \
+    app:app
   sleep 3
   echo "Gunicorn PID: $(pgrep -f gunicorn | head -1)"
 REMOTE

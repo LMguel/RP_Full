@@ -102,43 +102,20 @@ def get_dashboard_stats():
             total_companies = 0
             companies_list = []
 
-        # Get total employees (apenas ativos - ativo = True)
+        # Get total employees — describe_table retorna contagem aproximada sem custo de leitura
         try:
-            employee_response = table_employees.scan(
-                FilterExpression='ativo = :active',
-                ExpressionAttributeValues={
-                    ':active': True
-                }
-            )
-            total_employees = employee_response.get('Count', 0)
-            
-            # Handle pagination
-            while 'LastEvaluatedKey' in employee_response:
-                employee_response = table_employees.scan(
-                    FilterExpression='ativo = :active',
-                    ExpressionAttributeValues={
-                        ':active': True
-                    },
-                    ExclusiveStartKey=employee_response['LastEvaluatedKey']
-                )
-                total_employees += employee_response.get('Count', 0)
+            emp_info = table_employees.meta.client.describe_table(TableName=table_employees.table_name)
+            total_employees = emp_info['Table'].get('ItemCount', 0)
         except ClientError as e:
-            print(f"Error scanning Employees: {e}")
+            print(f"Error describing Employees table: {e}")
             total_employees = 0
 
-        # Get total time records
+        # Get total time records — idem
         try:
-            records_response = table_time_records.scan()
-            total_time_entries = records_response.get('Count', 0)
-            
-            # Handle pagination
-            while 'LastEvaluatedKey' in records_response:
-                records_response = table_time_records.scan(
-                    ExclusiveStartKey=records_response['LastEvaluatedKey']
-                )
-                total_time_entries += records_response.get('Count', 0)
+            rec_info = table_time_records.meta.client.describe_table(TableName=table_time_records.table_name)
+            total_time_entries = rec_info['Table'].get('ItemCount', 0)
         except ClientError as e:
-            print(f"Error scanning TimeRecords: {e}")
+            print(f"Error describing TimeRecords table: {e}")
             total_time_entries = 0
 
         # Count active/inactive companies
@@ -233,18 +210,20 @@ def get_companies():
         for company in companies:
             company_id = company.get('company_id', '')
             
-            # Count active employees for this company
+            # Count active employees — query por hash key, muito mais eficiente que scan
             try:
-                emp_response = table_employees.scan(
-                    FilterExpression=Attr('company_id').eq(company_id) & Attr('ativo').eq(True)
+                emp_response = table_employees.query(
+                    KeyConditionExpression=Key('company_id').eq(company_id),
+                    FilterExpression=Attr('ativo').eq(True),
+                    Select='COUNT',
                 )
                 active_employees = emp_response.get('Count', 0)
-                
-                # Handle pagination for employees
                 while 'LastEvaluatedKey' in emp_response:
-                    emp_response = table_employees.scan(
-                        FilterExpression=Attr('company_id').eq(company_id) & Attr('ativo').eq(True),
-                        ExclusiveStartKey=emp_response['LastEvaluatedKey']
+                    emp_response = table_employees.query(
+                        KeyConditionExpression=Key('company_id').eq(company_id),
+                        FilterExpression=Attr('ativo').eq(True),
+                        Select='COUNT',
+                        ExclusiveStartKey=emp_response['LastEvaluatedKey'],
                     )
                     active_employees += emp_response.get('Count', 0)
             except Exception as emp_error:
@@ -437,17 +416,18 @@ def get_company_employees(company_id: str):
         company_id: The company ID
     """
     try:
-        response = table_employees.scan(
-            FilterExpression=Attr('company_id').eq(company_id) & Attr('ativo').eq(True)
+        response = table_employees.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
+            FilterExpression=Attr('ativo').eq(True),
         )
-        
+
         employees = response.get('Items', [])
-        
-        # Handle pagination
+
         while 'LastEvaluatedKey' in response:
-            response = table_employees.scan(
-                FilterExpression=Attr('company_id').eq(company_id) & Attr('ativo').eq(True),
-                ExclusiveStartKey=response['LastEvaluatedKey']
+            response = table_employees.query(
+                KeyConditionExpression=Key('company_id').eq(company_id),
+                FilterExpression=Attr('ativo').eq(True),
+                ExclusiveStartKey=response['LastEvaluatedKey'],
             )
             employees.extend(response.get('Items', []))
 
@@ -524,17 +504,16 @@ def get_company_records(company_id: str):
         company_id: The company ID
     """
     try:
-        response = table_time_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id)
+        response = table_time_records.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
         )
-        
+
         records = response.get('Items', [])
-        
-        # Handle pagination
+
         while 'LastEvaluatedKey' in response:
-            response = table_time_records.scan(
-                FilterExpression=Attr('company_id').eq(company_id),
-                ExclusiveStartKey=response['LastEvaluatedKey']
+            response = table_time_records.query(
+                KeyConditionExpression=Key('company_id').eq(company_id),
+                ExclusiveStartKey=response['LastEvaluatedKey'],
             )
             records.extend(response.get('Items', []))
 

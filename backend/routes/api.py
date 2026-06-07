@@ -7,7 +7,9 @@ import tempfile
 import os
 import boto3
 from utils.aws import (
-    tabela_funcionarios, tabela_registros, enviar_s3, reconhecer_funcionario, rekognition, BUCKET, COLLECTION, REGIAO, tabela_usuarioempresa, tabela_configuracoes
+    tabela_funcionarios, tabela_registros, enviar_s3, reconhecer_funcionario,
+    rekognition, BUCKET, COLLECTION, REGIAO, tabela_usuarioempresa, tabela_configuracoes,
+    _resize_for_rekognition,
 )
 from functools import wraps
 from utils.auth import verify_token
@@ -399,21 +401,22 @@ def atualizar_funcionario(payload, funcionario_id):
                     print(f"Aviso: falha ao deletar face anterior: {e}")
             face_id = None
             with open(temp_path, 'rb') as image:
-                if rekognition:
-                    try:
-                        rekognition_response = rekognition.index_faces(
-                            CollectionId=COLLECTION,
-                            Image={'Bytes': image.read()},
-                            ExternalImageId=f"{empresa_id}_{funcionario_id}",
-                            MaxFaces=1,
-                            QualityFilter="AUTO",
-                            DetectionAttributes=["ALL"]
-                        )
-                        records = rekognition_response.get('FaceRecords', [])
-                        if records:
-                            face_id = records[0].get('Face', {}).get('FaceId')
-                    except Exception as rek_err:
-                        print(f"[PUT] Rekognition indexing falhou (não crítico): {rek_err}")
+                _atu_raw = image.read()
+            if rekognition:
+                try:
+                    rekognition_response = rekognition.index_faces(
+                        CollectionId=COLLECTION,
+                        Image={'Bytes': _resize_for_rekognition(_atu_raw)},
+                        ExternalImageId=f"{empresa_id}_{funcionario_id}",
+                        MaxFaces=1,
+                        QualityFilter="AUTO",
+                        DetectionAttributes=["ALL"]
+                    )
+                    records = rekognition_response.get('FaceRecords', [])
+                    if records:
+                        face_id = records[0].get('Face', {}).get('FaceId')
+                except Exception as rek_err:
+                    print(f"[PUT] Rekognition indexing falhou (não crítico): {rek_err}")
             os.remove(temp_path)
             funcionario['foto_url'] = foto_url
             if face_id:
@@ -539,30 +542,29 @@ def atualizar_foto_funcionario(payload, funcionario_id):
         if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
 
+        # Remover face anterior usando face_id armazenado — evita list_faces (caro)
         if rekognition:
-            response_faces = rekognition.list_faces(CollectionId=COLLECTION)
-            for face in response_faces.get('Faces', []):
-                external = face.get('ExternalImageId', '')
-                # Match either raw id or prefixed company_id#id
-                if external == funcionario_id or external.endswith(f"#{funcionario_id}"):
-                    try:
-                        rekognition.delete_faces(
-                            CollectionId=COLLECTION,
-                            FaceIds=[face['FaceId']]
-                        )
-                    except Exception as e:
-                        print(f"Aviso: falha ao deletar face: {e}")
-                    break
+            face_id_antigo = funcionario.get('face_id')
+            if face_id_antigo:
+                try:
+                    rekognition.delete_faces(CollectionId=COLLECTION, FaceIds=[face_id_antigo])
+                    print(f"[PUT FOTO] Face anterior removida: {face_id_antigo}")
+                except Exception as e:
+                    print(f"[PUT FOTO] Aviso: falha ao deletar face anterior: {e}")
 
         foto_nome = f"funcionarios/{funcionario_id}.jpg"
         foto_url_base = enviar_s3(temp_path, foto_nome, empresa_id)
         foto_url = f"{foto_url_base}?v={int(datetime.now().timestamp())}"
         if rekognition:
             try:
+                with open(temp_path, 'rb') as _f:
+                    _raw = _f.read()
                 rekognition.index_faces(
                     CollectionId=COLLECTION,
-                    Image={'S3Object': {'Bucket': BUCKET, 'Name': f"{empresa_id}/{foto_nome}"}},
-                    ExternalImageId=f"{empresa_id}_{funcionario_id}"
+                    Image={'Bytes': _resize_for_rekognition(_raw)},
+                    ExternalImageId=f"{empresa_id}_{funcionario_id}",
+                    MaxFaces=1,
+                    QualityFilter="AUTO",
                 )
             except Exception as rek_e:
                 print(f"[PUT FOTO dedicado] Rekognition falhou (não crítico): {rek_e}")
@@ -623,22 +625,16 @@ def excluir_funcionario(funcionario_id):
         # EXCLUSÃO LÓGICA: marcar como inativo ao invés de deletar
         from datetime import datetime
         
-        # Remover face do Rekognition (segurança e LGPD)
+        # Remover face do Rekognition usando face_id armazenado — evita list_faces (caro)
         try:
-            external_image_id = f"{empresa_id}_{funcionario_id}"
-            print(f"[DELETE] Tentando remover face do Rekognition: {external_image_id}")
-            rekognition_response = rekognition.list_faces(CollectionId=COLLECTION)
-            for face in rekognition_response['Faces']:
-                if face['ExternalImageId'] == external_image_id:
-                    rekognition.delete_faces(
-                        CollectionId=COLLECTION,
-                        FaceIds=[face['FaceId']]
-                    )
-                    print(f"[DELETE] Face removida do Rekognition: {face['FaceId']}")
-                    break
+            face_id_para_deletar = funcionario.get('face_id')
+            if face_id_para_deletar and rekognition:
+                rekognition.delete_faces(CollectionId=COLLECTION, FaceIds=[face_id_para_deletar])
+                print(f"[DELETE] Face removida do Rekognition: {face_id_para_deletar}")
+            else:
+                print(f"[DELETE] face_id não encontrado no registro — face não removida do Rekognition")
         except Exception as e:
             print(f"[DELETE] Erro ao excluir face no Rekognition: {str(e)}")
-            # Não falhar se não conseguir remover do Rekognition
 
         # Atualizar funcionário com exclusão lógica
         try:
@@ -786,16 +782,17 @@ def cadastrar_funcionario(payload):
 
             # Indexar no Rekognition
             with open(temp_path, 'rb') as image:
-                if rekognition:
+                _raw_bytes = image.read()
+            if rekognition:
                     rekognition_response = rekognition.index_faces(
                         CollectionId=COLLECTION,
-                        Image={'Bytes': image.read()},
+                        Image={'Bytes': _resize_for_rekognition(_raw_bytes)},
                         ExternalImageId=f"{empresa_id}_{funcionario_id}",
                         MaxFaces=1,
                         QualityFilter="AUTO",
                         DetectionAttributes=["DEFAULT"]
                     )
-                else:
+            else:
                     rekognition_response = {'FaceRecords': []}
 
             if not rekognition_response['FaceRecords']:
@@ -1036,16 +1033,14 @@ def listar_registros(payload):
         funcionarios_map = {}  # Cache de funcionários para evitar múltiplas queries
         funcionarios_filtrados = []
         
-        # Buscar apenas funcionários da empresa
+        # Buscar apenas funcionários da empresa — query por hash key (company_id)
         try:
-            filtro_func = Attr('company_id').eq(empresa_id)
+            _emp_kw: dict = {'KeyConditionExpression': Key('company_id').eq(empresa_id)}
             if nome_funcionario:
-                filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
-            
+                _emp_kw['FilterExpression'] = Attr('nome').contains(nome_funcionario)
             funcionarios_items = []
-            _emp_kw: dict = {'FilterExpression': filtro_func}
             while True:
-                _emp_resp = tabela_funcionarios.scan(**_emp_kw)
+                _emp_resp = tabela_funcionarios.query(**_emp_kw)
                 funcionarios_items.extend(_emp_resp.get('Items', []))
                 _emp_last = _emp_resp.get('LastEvaluatedKey')
                 if not _emp_last:
@@ -1074,26 +1069,19 @@ def listar_registros(payload):
         
         # Construir filtro de registros para o novo schema TimeRecords
         try:
-            # Filtra apenas por company_id no DynamoDB (filtro mais amplo e seguro).
-            # A filtragem por data é feita em Python usando data_hora[:10], idêntico
-            # ao /api/registros-diarios, para não perder registros onde employee_id#date_time
-            # tem formato diferente (ISO com T, maiúsculas, etc.).
-            filtro_registros = Attr('company_id').eq(empresa_id)
-            
-            # Paginar o scan — limite de 1MB por chamada no DynamoDB.
-            # Empresas com intervalo manual têm 2× mais registros/dia, esgotando
-            # o limite mais rápido e causando desaparecimento de registros.
-            print(f"[DEBUG] Executando scan paginado na tabela TimeRecords...")
+            # Query por company_id (hash key) — evita ler registros de outras empresas.
+            # Filtragem por data e employee feita em Python via normalizer (igual antes).
+            print(f"[DEBUG] Executando query paginada na tabela TimeRecords...")
             registros = []
-            _scan_kw: dict = {'FilterExpression': filtro_registros}
+            _qry_kw: dict = {'KeyConditionExpression': Key('company_id').eq(empresa_id)}
             while True:
-                _resp = tabela_registros.scan(**_scan_kw)
+                _resp = tabela_registros.query(**_qry_kw)
                 registros.extend(_resp.get('Items', []))
                 _last = _resp.get('LastEvaluatedKey')
                 if not _last:
                     break
-                _scan_kw['ExclusiveStartKey'] = _last
-            print(f"[DEBUG] Encontrados {len(registros)} registros (scan paginado)")
+                _qry_kw['ExclusiveStartKey'] = _last
+            print(f"[DEBUG] Encontrados {len(registros)} registros (query paginada)")
 
             # Filtrar via normalizer canônico (mesma lógica do /api/registros-diarios)
             # case-insensitive, suporta data_hora_calculo, data_hora, composite key
@@ -1402,15 +1390,14 @@ def listar_registros_resumo(payload):
 
         funcionarios_filtrados = []
         
-        # Buscar funcionários da empresa (paginado)
+        # Buscar funcionários da empresa — query por hash key (company_id)
         try:
-            filtro_func = Attr('company_id').eq(empresa_id)
+            _fkw: dict = {'KeyConditionExpression': Key('company_id').eq(empresa_id)}
             if nome_funcionario:
-                filtro_func = filtro_func & Attr('nome').contains(nome_funcionario)
+                _fkw['FilterExpression'] = Attr('nome').contains(nome_funcionario)
             funcionarios_filtrados = []
-            _fkw: dict = {'FilterExpression': filtro_func}
             while True:
-                _fr = tabela_funcionarios.scan(**_fkw)
+                _fr = tabela_funcionarios.query(**_fkw)
                 funcionarios_filtrados.extend(_fr.get('Items', []))
                 _fl = _fr.get('LastEvaluatedKey')
                 if not _fl:
@@ -1438,16 +1425,15 @@ def listar_registros_resumo(payload):
             func_ids_lower = {f['id'].lower(): f for f in funcionarios_filtrados}
             print(f"[DEBUG RESUMO] Buscando para {len(func_ids_lower)} funcionários")
 
-            scan_filter = Attr('company_id').eq(empresa_id)
             registros_raw = []
-            scan_kwargs = {'FilterExpression': scan_filter}
+            _rq_kw: dict = {'KeyConditionExpression': Key('company_id').eq(empresa_id)}
             while True:
-                response = tabela_registros.scan(**scan_kwargs)
+                response = tabela_registros.query(**_rq_kw)
                 registros_raw.extend(response.get('Items', []))
                 last_key = response.get('LastEvaluatedKey')
                 if not last_key:
                     break
-                scan_kwargs['ExclusiveStartKey'] = last_key
+                _rq_kw['ExclusiveStartKey'] = last_key
 
             print(f"[DEBUG RESUMO] Registros raw encontrados (scan completo): {len(registros_raw)}")
 
@@ -1810,8 +1796,9 @@ def listar_funcionarios(payload):
         empresa_id = payload.get('company_id')
         if not empresa_id:
             return jsonify({'error': 'Empresa ID não encontrado no token'}), 400
-        filtro_func = Attr('company_id').eq(empresa_id)
-        response_func = tabela_funcionarios.scan(FilterExpression=filtro_func)
+        response_func = tabela_funcionarios.query(
+            KeyConditionExpression=Key('company_id').eq(empresa_id)
+        )
         funcionarios = response_func.get('Items', [])
         # Padronizar para id/nome
         # Retornar todos os campos relevantes de cada funcionário
@@ -2203,10 +2190,13 @@ def registrar_ponto_manual(payload):
                 horario_entrada_esperado = funcionario.get('horario_entrada')
                 horario_saida_esperado = funcionario.get('horario_saida')
 
-            # Buscar registros do mesmo dia para encontrar a entrada
+            # Buscar registros do mesmo dia — query por chave composta (company_id + employee_id#date)
             data_registro = data_hora.split(' ')[0]  # YYYY-MM-DD
-            response_registros = tabela_registros.scan(
-                FilterExpression=Attr('company_id').eq(empresa_id) & Attr('employee_id').eq(employee_id) & Attr('data_hora').begins_with(data_registro)
+            response_registros = tabela_registros.query(
+                KeyConditionExpression=(
+                    Key('company_id').eq(empresa_id) &
+                    Key('employee_id#date_time').begins_with(f"{employee_id}#{data_registro}")
+                )
             )
             registros_do_dia = sorted(response_registros.get('Items', []), key=lambda x: x['data_hora'])
             
@@ -2280,9 +2270,8 @@ def registrar_ponto_manual(payload):
 @token_required
 def listar_registros_protegido(payload):
     company_id = payload.get("company_id")
-    # Exemplo de implementação simples para buscar registros por company_id
-    response = tabela_registros.scan(
-        FilterExpression=Attr('company_id').eq(company_id)
+    response = tabela_registros.query(
+        KeyConditionExpression=Key('company_id').eq(company_id)
     )
     registros = response.get('Items', [])
     return jsonify(registros)
@@ -2614,12 +2603,10 @@ def meus_registros(payload):
         # Scan paginado por company_id; filtragem de data e employee via normalizer
         # (remove o between do DynamoDB que causava missing records em formato T e
         #  o begins_with que excluía records com employee_id em campos explícitos)
-        filtro = Attr('company_id').eq(empresa_id)
-
         registros = []
-        _scan_kw: dict = {'FilterExpression': filtro}
+        _qry_kw: dict = {'KeyConditionExpression': Key('company_id').eq(empresa_id)}
         while True:
-            _resp = tabela_registros.scan(**_scan_kw)
+            _resp = tabela_registros.query(**_qry_kw)
             registros.extend(_resp.get('Items', []))
             _last = _resp.get('LastEvaluatedKey')
             if not _last:
@@ -2671,14 +2658,13 @@ def alterar_senha_funcionario(payload):
         funcionario_id = payload.get('funcionario_id')
         company_id = payload.get('company_id')
 
-        resp = tabela_funcionarios.scan(
-            FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(company_id)
+        resp = tabela_funcionarios.get_item(
+            Key={'company_id': company_id, 'id': funcionario_id}
         )
-        items = resp.get('Items', [])
-        if not items:
+        funcionario = resp.get('Item')
+        if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
 
-        funcionario = items[0]
         if not verify_password(senha_atual, funcionario.get('senha_hash', '')):
             return jsonify({'error': 'Senha atual incorreta'}), 401
 
@@ -2709,14 +2695,13 @@ def redefinir_senha_funcionario(payload, funcionario_id):
 
         company_id = payload.get('company_id')
 
-        resp = tabela_funcionarios.scan(
-            FilterExpression=Attr('id').eq(funcionario_id) & Attr('company_id').eq(company_id)
+        resp = tabela_funcionarios.get_item(
+            Key={'company_id': company_id, 'id': funcionario_id}
         )
-        items = resp.get('Items', [])
-        if not items:
+        funcionario = resp.get('Item')
+        if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
 
-        funcionario = items[0]
         chars = string.ascii_letters + string.digits
         senha_temp = ''.join(secrets.choice(chars) for _ in range(8))
         novo_hash = hash_password(senha_temp)
@@ -3387,10 +3372,10 @@ def get_proximo_tipo(payload):
     hoje = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%Y-%m-%d')
 
     try:
-        resp = tabela_registros.scan(
-            FilterExpression=(
-                Attr('company_id').eq(company_id) &
-                Attr('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje}")
+        resp = tabela_registros.query(
+            KeyConditionExpression=(
+                Key('company_id').eq(company_id) &
+                Key('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje}")
             )
         )
         registros = sorted(resp.get('Items', []), key=lambda x: x.get('employee_id#date_time', ''))

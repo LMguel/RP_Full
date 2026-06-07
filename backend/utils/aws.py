@@ -1,6 +1,9 @@
 import boto3
 import os
 import uuid
+import hashlib
+import time
+from threading import Lock
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -104,6 +107,57 @@ def extract_s3_key_from_url(url: str) -> str | None:
         return None
 
 
+# ── Cache Rekognition ─────────────────────────────────────────────────────────
+# Evita chamadas duplicadas em retentativas do kiosk (TTL=10s, máx 100 entradas).
+# Cache por worker Gunicorn — cada worker tem sua própria cópia (comportamento esperado).
+_rek_cache: dict = {}
+_rek_cache_lock = Lock()
+_REK_CACHE_TTL = 10
+_REK_CACHE_MAX = 100
+
+
+def _rek_cache_get(key: str):
+    with _rek_cache_lock:
+        entry = _rek_cache.get(key)
+        if entry and time.monotonic() < entry[0]:
+            return entry[1]
+        _rek_cache.pop(key, None)
+        return None
+
+
+def _rek_cache_set(key: str, result: dict):
+    with _rek_cache_lock:
+        if len(_rek_cache) >= _REK_CACHE_MAX:
+            oldest = min(_rek_cache, key=lambda k: _rek_cache[k][0])
+            del _rek_cache[oldest]
+        _rek_cache[key] = (time.monotonic() + _REK_CACHE_TTL, result)
+
+
+def _resize_for_rekognition(image_bytes: bytes, max_px: int = 800) -> bytes:
+    """Redimensiona para max_px no lado maior antes de enviar ao Rekognition.
+
+    Reduz custo e latência sem afetar precisão — Rekognition detecta faces
+    com confiança a partir de ~80px. Retorna os bytes originais se falhar.
+    """
+    try:
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(image_bytes))
+        if max(img.size) <= max_px:
+            return image_bytes
+        img.thumbnail((max_px, max_px), Image.LANCZOS)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        buf = _io.BytesIO()
+        img.save(buf, format='JPEG', quality=85)
+        resized = buf.getvalue()
+        print(f"[REKOGNITION] Resize: {len(image_bytes):,}→{len(resized):,} bytes ({max(img.size)}px)")
+        return resized
+    except Exception as e:
+        print(f"[REKOGNITION] Aviso: resize falhou ({e}), usando imagem original")
+        return image_bytes
+
+
 UUID_LEN = 36  # company_id é um UUID com 36 chars (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
 
 
@@ -155,14 +209,24 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
             image_bytes = image_file.read()
             print(f"[REKOGNITION] Tamanho da imagem: {len(image_bytes)} bytes")
 
+        # Cache: evita chamar a API para a mesma imagem em retentativas rápidas
+        _ck = hashlib.sha256(image_bytes).hexdigest() + (expected_company_id or '')
+        _cached = _rek_cache_get(_ck)
+        if _cached is not None:
+            print("[REKOGNITION] Cache hit — chamada à API evitada")
+            return _cached
+
         # Threshold configurável via variável de ambiente (padrão: 85)
         threshold = int(os.environ.get('REKOGNITION_THRESHOLD', '85'))
+
+        # Redimensionar antes da chamada — reduz tamanho do payload e custo
+        api_bytes = _resize_for_rekognition(image_bytes)
 
         # MaxFaces=10 permite encontrar o match correto mesmo quando o funcionário
         # está cadastrado em múltiplas empresas (cada uma com seu próprio ExternalImageId).
         response = rekognition.search_faces_by_image(
             CollectionId=COLLECTION,
-            Image={'Bytes': image_bytes},
+            Image={'Bytes': api_bytes},
             MaxFaces=10,
             FaceMatchThreshold=threshold,
         )
@@ -170,7 +234,9 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
         matches = response.get('FaceMatches') or []
         if not matches:
             print("[REKOGNITION] Nenhum rosto correspondente encontrado")
-            return {'status': 'NO_MATCH'}
+            _no_match = {'status': 'NO_MATCH'}
+            _rek_cache_set(_ck, _no_match)
+            return _no_match
 
         # Rekognition já retorna por similaridade decrescente; garantir a ordem.
         matches.sort(key=lambda m: m['Similarity'], reverse=True)
@@ -233,18 +299,22 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
             f"employee_id={employee_id} similarity={similarity:.2f}%"
         )
 
-        return {
+        _ok = {
             'status': 'OK',
             'company_id': matched_company_id,
             'employee_id': employee_id,
             'similarity': similarity,
             'external_image_id': external_id,
         }
+        _rek_cache_set(_ck, _ok)
+        return _ok
 
     except rekognition.exceptions.InvalidParameterException as e:
         # Caso típico: nenhuma face detectada na imagem.
         print(f"[REKOGNITION] Parâmetro inválido (provável 'no faces in image'): {str(e)}")
-        return {'status': 'NO_FACE', 'reason': str(e)}
+        _no_face = {'status': 'NO_FACE', 'reason': str(e)}
+        _rek_cache_set(_ck, _no_face)
+        return _no_face
     except rekognition.exceptions.ResourceNotFoundException as e:
         print(f"[REKOGNITION] Collection não encontrada: {str(e)}")
         return {'status': 'ERROR', 'reason': 'collection-not-found'}

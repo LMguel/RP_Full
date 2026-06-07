@@ -10,7 +10,7 @@ import boto3
 import os
 import jwt
 from botocore.exceptions import ClientError
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Attr, Key
 from datetime import datetime, timedelta
 from functools import wraps
 from decimal import Decimal
@@ -282,11 +282,11 @@ def get_company_aws_usage(company_id):
 
     ddb = boto3.resource('dynamodb', region_name=REGION)
 
-    # Employee count
+    # Employee count — query por hash key (company_id) é muito mais eficiente que scan
     try:
         emp_table = ddb.Table(TABLE_EMPLOYEES)
-        resp = emp_table.scan(
-            FilterExpression=Attr('company_id').eq(company_id),
+        resp = emp_table.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
             Select='COUNT',
         )
         result['employee_count'] = resp.get('Count', 0)
@@ -294,11 +294,11 @@ def get_company_aws_usage(company_id):
         result['employee_count'] = None
         result['employee_count_error'] = str(e)
 
-    # Records count (approximation — scan with filter)
+    # Records count — query por hash key
     try:
         rec_table = ddb.Table(TABLE_RECORDS)
-        resp = rec_table.scan(
-            FilterExpression=Attr('company_id').eq(company_id),
+        resp = rec_table.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
             Select='COUNT',
         )
         result['record_count'] = resp.get('Count', 0)
