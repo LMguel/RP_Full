@@ -177,10 +177,27 @@ class ApiService {
   async registerTimeManual(data: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída' | 'dia_inteiro';
+    tipo: 'entrada' | 'saída' | 'dia_inteiro' | 'saida_almoco' | 'retorno_almoco';
     justificativa: string;
   }) {
     const response = await this.api.post('/api/registrar_ponto_manual', data);
+    return response.data;
+  }
+
+  async registerFerias(data: {
+    employee_id: string;
+    data_inicio: string;
+    data_fim: string;
+    justificativa: string;
+  }) {
+    const response = await this.api.post('/api/registrar_ferias', data);
+    return response.data;
+  }
+
+  async registerAtestado(formData: FormData) {
+    const response = await this.api.post('/api/registrar_atestado', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   }
 
@@ -319,6 +336,67 @@ class ApiService {
   }> {
     const response = await this.api.post('/api/chat/rh', { question });
     return response.data;
+  }
+
+  // ========== USUÁRIOS ==========
+
+  async getUsers() {
+    const response = await this.api.get('/api/users');
+    return response.data as { users: import('../types').CompanyUser[] };
+  }
+
+  async createUser(data: {
+    name: string;
+    user_id: string;
+    senha: string;
+    role: import('../types').UserRole;
+    email?: string;
+    permissions?: import('../types').PermissionOverride;
+  }) {
+    const response = await this.api.post('/api/users', data);
+    return response.data as { user: import('../types').CompanyUser };
+  }
+
+  async updateUser(userId: string, data: {
+    name?: string;
+    email?: string;
+    role?: import('../types').UserRole;
+    permissions?: import('../types').PermissionOverride;
+    active?: boolean;
+  }) {
+    const response = await this.api.put(`/api/users/${userId}`, data);
+    return response.data as { user: import('../types').CompanyUser };
+  }
+
+  async deleteUser(userId: string) {
+    const response = await this.api.delete(`/api/users/${userId}`);
+    return response.data as { message: string };
+  }
+
+  async toggleUserActive(userId: string) {
+    const response = await this.api.post(`/api/users/${userId}/toggle-active`);
+    return response.data as { active: boolean; user_id: string };
+  }
+
+  // ========== AUDITORIA ==========
+
+  async getAuditLogs(filters?: {
+    user_id?: string;
+    action?: string;
+    entity?: string;
+    date_from?: string;
+    date_to?: string;
+    limit?: number;
+  }) {
+    const params = new URLSearchParams();
+    if (filters?.user_id)    params.set('user_id', filters.user_id);
+    if (filters?.action)     params.set('action', filters.action);
+    if (filters?.entity)     params.set('entity', filters.entity);
+    if (filters?.date_from)  params.set('date_from', filters.date_from);
+    if (filters?.date_to)    params.set('date_to', filters.date_to);
+    if (filters?.limit)      params.set('limit', String(filters.limit));
+    const response = await this.api.get(`/api/audit?${params.toString()}`);
+    return response.data as { logs: import('../types').AuditLog[]; count: number };
   }
 }
 

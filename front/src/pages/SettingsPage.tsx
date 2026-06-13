@@ -38,6 +38,7 @@ import { apiService } from '../services/api';
 import { CompanySettings } from '../types';
 import HorarioEmpresaSettings from '../components/HorarioEmpresaSettings';
 import HolidayCalendarSettings from '../components/HolidayCalendarSettings';
+import UsersSettings from '../components/UsersSettings';
 
 // Componente para dados da empresa (nome e CNPJ para relatórios)
 const CompanyInfoSettings: React.FC = () => {
@@ -156,8 +157,10 @@ const TimeTrackingSettings: React.FC = () => {
     hora_extra_entrada_antecipada: false,
     arredondamento_horas_extras: '5',
     intervalo_automatico: false,
-    duracao_intervalo: 60, // minutos
+    duracao_intervalo: 60,
+    intervalo_padrao_global: null,
   });
+  const [funcionariosAtualizados, setFuncionariosAtualizados] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -176,16 +179,18 @@ const TimeTrackingSettings: React.FC = () => {
         arredondamento_horas_extras: '5',
         intervalo_automatico: false,
         duracao_intervalo: 60,
+        intervalo_padrao_global: null,
       };
-      
+
       // Mesclar resposta da API com valores padrão e garantir tipos corretos
-      const mergedSettings = { 
-        ...defaultSettings, 
+      const mergedSettings = {
+        ...defaultSettings,
         ...response,
         tolerancia_atraso: Number(response.tolerancia_atraso) || defaultSettings.tolerancia_atraso,
         hora_extra_entrada_antecipada: Boolean(response.hora_extra_entrada_antecipada),
         intervalo_automatico: Boolean(response.intervalo_automatico),
         duracao_intervalo: Number(response.duracao_intervalo) || defaultSettings.duracao_intervalo,
+        intervalo_padrao_global: response.intervalo_padrao_global != null ? Number(response.intervalo_padrao_global) : null,
       };
       
       setSettings(mergedSettings);
@@ -208,16 +213,20 @@ const TimeTrackingSettings: React.FC = () => {
         arredondamento_horas_extras: settings.arredondamento_horas_extras,
         intervalo_automatico: Boolean(settings.intervalo_automatico),
         duracao_intervalo: Number(settings.duracao_intervalo) || 60,
+        intervalo_padrao_global: settings.intervalo_padrao_global != null ? Number(settings.intervalo_padrao_global) : null,
       };
 
-      // Validations...
-      
-      await apiService.put('/api/configuracoes', dataToSend);
-      
+      const result = await apiService.put('/api/configuracoes', dataToSend);
+
+      const atualizados = result?.funcionarios_atualizados ?? 0;
+      setFuncionariosAtualizados(atualizados > 0 ? atualizados : null);
+
       // Marcar configuração como completa se for primeiro acesso
       if (isFirstAccess) {
         markConfigurationComplete();
         toast.success('Configuração inicial concluída! Sistema pronto para uso.');
+      } else if (atualizados > 0) {
+        toast.success(`Configurações salvas! Intervalo aplicado a ${atualizados} funcionário${atualizados !== 1 ? 's' : ''}.`);
       } else {
         toast.success('Configurações salvas com sucesso!');
       }
@@ -466,6 +475,55 @@ const TimeTrackingSettings: React.FC = () => {
             </Box>
           </Grid>
 
+          {/* Intervalo Padrão Global */}
+          <Grid size={{ xs: 12 }}>
+            <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.08)', my: 1 }} />
+            <Box sx={{ mt: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <AccessTimeIcon sx={{ color: '#3b82f6', fontSize: '20px' }} />
+                <Typography variant="subtitle2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
+                  Tempo de intervalo da empresa
+                </Typography>
+              </Box>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}>
+                Ao salvar, aplica este valor como <b>intervalo padrão</b> para funcionários que ainda não têm intervalo definido (exceto horário variável).
+                Deixe em branco para não alterar nenhum funcionário.
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <TextField
+                  type="number"
+                  label="Intervalo padrão (minutos)"
+                  value={settings.intervalo_padrao_global ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFuncionariosAtualizados(null);
+                    setSettings({ ...settings, intervalo_padrao_global: val === '' ? null : Math.max(0, parseInt(val) || 0) });
+                  }}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">min</InputAdornment>,
+                    inputProps: { min: 0, max: 480 },
+                  }}
+                  helperText="Ex: 0 (sem intervalo) · 60 (1h) · 90 (1h30)"
+                  sx={{
+                    width: 240,
+                    '& .MuiOutlinedInput-root': {
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                      '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                      '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+                    },
+                    '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                    '& .MuiFormHelperText-root': { color: 'rgba(255, 255, 255, 0.5)' },
+                  }}
+                />
+                {funcionariosAtualizados != null && (
+                  <Typography variant="caption" sx={{ color: '#4ade80' }}>
+                    {funcionariosAtualizados} funcionário{funcionariosAtualizados !== 1 ? 's' : ''} atualizado{funcionariosAtualizados !== 1 ? 's' : ''} no último save
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          </Grid>
 
         </Grid>
 
@@ -493,7 +551,8 @@ const TimeTrackingSettings: React.FC = () => {
 };
 
 const SettingsPage: React.FC = () => {
-  const { user, logout, isFirstAccess } = useAuth();
+  const { user, logout, isFirstAccess, hasPermission } = useAuth();
+  const canManageUsers = hasPermission('criar_usuario') || hasPermission('editar_usuario');
   const [loading, setLoading] = useState(false);
   
   // Security Settings
@@ -637,6 +696,19 @@ const SettingsPage: React.FC = () => {
             <HorarioEmpresaSettings />
           </motion.div>
         </Grid>
+
+        {/* Usuários da Empresa */}
+        {canManageUsers && (
+          <Grid size={{ xs: 12 }}>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+            >
+              <UsersSettings />
+            </motion.div>
+          </Grid>
+        )}
 
       </Grid>
     </PageLayout>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, LoginRequest, RegisterRequest } from '../types';
+import { User, LoginRequest, RegisterRequest, UserRole, Permission } from '../types';
 import { apiService } from '../services/api';
 import { toast } from 'react-hot-toast';
 
@@ -8,6 +8,10 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isFirstAccess: boolean;
+  role: UserRole | null;
+  permissions: Permission[];
+  userName: string | null;
+  hasPermission: (perm: Permission) => boolean;
   login: (credentials: LoginRequest) => Promise<boolean>;
   register: (userData: RegisterRequest) => Promise<boolean>;
   logout: () => void;
@@ -30,11 +34,37 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+function decodeTokenPayload(token: string): Record<string, any> | null {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch {
+    return null;
+  }
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFirstAccess, setIsFirstAccess] = useState(false);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [userName, setUserName] = useState<string | null>(null);
+
+  const hasPermission = (perm: Permission): boolean => {
+    if (role === 'OWNER') return true;
+    return permissions.includes(perm);
+  };
+
+  const _applyTokenPayload = (payload: Record<string, any>) => {
+    const r = (payload.role as UserRole) || null;
+    const p = (payload.permissions as Permission[]) || [];
+    const n = payload.user_name || payload.empresa_nome || null;
+    setRole(r);
+    setPermissions(p);
+    setUserName(n);
+    return { r, p, n };
+  };
 
   useEffect(() => {
     // Check for existing token and user data on app start
@@ -45,8 +75,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (storedToken && storedUser) {
         try {
           setToken(storedToken);
-          setUser(JSON.parse(storedUser));
-          // Verificar primeiro acesso para usuários já logados
+          const parsed = JSON.parse(storedUser) as User;
+          setUser(parsed);
+          const payload = decodeTokenPayload(storedToken);
+          if (payload) {
+            _applyTokenPayload(payload);
+          } else {
+            // legacy token: treat as OWNER
+            setRole('OWNER');
+            setPermissions([]);
+          }
           await checkFirstAccess();
         } catch (error) {
           console.error('Error parsing stored user data:', error);
@@ -64,31 +102,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
       const response = await apiService.login(credentials);
-      
+
       if (response.token) {
         setToken(response.token);
         localStorage.setItem('token', response.token);
-        
-        // Decode token to get user info (basic implementation)
-        try {
-          const payload = JSON.parse(atob(response.token.split('.')[1]));
-          const userData: User = {
-            usuario_id: payload.usuario_id,
-            email: '', // Not provided in token
-            empresa_nome: payload.empresa_nome,
-            empresa_id: payload.empresa_id,
-          };
-          setUser(userData);
-          localStorage.setItem('user', JSON.stringify(userData));
-        } catch (error) {
-          console.error('Error decoding token:', error);
+
+        const payload = decodeTokenPayload(response.token);
+        const userData: User = {
+          usuario_id: response.usuario_id || payload?.usuario_id || '',
+          email: '',
+          empresa_nome: response.empresa_nome || payload?.empresa_nome || '',
+          empresa_id: response.company_id || payload?.company_id || '',
+          company_id: response.company_id || payload?.company_id,
+          role: response.role || payload?.role,
+          permissions: response.permissions || payload?.permissions,
+          user_name: response.user_name || payload?.user_name,
+        };
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+
+        if (payload) {
+          _applyTokenPayload(payload);
+        } else {
+          setRole('OWNER');
+          setPermissions([]);
+          setUserName(userData.empresa_nome);
         }
-        
+
         toast.success('Login realizado com sucesso!');
-        
-        // Verificar se é primeiro acesso após login bem-sucedido
         await checkFirstAccess();
-        
+
         return true;
       }
       return false;
@@ -142,6 +185,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = () => {
     setUser(null);
     setToken(null);
+    setRole(null);
+    setPermissions([]);
+    setUserName(null);
     setIsFirstAccess(false);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -153,6 +199,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     token,
     isLoading,
     isFirstAccess,
+    role,
+    permissions,
+    userName,
+    hasPermission,
     login,
     register,
     logout,
