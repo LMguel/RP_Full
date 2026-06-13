@@ -58,7 +58,14 @@ def get_audit_logs(payload):
     if filter_expr is not None:
         kwargs['FilterExpression'] = filter_expr
 
-    resp = _table_audit.query(**kwargs)
-    logs = resp.get('Items', [])
+    try:
+        resp = _table_audit.query(**kwargs)
+        logs = resp.get('Items', [])
+    except Exception as e:
+        err = str(e)
+        if 'ResourceNotFoundException' in err or 'Cannot do operations' in err:
+            # Tabela AuditLogs ainda não criada no AWS Console
+            return jsonify({'logs': [], 'count': 0, 'warning': 'Tabela AuditLogs não encontrada. Crie-a no AWS Console.'}), 200
+        raise
 
     return jsonify({'logs': logs, 'count': len(logs)}), 200
