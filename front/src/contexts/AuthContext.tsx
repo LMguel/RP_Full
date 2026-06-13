@@ -57,7 +57,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const _applyTokenPayload = (payload: Record<string, any>) => {
-    const r = (payload.role as UserRole) || null;
+    // JWT antigo sem role = usuário original da empresa = OWNER (mesmo comportamento do backend)
+    const r = ((payload.role as UserRole) || 'OWNER') as UserRole;
     const p = (payload.permissions as Permission[]) || [];
     const n = payload.user_name || payload.empresa_nome || null;
     setRole(r);
@@ -80,10 +81,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const payload = decodeTokenPayload(storedToken);
           if (payload) {
             _applyTokenPayload(payload);
-          } else {
-            // legacy token: treat as OWNER
-            setRole('OWNER');
-            setPermissions([]);
           }
           await checkFirstAccess();
         } catch (error) {
@@ -123,10 +120,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         if (payload) {
           _applyTokenPayload(payload);
-        } else {
-          setRole('OWNER');
-          setPermissions([]);
-          setUserName(userData.empresa_nome);
         }
 
         toast.success('Login realizado com sucesso!');
