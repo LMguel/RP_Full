@@ -16,7 +16,7 @@ import bcrypt
 from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from utils.auth import token_required, require_permission
-from services.permissions import ALLOWED_ROLES_FOR_NEW, calculate_permissions
+from services.permissions import ALLOWED_ROLES_FOR_NEW, ALL_PERMISSIONS, calculate_permissions
 from services.audit_service import log_event
 
 users_routes = Blueprint('users_routes', __name__)
@@ -72,6 +72,10 @@ def create_user(payload):
     role      = (data.get('role') or 'VIEWER')
     email     = (data.get('email') or '').strip()
     overrides = data.get('permissions', {'add': [], 'remove': []})
+    if not isinstance(overrides, dict):
+        overrides = {'add': [], 'remove': []}
+    overrides['add']    = [p for p in overrides.get('add', [])    if p in ALL_PERMISSIONS]
+    overrides['remove'] = [p for p in overrides.get('remove', []) if p in ALL_PERMISSIONS]
 
     if not name or not user_id or not senha:
         return jsonify({'error': 'name, user_id e senha são obrigatórios'}), 400
@@ -141,14 +145,16 @@ def update_user(payload, target_user_id):
     if not existing:
         return jsonify({'error': 'Usuário não encontrado'}), 404
 
-    caller_role = payload.get('role', 'OWNER')
-    # Somente OWNER pode alterar outro OWNER
+    caller = payload.get('usuario_id', payload.get('user_id', ''))
+    caller_role = payload.get('role') or 'OWNER'
+
+    if target_user_id == caller:
+        return jsonify({'error': 'Não é possível editar o próprio usuário'}), 403
     if existing.get('role') == 'OWNER' and caller_role != 'OWNER':
         return jsonify({'error': 'Somente o OWNER pode editar o OWNER'}), 403
 
     data   = request.get_json() or {}
     now    = datetime.now(timezone.utc).isoformat()
-    caller = payload.get('usuario_id', payload.get('user_id', ''))
 
     before = {k: existing.get(k) for k in ['name', 'email', 'role', 'permissions', 'active']}
 
@@ -174,8 +180,13 @@ def update_user(payload, target_user_id):
         names['#role'] = 'role'
 
     if 'permissions' in data:
+        raw = data['permissions'] if isinstance(data['permissions'], dict) else {}
+        clean = {
+            'add':    [p for p in raw.get('add', [])    if p in ALL_PERMISSIONS],
+            'remove': [p for p in raw.get('remove', []) if p in ALL_PERMISSIONS],
+        }
         expr_parts.append('permissions = :perms')
-        vals[':perms'] = data['permissions']
+        vals[':perms'] = clean
 
     if 'active' in data and existing.get('role') != 'OWNER':
         expr_parts.append('active = :active')
@@ -248,6 +259,11 @@ def toggle_user_active(payload, target_user_id):
         return '', 200
 
     company_id = payload.get('company_id')
+    caller = payload.get('usuario_id', payload.get('user_id', ''))
+
+    if target_user_id == caller:
+        return jsonify({'error': 'Não é possível desativar o próprio usuário'}), 403
+
     resp = _table_users.get_item(Key={'company_id': company_id, 'user_id': target_user_id})
     existing = resp.get('Item')
     if not existing:
@@ -257,7 +273,6 @@ def toggle_user_active(payload, target_user_id):
 
     new_active = not bool(existing.get('active', True))
     now    = datetime.now(timezone.utc).isoformat()
-    caller = payload.get('usuario_id', payload.get('user_id', ''))
 
     _table_users.update_item(
         Key={'company_id': company_id, 'user_id': target_user_id},

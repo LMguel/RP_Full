@@ -2266,6 +2266,154 @@ def registrar_ponto_manual(payload):
     tabela_registros.put_item(Item=registro)
     return jsonify({'mensagem': f'Ponto manual registrado como {tipo} com sucesso'}), 200
 
+@routes.route('/registrar_ferias', methods=['POST'])
+@token_required
+def registrar_ferias(payload):
+    data = request.get_json()
+    if not data:
+        return jsonify({'mensagem': 'JSON inválido ou ausente'}), 400
+
+    employee_id  = (data.get('employee_id') or '').strip()
+    data_inicio  = (data.get('data_inicio') or '').strip()   # YYYY-MM-DD
+    data_fim     = (data.get('data_fim')    or '').strip()   # YYYY-MM-DD
+    justificativa = (data.get('justificativa') or '').strip()
+
+    if not employee_id or not data_inicio or not data_fim:
+        return jsonify({'mensagem': 'employee_id, data_inicio e data_fim são obrigatórios'}), 400
+    if not justificativa:
+        return jsonify({'mensagem': 'Justificativa é obrigatória'}), 400
+
+    empresa_id = payload.get('company_id')
+    empresa_nome = payload.get('empresa_nome', '')
+
+    funcionario_resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': employee_id})
+    funcionario = funcionario_resp.get('Item')
+    if not funcionario:
+        return jsonify({'mensagem': 'Funcionário não encontrado'}), 404
+    if not funcionario.get('is_active', funcionario.get('ativo', True)):
+        return jsonify({'mensagem': 'Funcionário inativo'}), 403
+
+    try:
+        dt_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
+        dt_fim    = datetime.strptime(data_fim,    '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'mensagem': 'Formato de data inválido. Use YYYY-MM-DD'}), 400
+
+    if dt_fim < dt_inicio:
+        return jsonify({'mensagem': 'data_fim deve ser >= data_inicio'}), 400
+
+    criado_por = payload.get('usuario_id', payload.get('email', 'admin'))
+    criados = []
+    current = dt_inicio
+    while current <= dt_fim:
+        date_str = current.strftime('%Y-%m-%d')
+        data_hora = f"{date_str} 00:00:00"
+        sort_key  = f"{employee_id}#{data_hora}"
+        registro = {
+            'company_id':           empresa_id,
+            'employee_id#date_time': sort_key,
+            'registro_id':          str(uuid.uuid4()),
+            'employee_id':          employee_id,
+            'data_hora':            data_hora,
+            'type':                 'ferias_folga',
+            'method':               'MANUAL',
+            'status':               'ATIVO',
+            'justificativa':        justificativa,
+            'criado_por':           criado_por,
+            'funcionario_nome':     funcionario.get('nome', ''),
+            'empresa_nome':         empresa_nome,
+        }
+        tabela_registros.put_item(Item=registro)
+        criados.append(date_str)
+        current += timedelta(days=1)
+
+    return jsonify({'mensagem': f'Férias/Folga registradas para {len(criados)} dia(s)', 'dias': criados}), 200
+
+
+@routes.route('/registrar_atestado', methods=['POST'])
+@token_required
+def registrar_atestado(payload):
+    employee_id   = (request.form.get('employee_id')   or '').strip()
+    data_inicio   = (request.form.get('data_inicio')   or '').strip()   # YYYY-MM-DD
+    dias_str      = (request.form.get('dias')          or '1').strip()
+    justificativa = (request.form.get('justificativa') or '').strip()
+    arquivo       = request.files.get('arquivo')
+
+    if not employee_id or not data_inicio:
+        return jsonify({'mensagem': 'employee_id e data_inicio são obrigatórios'}), 400
+    if not justificativa:
+        return jsonify({'mensagem': 'Justificativa é obrigatória'}), 400
+    if not arquivo:
+        return jsonify({'mensagem': 'Arquivo do atestado é obrigatório'}), 400
+
+    try:
+        dias = max(1, int(dias_str))
+    except ValueError:
+        return jsonify({'mensagem': 'Número de dias inválido'}), 400
+
+    empresa_id   = payload.get('company_id')
+    empresa_nome = payload.get('empresa_nome', '')
+
+    funcionario_resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': employee_id})
+    funcionario = funcionario_resp.get('Item')
+    if not funcionario:
+        return jsonify({'mensagem': 'Funcionário não encontrado'}), 404
+    if not funcionario.get('is_active', funcionario.get('ativo', True)):
+        return jsonify({'mensagem': 'Funcionário inativo'}), 403
+
+    try:
+        dt_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'mensagem': 'Formato de data inválido. Use YYYY-MM-DD'}), 400
+
+    # Upload do atestado para S3
+    ext = os.path.splitext(arquivo.filename or 'atestado.pdf')[1] or '.pdf'
+    s3_key = f"atestados/{empresa_id}/{employee_id}/{uuid.uuid4().hex}{ext}"
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+            tmp = tmp_file.name
+            arquivo.save(tmp)
+        atestado_url = enviar_s3(tmp, s3_key, empresa_id)
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao fazer upload do atestado: {str(e)}'}), 500
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+    criado_por = payload.get('usuario_id', payload.get('email', 'admin'))
+    criados = []
+    for i in range(dias):
+        current = dt_inicio + timedelta(days=i)
+        date_str = current.strftime('%Y-%m-%d')
+        data_hora = f"{date_str} 00:00:00"
+        sort_key  = f"{employee_id}#{data_hora}"
+        registro = {
+            'company_id':            empresa_id,
+            'employee_id#date_time': sort_key,
+            'registro_id':           str(uuid.uuid4()),
+            'employee_id':           employee_id,
+            'data_hora':             data_hora,
+            'type':                  'atestado',
+            'method':                'MANUAL',
+            'status':                'ATIVO',
+            'justificativa':         justificativa,
+            'atestado_url':          atestado_url,
+            'atestado_dias':         dias,
+            'criado_por':            criado_por,
+            'funcionario_nome':      funcionario.get('nome', ''),
+            'empresa_nome':          empresa_nome,
+        }
+        tabela_registros.put_item(Item=registro)
+        criados.append(date_str)
+
+    return jsonify({
+        'mensagem':    f'Atestado registrado para {len(criados)} dia(s)',
+        'dias':        criados,
+        'atestado_url': atestado_url,
+    }), 200
+
+
 @routes.route('/registros_protegido', methods=['GET'])
 @token_required
 def listar_registros_protegido(payload):
@@ -2283,6 +2431,8 @@ def login():
         return jsonify({}), 200
 
     from utils.auth import verify_password, get_secret_key
+    from services.permissions import calculate_permissions
+    from services.audit_service import log_event as _log_event
     import datetime
     import jwt
 
@@ -2297,18 +2447,33 @@ def login():
         if not usuario_id or not senha:
             return jsonify({'error': 'usuario_id e senha são obrigatórios'}), 400
 
-        # Buscar usuário de empresa na tabela UserCompany por user_id
-        response = tabela_usuarioempresa.scan(
-            FilterExpression=Attr('user_id').eq(usuario_id)
-        )
+        # Buscar usuário via GSI user_id-index (O(1)) com fallback para scan
+        usuario = None
+        try:
+            gsi_resp = tabela_usuarioempresa.query(
+                IndexName='user_id-index',
+                KeyConditionExpression=Key('user_id').eq(usuario_id),
+            )
+            items = gsi_resp.get('Items', [])
+            if items:
+                usuario = items[0]
+        except Exception:
+            pass  # GSI ainda não criado — fallback para scan
 
-        items = response.get('Items', [])
-        print(f"[LOGIN DEBUG] Items UserCompany encontrados: {len(items)}")
+        if usuario is None:
+            scan_resp = tabela_usuarioempresa.scan(
+                FilterExpression=Attr('user_id').eq(usuario_id)
+            )
+            items = scan_resp.get('Items', [])
+            if items:
+                usuario = items[0]
 
-        if not items:
+        if not usuario:
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
-        usuario = items[0]
+        # Verificar conta ativa (campo adicionado pela migration)
+        if usuario.get('active') is False:
+            return jsonify({'error': 'Conta desativada. Entre em contato com o administrador.'}), 403
 
         # Verificar senha (prioriza hash bcrypt)
         if usuario.get('senha_hash'):
@@ -2320,21 +2485,54 @@ def login():
         else:
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
+        company_id   = usuario.get('company_id', '')
+        user_id      = usuario['user_id']
+        role         = usuario.get('role') or 'OWNER'
+        user_name    = usuario.get('name') or usuario.get('empresa_nome', '')
+        empresa_nome = usuario.get('empresa_nome', '')
+        overrides    = usuario.get('permissions', {'add': [], 'remove': []})
+        permissions  = calculate_permissions(role, overrides)
+
+        # Atualizar last_login (fire-and-forget)
+        try:
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            tabela_usuarioempresa.update_item(
+                Key={'company_id': company_id, 'user_id': user_id},
+                UpdateExpression='SET last_login = :ll',
+                ExpressionAttributeValues={':ll': now_iso},
+            )
+        except Exception:
+            pass
+
         secret_key = get_secret_key()
         token = jwt.encode({
-            'usuario_id': usuario['user_id'],
-            'empresa_nome': usuario.get('empresa_nome', ''),
-            'company_id': usuario.get('company_id', ''),
-            'tipo': 'empresa',
+            'usuario_id':   user_id,
+            'user_id':      user_id,
+            'company_id':   company_id,
+            'empresa_nome': empresa_nome,
+            'role':         role,
+            'permissions':  permissions,
+            'user_name':    user_name,
+            'tipo':         'empresa',
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=12)
         }, secret_key, algorithm="HS256")
 
+        _log_event(
+            company_id=company_id, user_id=user_id, user_name=user_name,
+            entity='USER', entity_id=user_id, action='LOGIN',
+            before=None, after=None, request=request,
+        )
+
         return jsonify({
-            'token': token,
-            'tipo': 'empresa',
-            'usuario_id': usuario['user_id'],
-            'empresa_nome': usuario.get('empresa_nome', ''),
-            'company_id': usuario.get('company_id', ''),
+            'token':        token,
+            'tipo':         'empresa',
+            'usuario_id':   user_id,
+            'user_id':      user_id,
+            'empresa_nome': empresa_nome,
+            'company_id':   company_id,
+            'role':         role,
+            'permissions':  permissions,
+            'user_name':    user_name,
         })
 
     except Exception as e:

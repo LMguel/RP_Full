@@ -8,7 +8,7 @@ from flask import Blueprint, request, jsonify
 import boto3
 import os
 from boto3.dynamodb.conditions import Key, Attr
-from utils.auth import token_required
+from utils.auth import token_required, require_permission
 
 audit_routes = Blueprint('audit_routes', __name__)
 
@@ -18,6 +18,7 @@ _table_audit = _dynamodb.Table(os.environ.get('DYNAMODB_TABLE_AUDIT', 'AuditLogs
 
 @audit_routes.route('/api/audit', methods=['GET', 'OPTIONS'])
 @token_required
+@require_permission('configuracoes')
 def get_audit_logs(payload):
     if request.method == 'OPTIONS':
         return '', 200
