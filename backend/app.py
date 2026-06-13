@@ -11,6 +11,9 @@ from routes import (
     feriados_routes,
     chatbot_rh_routes,
     admin_aws_routes,
+    payroll_routes,
+    users_routes,
+    audit_routes,
 )
 import os
 import json
@@ -88,6 +91,9 @@ app.register_blueprint(routes_facial)
 app.register_blueprint(feriados_routes)
 app.register_blueprint(chatbot_rh_routes)
 app.register_blueprint(admin_aws_routes)
+app.register_blueprint(payroll_routes)
+app.register_blueprint(users_routes)
+app.register_blueprint(audit_routes)
 
 
 @app.before_request

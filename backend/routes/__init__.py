@@ -11,6 +11,9 @@ from .admin_auth import auth_admin_routes
 from .feriados import feriados_routes
 from .chatbot_rh import chatbot_rh_routes
 from .admin_aws import admin_aws_routes
+from .payroll import payroll_routes
+from .users import users_routes
+from .audit import audit_routes
 
 __all__ = [
     'routes',
@@ -23,5 +26,8 @@ __all__ = [
     'feriados_routes',
     'chatbot_rh_routes',
     'admin_aws_routes',
+    'payroll_routes',
+    'users_routes',
+    'audit_routes',
 ]
 
