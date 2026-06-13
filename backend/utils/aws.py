@@ -20,6 +20,7 @@ DYNAMODB_TABLE_EMPLOYEES = os.environ.get('DYNAMODB_TABLE_EMPLOYEES', 'Employees
 DYNAMODB_TABLE_RECORDS = os.environ.get('DYNAMODB_TABLE_RECORDS', 'TimeRecords')
 DYNAMODB_TABLE_USERS = os.environ.get('DYNAMODB_TABLE_USERS', 'UserCompany')
 DYNAMODB_TABLE_CONFIG = os.environ.get('DYNAMODB_TABLE_CONFIG', 'ConfigCompany')
+DYNAMODB_TABLE_AUDIT = os.environ.get('DYNAMODB_TABLE_AUDIT', 'AuditLogs')
 # NOTA: Tabela HorariosPreset não existe. Horários pré-definidos são salvos em ConfigCompany
 # com chave config_key='horarios_preset'
 

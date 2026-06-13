@@ -1,7 +1,8 @@
 import jwt
 import os
 import bcrypt
-from flask import current_app
+from functools import wraps
+from flask import current_app, request as flask_request, jsonify
 from utils.safe_logger import get_safe_logger
 
 logger = get_safe_logger(__name__)
@@ -68,3 +69,26 @@ def verify_password(password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
     except Exception:
         return False
+
+
+def require_permission(permission: str):
+    """Decorator aplicado após token_required. Verifica permissão específica.
+
+    Uso:
+        @routes.route('/api/users', methods=['POST'])
+        @token_required
+        @require_permission('criar_usuario')
+        def create_user(payload):
+            ...
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(payload, *args, **kwargs):
+            from services.permissions import check_permission
+            if flask_request.method == 'OPTIONS':
+                return ('', 200)
+            if not check_permission(payload, permission):
+                return jsonify({'error': f'Sem permissão: {permission}'}), 403
+            return f(payload, *args, **kwargs)
+        return decorated
+    return decorator
