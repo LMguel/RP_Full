@@ -35,8 +35,17 @@ def calculate_permissions(role: str, overrides: dict) -> list[str]:
 
 
 def check_permission(payload: dict, permission: str) -> bool:
-    """True se o payload JWT tem a permissão solicitada."""
-    role = payload.get('role', 'OWNER')
+    """True se o payload JWT tem a permissão solicitada.
+
+    JWTs emitidos antes da feature de multi-usuários não contêm o campo 'role'.
+    Esses tokens pertencem ao único usuário da empresa (o dono/OWNER) e foram
+    validados criptograficamente por token_required antes de chegar aqui.
+    Default='OWNER' é intencional para backward-compat — não é fail-open
+    exploitável porque JWT forjado sem SECRET_KEY é rejeitado antes.
+    Após a migração todos os tokens novos terão 'role' explícito.
+    """
+    # `or 'OWNER'` cobre ausência de campo, None e string vazia
+    role = payload.get('role') or 'OWNER'
     if role == 'OWNER':
         return True
     return permission in payload.get('permissions', [])
