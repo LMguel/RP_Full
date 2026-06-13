@@ -31,7 +31,10 @@ import {
   Delete as DeleteIcon,
   Edit as EditIcon,
   Block as BlockIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
+import { Collapse } from '@mui/material';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../contexts/AuthContext';
@@ -125,37 +128,57 @@ const getStatusText = (tipo: string) => {
   return labels[tipo.toLowerCase()] || tipo;
 };
 
+// Mapas posicionais por quantidade de batidas — CLT / uso real brasileiro
+const PUNCH_MAPS: Record<number, Array<{ label: string; color: string; bg: string; border: string }>> = {
+  2: [
+    { label: 'Entrada',        color: '#22c55e', bg: 'rgba(34,197,94,0.2)',   border: 'rgba(34,197,94,0.3)'   },
+    { label: 'Saída',          color: '#ef4444', bg: 'rgba(239,68,68,0.2)',   border: 'rgba(239,68,68,0.3)'   },
+  ],
+  3: [
+    { label: 'Entrada',        color: '#22c55e', bg: 'rgba(34,197,94,0.2)',   border: 'rgba(34,197,94,0.3)'   },
+    { label: 'Saída Intervalo',color: '#f97316', bg: 'rgba(249,115,22,0.2)', border: 'rgba(249,115,22,0.3)'  },
+    { label: 'Saída',          color: '#ef4444', bg: 'rgba(239,68,68,0.2)',   border: 'rgba(239,68,68,0.3)'   },
+  ],
+  4: [
+    { label: 'Entrada',        color: '#22c55e', bg: 'rgba(34,197,94,0.2)',   border: 'rgba(34,197,94,0.3)'   },
+    { label: 'Saída Intervalo',color: '#f97316', bg: 'rgba(249,115,22,0.2)', border: 'rgba(249,115,22,0.3)'  },
+    { label: 'Volta Intervalo',color: '#06b6d4', bg: 'rgba(6,182,212,0.2)',  border: 'rgba(6,182,212,0.3)'   },
+    { label: 'Saída',          color: '#ef4444', bg: 'rgba(239,68,68,0.2)',   border: 'rgba(239,68,68,0.3)'   },
+  ],
+};
+
+const FALLBACK_ENTRY = { label: 'Entrada', color: '#22c55e', bg: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.3)' };
+const FALLBACK_EXIT  = { label: 'Saída',   color: '#ef4444', bg: 'rgba(239,68,68,0.2)', border: 'rgba(239,68,68,0.3)' };
+
 // Retorna label e cor baseados na posição cronológica do registro no dia
 const getPositionInfo = (record: TimeRecord, allRecords: TimeRecord[], intervaloAutomatico: boolean): { label: string; color: string; bg: string; border: string } => {
-  const POSITION_LABELS_MANUAL = ['Entrada', 'Saída Intervalo', 'Volta Intervalo', 'Saída'];
-  const POSITION_COLORS_MANUAL = ['#22c55e', '#f97316', '#06b6d4', '#ef4444'];
-  const POSITION_BGAS_MANUAL = ['rgba(34,197,94,0.2)', 'rgba(249,115,22,0.2)', 'rgba(6,182,212,0.2)', 'rgba(239,68,68,0.2)'];
-  const POSITION_BORDERS_MANUAL = ['rgba(34,197,94,0.3)', 'rgba(249,115,22,0.3)', 'rgba(6,182,212,0.3)', 'rgba(239,68,68,0.3)'];
-
   if (record.data_hora && allRecords.length > 0) {
     const recDate = record.data_hora.includes('T') ? record.data_hora.split('T')[0] : (record.data_hora.split(' ')[0] || '');
+    const empId = record.funcionario_id || (record as any).employee_id || '';
     const dayPunches = allRecords
       .filter(r => {
-        if (r.funcionario_id !== record.funcionario_id || !r.data_hora) return false;
+        const rEmpId = r.funcionario_id || (r as any).employee_id || '';
+        if (!empId || rEmpId !== empId || !r.data_hora) return false;
         const rDate = r.data_hora.includes('T') ? r.data_hora.split('T')[0] : (r.data_hora.split(' ')[0] || '');
         return rDate === recDate && (r.type || r.tipo || '').toLowerCase() !== 'dia_inteiro';
       })
       .sort((a, b) => (a.data_hora || '') < (b.data_hora || '') ? -1 : 1);
-    const idx = dayPunches.findIndex(r => r.data_hora === record.data_hora && r.funcionario_id === record.funcionario_id);
+
+    const idx = dayPunches.findIndex(r =>
+      r.data_hora === record.data_hora &&
+      (r.funcionario_id || (r as any).employee_id || '') === empId
+    );
+
     if (idx !== -1) {
-      if (!intervaloAutomatico) {
-        const label = POSITION_LABELS_MANUAL[idx] ?? (idx % 2 === 0 ? 'Entrada' : 'Saída');
-        const color = POSITION_COLORS_MANUAL[idx] ?? (idx % 2 === 0 ? '#22c55e' : '#ef4444');
-        const bg = POSITION_BGAS_MANUAL[idx] ?? (idx % 2 === 0 ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
-        const border = POSITION_BORDERS_MANUAL[idx] ?? (idx % 2 === 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)');
-        return { label, color, bg, border };
+      if (intervaloAutomatico) {
+        return idx % 2 === 0 ? FALLBACK_ENTRY : FALLBACK_EXIT;
       }
-      // intervalo_automatico=true: only 2 positions (entrada/saída)
-      const isE = idx % 2 === 0;
-      return { label: isE ? 'Entrada' : 'Saída', color: isE ? '#22c55e' : '#ef4444', bg: isE ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', border: isE ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)' };
+      const n = dayPunches.length;
+      const map = PUNCH_MAPS[Math.min(n, 4)] ?? PUNCH_MAPS[4];
+      return map[idx] ?? (idx % 2 === 0 ? FALLBACK_ENTRY : FALLBACK_EXIT);
     }
   }
-  // Fallback: use stored tipo
+  // Fallback: tipo armazenado
   const rt = (record.type || record.tipo || '').toLowerCase();
   const isE = rt === 'entrada' || rt === 'retorno_almoco';
   return { label: getStatusText(rt), color: isE ? '#22c55e' : '#ef4444', bg: isE ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)', border: isE ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)' };
@@ -402,6 +425,9 @@ const RecordsDetailedPage: React.FC = () => {
   const [companySettings, setCompanySettings] = useState<any>(null);
   const [records, setRecords] = useState<TimeRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<TimeRecord[]>([]);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  // Mapa: registro_original_key (sort key) → registro AJUSTADO/INVALIDADO original
+  const [linkedOriginals, setLinkedOriginals] = useState<Map<string, TimeRecord>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -557,8 +583,21 @@ const RecordsDetailedPage: React.FC = () => {
         const dateB = new Date(b.data_hora || '1970-01-01');
         return dateB.getTime() - dateA.getTime();
       });
-      setRecords(filtered);
-      setFilteredRecords(filtered);
+      // Separar ativos dos históricos (AJUSTADO/INVALIDADO)
+      const originals = new Map<string, TimeRecord>();
+      const ativos: TimeRecord[] = [];
+      for (const r of filtered) {
+        const st = ((r as any).status || 'ATIVO').toUpperCase();
+        if (st === 'AJUSTADO' || st === 'INVALIDADO') {
+          const sk = (r as any)['employee_id#date_time'] || '';
+          if (sk) originals.set(sk, r);
+        } else {
+          ativos.push(r);
+        }
+      }
+      setLinkedOriginals(originals);
+      setRecords(ativos);
+      setFilteredRecords(ativos);
     } catch (err: any) {
       console.error('❌ Erro ao buscar registros:', err);
       setError('Erro ao carregar registros. Tente novamente.');
@@ -714,7 +753,6 @@ const RecordsDetailedPage: React.FC = () => {
   const handleSaveRecord = async (recordData: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída' | 'dia_inteiro';
     justificativa: string;
   }) => {
     setSubmitting(true);
@@ -1032,7 +1070,8 @@ const RecordsDetailedPage: React.FC = () => {
                       </TableRow>
                     ) : (
                       filteredRecords.map((record) => (
-                        <TableRow key={record.registro_id} hover>
+                        <React.Fragment key={record.registro_id}>
+                        <TableRow hover>
                           <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                             <Typography 
                               variant="body2" 
@@ -1211,7 +1250,67 @@ const RecordsDetailedPage: React.FC = () => {
                               );
                             })()}
                           </TableCell>
+                          {/* Expand para ver original */}
+                          <TableCell sx={{ width: 32, p: 0.5 }}>
+                            {(() => {
+                              const origKey = (record as any).registro_original_key;
+                              const hasOriginal = origKey && linkedOriginals.has(origKey);
+                              if (!hasOriginal) return null;
+                              const isExp = expandedRows.has(record.registro_id);
+                              return (
+                                <Tooltip title={isExp ? 'Ocultar original' : 'Ver registro original'}>
+                                  <IconButton size="small" onClick={() => {
+                                    setExpandedRows(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(record.registro_id)) next.delete(record.registro_id);
+                                      else next.add(record.registro_id);
+                                      return next;
+                                    });
+                                  }}>
+                                    {isExp ? <ExpandLessIcon sx={{ fontSize: 16, color: '#f59e0b' }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />}
+                                  </IconButton>
+                                </Tooltip>
+                              );
+                            })()}
+                          </TableCell>
                         </TableRow>
+                        {/* Sub-linha: registro original (AJUSTADO/INVALIDADO) */}
+                        {(() => {
+                          const origKey = (record as any).registro_original_key;
+                          const orig = origKey ? linkedOriginals.get(origKey) : undefined;
+                          if (!orig || !expandedRows.has(record.registro_id)) return null;
+                          const origStatus = ((orig as any).status || 'AJUSTADO').toUpperCase();
+                          const origColor = origStatus === 'INVALIDADO' ? '#ef4444' : '#f59e0b';
+                          return (
+                            <TableRow key={`orig-${record.registro_id}`} sx={{ bgcolor: 'rgba(0,0,0,0.18)' }}>
+                              <TableCell sx={{ pl: 4, py: 1 }}>
+                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+                                  ↳ {orig.funcionario_nome || record.funcionario_nome}
+                                </Typography>
+                              </TableCell>
+                              <TableCell sx={{ py: 1 }}>
+                                <Typography variant="caption" sx={{ color: origColor, textDecoration: 'line-through' }}>
+                                  {formatDateTime(orig.data_hora)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell sx={{ py: 1 }} colSpan={2}>
+                                <Chip label={origStatus} size="small" sx={{ bgcolor: `${origColor}22`, color: origColor, fontSize: '0.65rem', fontWeight: 700 }} />
+                                {(orig as any).justificativa && (
+                                  <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255,255,255,0.4)' }}>
+                                    {(orig as any).justificativa}
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ py: 1 }}>
+                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)' }}>
+                                  {(orig as any).ajustado_por || (orig as any).invalidado_por || '—'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell />
+                            </TableRow>
+                          );
+                        })()}
+                        </React.Fragment>
                       ))
                     )}
                   </TableBody>

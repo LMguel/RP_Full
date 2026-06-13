@@ -2065,11 +2065,11 @@ def registrar_ponto_manual(payload):
         
     employee_id = data.get('employee_id') or data.get('funcionario_id')
     data_hora = data.get('data_hora')  # Formato: 'YYYY-MM-DD HH:MM'
-    tipo = data.get('tipo')
+    tipo = data.get('tipo')  # opcional — inferido se ausente ou 'auto'
     justificativa = (data.get('justificativa') or '').strip()
-    
-    if not employee_id or not data_hora or not tipo:
-        return jsonify({'mensagem': 'Funcionário, data/hora e tipo são obrigatórios'}), 400
+
+    if not employee_id or not data_hora:
+        return jsonify({'mensagem': 'Funcionário e data/hora são obrigatórios'}), 400
     
     if not justificativa:
         return jsonify({'mensagem': 'Justificativa é obrigatória para registro manual'}), 400
@@ -2091,8 +2091,25 @@ def registrar_ponto_manual(payload):
             'deleted_at': funcionario.get('deleted_at')
         }), 403
         
+    # Inferir tipo automaticamente quando não informado ou 'auto'
+    if not tipo or tipo == 'auto':
+        data_str_inf = data_hora.split(' ')[0]
+        try:
+            resp_inf = tabela_registros.query(
+                KeyConditionExpression=(
+                    Key('company_id').eq(empresa_id) &
+                    Key('employee_id#date_time').begins_with(f"{employee_id}#{data_str_inf}")
+                ),
+                FilterExpression=Attr('status').eq('ATIVO') | Attr('status').not_exists(),
+            )
+            count_ativos = len(resp_inf.get('Items', []))
+        except Exception:
+            count_ativos = 0
+        tipo_map = {0: 'entrada', 1: 'saida_almoco', 2: 'retorno_almoco', 3: 'saída'}
+        tipo = tipo_map.get(count_ativos, 'entrada')
+
     id_registro = str(uuid.uuid4())
-    
+
     # Tabela TimeRecords usa: company_id (HASH) + employee_id#date_time (RANGE)
     sort_key = f"{employee_id}#{data_hora}"
     

@@ -177,7 +177,7 @@ class ApiService {
   async registerTimeManual(data: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída' | 'dia_inteiro' | 'saida_almoco' | 'retorno_almoco';
+    tipo?: 'entrada' | 'saída' | 'dia_inteiro' | 'saida_almoco' | 'retorno_almoco';
     justificativa: string;
   }) {
     const response = await this.api.post('/api/registrar_ponto_manual', data);

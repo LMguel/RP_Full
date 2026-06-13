@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -11,19 +11,21 @@ import {
   IconButton,
   CircularProgress,
   Autocomplete,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
+  Chip,
 } from '@mui/material';
 import {
   Close as CloseIcon,
   AccessTime as AccessTimeIcon,
+  BeachAccess as BeachIcon,
+  MedicalServices as MedicalIcon,
+  CloudUpload as UploadIcon,
+  InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
+import { motion, AnimatePresence } from 'framer-motion';
 import { apiService } from '../services/api';
 import { Employee } from '../types';
 
-type TipoRegistroManual = 'entrada' | 'saída' | 'dia_inteiro';
+type Mode = 'ponto' | 'ferias' | 'atestado';
 
 interface TimeRecordFormProps {
   open: boolean;
@@ -31,12 +33,31 @@ interface TimeRecordFormProps {
   onSubmit: (data: {
     employee_id: string;
     data_hora: string;
-    tipo: TipoRegistroManual;
     justificativa: string;
   }) => Promise<void>;
   loading?: boolean;
   employees?: Employee[];
 }
+
+const fieldSx = {
+  '& .MuiOutlinedInput-root': {
+    color: 'white',
+    background: 'rgba(255,255,255,0.05)',
+    '& fieldset': { borderColor: 'rgba(255,255,255,0.25)' },
+    '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.45)' },
+    '&.Mui-focused fieldset': { borderColor: 'rgba(255,255,255,0.7)' },
+  },
+  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.6)', '&.Mui-focused': { color: 'rgba(255,255,255,0.9)' } },
+  '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.45)' },
+  '& input[type="date"]::-webkit-calendar-picker-indicator': { filter: 'invert(1) brightness(0.7)' },
+  '& input[type="time"]::-webkit-calendar-picker-indicator': { filter: 'invert(1) brightness(0.7)' },
+};
+
+const MODES: { key: Mode; label: string; icon: React.ReactNode; color: string; desc: string }[] = [
+  { key: 'ponto',    label: 'Ponto Manual',   icon: <AccessTimeIcon sx={{ fontSize: 16 }} />, color: '#3b82f6', desc: 'Registrar ponto — tipo calculado automaticamente' },
+  { key: 'ferias',  label: 'Férias / Folga',  icon: <BeachIcon      sx={{ fontSize: 16 }} />, color: '#8b5cf6', desc: 'Marcar período de férias ou folga' },
+  { key: 'atestado',label: 'Atestado Médico', icon: <MedicalIcon    sx={{ fontSize: 16 }} />, color: '#14b8a6', desc: 'Lançar atestado com upload do documento' },
+];
 
 const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   open,
@@ -45,621 +66,404 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   loading = false,
   employees: propEmployees = [],
 }) => {
-  const [formData, setFormData] = useState({
-    employee_id: '',
-    data_hora: '',
-    date: '', // YYYY-MM-DD
-    time: '', // HH:MM
-    tipo: 'entrada' as TipoRegistroManual,
-    justificativa: '',
-  });
+  const [mode, setMode] = useState<Mode>('ponto');
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [employeeInput, setEmployeeInput] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Common
+  const [employeeId, setEmployeeId] = useState('');
+  const [employeeInput, setEmployeeInput] = useState('');
+  const [justificativa, setJustificativa] = useState('');
+
+  // Ponto manual
+  const [pontoDate, setPontoDate] = useState('');
+  const [pontoTime, setPontoTime] = useState('');
+
+  // Férias
+  const [feriasInicio, setFeriasInicio] = useState('');
+  const [feriasFim, setFeriasFim] = useState('');
+
+  // Atestado
+  const [atestadoData, setAtestadoData] = useState('');
+  const [atestadoDias, setAtestadoDias] = useState('1');
+  const [atestadoFile, setAtestadoFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) {
-      if (propEmployees.length > 0) {
-        setEmployees([...propEmployees].sort((a, b) => a.nome.localeCompare(b.nome)));
-      } else {
-        loadEmployees();
-      }
-      
-      const now = new Date();
-      // Get current time in Brazil timezone and format for datetime-local input
-      const brasiliaTime = new Date(now.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
-      const year = brasiliaTime.getFullYear();
-      const month = String(brasiliaTime.getMonth() + 1).padStart(2, '0');
-      const day = String(brasiliaTime.getDate()).padStart(2, '0');
-      const hours = String(brasiliaTime.getHours()).padStart(2, '0');
-      const minutes = String(brasiliaTime.getMinutes()).padStart(2, '0');
-      setFormData(prev => ({
-        ...prev,
-        date: `${year}-${month}-${day}`,
-        time: `${hours}:${minutes}`,
-      }));
-      setEmployeeInput('');
-    }
-  }, [open, propEmployees]);
-
-  const loadEmployees = async () => {
-    try {
-      setLoadingEmployees(true);
-      const response = await apiService.getEmployees();
-      const employeesList = response.funcionarios || [];
-      const sortedEmployees = [...employeesList].sort((a: Employee, b: Employee) =>
-        (a.nome || '').localeCompare(b.nome || '')
-      );
-      setEmployees(sortedEmployees);
-    } catch (err) {
-      console.error('Error loading employees:', err);
-    } finally {
-      setLoadingEmployees(false);
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-    
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: '',
-      }));
-    }
-  };
-
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.employee_id) {
-      newErrors.employee_id = 'Funcionário é obrigatório';
-    }
-
-    if (formData.tipo === 'dia_inteiro') {
-      if (!formData.date) {
-        newErrors.data_hora = 'Data é obrigatória para marcar dia inteiro';
-      }
+    if (!open) return;
+    if (propEmployees.length > 0) {
+      const ativos = propEmployees.filter(e => e.is_active !== false && e.ativo !== false);
+      setEmployees([...ativos].sort((a, b) => a.nome.localeCompare(b.nome)));
     } else {
-      if (!formData.date || !formData.time) {
-        newErrors.data_hora = 'Data e hora são obrigatórias';
-      } else {
-        // Validações empresariais críticas
-        const selectedDateTime = new Date(`${formData.date}T${formData.time}:00`);
-        const now = new Date();
-        
-        // 1. Não pode registrar no futuro
-        if (selectedDateTime > now) {
-          newErrors.data_hora = 'Não é possível registrar ponto no futuro';
-        }
-        
-        // 2. Não pode registrar muito no passado (mais de 30 dias)
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(now.getDate() - 30);
-        if (selectedDateTime < thirtyDaysAgo) {
-          newErrors.data_hora = 'Não é possível registrar ponto com mais de 30 dias';
-        }
-        
-        // 3. Horário comercial básico (opcional - pode ser removido se necessário)
-        const hour = selectedDateTime.getHours();
-        if (hour < 5 || hour > 23) {
-          newErrors.data_hora = 'Registro fora do horário permitido (05:00 - 23:59)';
-        }
-        
-        // 4. Validar formato de data
-        if (isNaN(selectedDateTime.getTime())) {
-          newErrors.data_hora = 'Data e hora inválidas';
-        }
-      }
+      setLoadingEmployees(true);
+      apiService.getEmployees().then((r: any) => {
+        const list: Employee[] = (r.funcionarios || []).filter(
+          (e: Employee) => e.is_active !== false && e.ativo !== false
+        );
+        setEmployees(list.sort((a, b) => a.nome.localeCompare(b.nome)));
+      }).catch(() => {}).finally(() => setLoadingEmployees(false));
     }
 
-    if (!formData.tipo) {
-      newErrors.tipo = 'Tipo de registro é obrigatório';
-    }
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const time  = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    setPontoDate(today);
+    setPontoTime(time);
+    setFeriasInicio(today);
+    setFeriasFim(today);
+    setAtestadoData(today);
 
-    if (!formData.justificativa.trim()) {
-      newErrors.justificativa = 'Justificativa é obrigatória para registro manual';
-    } else if (formData.justificativa.trim().length < 5) {
-      newErrors.justificativa = 'Justificativa deve ter pelo menos 5 caracteres';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) {
-      return;
-    }
-    // Garante que employee_id é de um funcionário válido
-    const selectedEmployee = employees.find(emp => emp.id === formData.employee_id);
-    if (!selectedEmployee) {
-      setErrors(prev => ({ ...prev, employee_id: 'Selecione um funcionário válido da lista.' }));
-      return;
-    }
-    try {
-      // Validação adicional: verificar registros duplicados
-      const dateStr = formData.date;
-      let selectedDate: Date | null = null;
-      if (formData.tipo !== 'dia_inteiro') {
-        selectedDate = new Date(`${formData.date}T${formData.time}:00`);
-      }
-      // Buscar registros existentes do funcionário na mesma data
-      try {
-        const existingRecords = await apiService.getTimeRecords({
-          funcionario_id: formData.employee_id,
-          inicio: dateStr,
-          fim: dateStr
-        });
-        let recordsToCheck = [];
-        if (Array.isArray(existingRecords)) {
-          recordsToCheck = existingRecords;
-        } else if (existingRecords && existingRecords.registros) {
-          recordsToCheck = existingRecords.registros;
-        }
-        // Ignorar registros invalidados ou ajustados nas verificações de conflito
-        const INVALID_STATUSES = ['INVALIDADO', 'AJUSTADO', 'invalidado', 'ajustado'];
-        recordsToCheck = recordsToCheck.filter((r: any) => !INVALID_STATUSES.includes(r.status));
-        // Para registros de dia inteiro, não faz checagem de proximidade
-        if (formData.tipo !== 'dia_inteiro') {
-          // Verificar se não há conflito de horários próximos (menos de 30 minutos)
-          const newDateTime = selectedDate ? selectedDate.getTime() : Date.now();
-          const conflictingRecords = recordsToCheck.filter((record: any) => {
-            if (!record.data_hora) return false;
-            const existingDateTime = new Date(record.data_hora).getTime();
-            const timeDiff = Math.abs(newDateTime - existingDateTime);
-            return timeDiff < (30 * 60 * 1000); // Menos de 30 minutos
-          });
-          if (conflictingRecords.length > 0) {
-            setErrors(prev => ({
-              ...prev,
-              data_hora: 'Existe um registro muito próximo deste horário (menos de 30 minutos)'
-            }));
-            return;
-          }
-        }
-      } catch (checkError) {
-        console.warn('⚠️ Não foi possível verificar registros existentes:', checkError);
-        // Continua mesmo se não conseguir verificar (para não bloquear o sistema)
-      }
-      // Combine date and time into the format expected by backend: 'YYYY-MM-DD HH:MM:SS'
-      let formattedDateTime = '';
-      if (formData.tipo === 'dia_inteiro') {
-        formattedDateTime = `${formData.date} 00:00:00`;
-      } else {
-        formattedDateTime = `${formData.date} ${formData.time}:00`;
-      }
-      await onSubmit({
-        employee_id: selectedEmployee.id,
-        data_hora: formattedDateTime,
-        tipo: formData.tipo,
-        justificativa: formData.justificativa.trim(),
-      });
-    } catch (error) {
-      console.error('Erro ao salvar registro:', error);
-      setErrors(prev => ({
-        ...prev,
-        submit: 'Erro ao salvar registro. Tente novamente.'
-      }));
-    }
-  };
-
-  const handleClose = () => {
-    setFormData({
-      employee_id: '',
-      data_hora: '',
-      date: '',
-      time: '',
-      tipo: 'entrada' as TipoRegistroManual,
-      justificativa: '',
-    });
+    setMode('ponto');
+    setEmployeeId('');
     setEmployeeInput('');
+    setJustificativa('');
+    setAtestadoDias('1');
+    setAtestadoFile(null);
     setErrors({});
-    onClose();
+  }, [open]);
+
+  const selectedEmployee = employees.find(e => e.id === employeeId) || null;
+
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!employeeId) e.employee = 'Selecione um funcionário';
+    if (!justificativa.trim() || justificativa.trim().length < 5) e.just = 'Justificativa mínima de 5 caracteres';
+
+    if (mode === 'ponto') {
+      if (!pontoDate || !pontoTime) e.data = 'Data e hora obrigatórias';
+      else {
+        const dt = new Date(`${pontoDate}T${pontoTime}:00`);
+        if (dt > new Date()) e.data = 'Não é possível registrar no futuro';
+      }
+    }
+    if (mode === 'ferias') {
+      if (!feriasInicio) e.data = 'Data de início obrigatória';
+      if (!feriasFim) e.dataFim = 'Data de fim obrigatória';
+      if (feriasInicio && feriasFim && feriasFim < feriasInicio) e.dataFim = 'Data de fim deve ser ≥ início';
+    }
+    if (mode === 'atestado') {
+      if (!atestadoData) e.data = 'Data do atestado obrigatória';
+      const d = parseInt(atestadoDias, 10);
+      if (!d || d < 1) e.dias = 'Número de dias inválido';
+      if (!atestadoFile) e.arquivo = 'Faça o upload do atestado';
+    }
+
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
+
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      if (mode === 'ponto') {
+        await onSubmit({
+          employee_id: employeeId,
+          data_hora: `${pontoDate} ${pontoTime}:00`,
+          justificativa: justificativa.trim(),
+        });
+      } else if (mode === 'ferias') {
+        await apiService.registerFerias({
+          employee_id: employeeId,
+          data_inicio: feriasInicio,
+          data_fim: feriasFim,
+          justificativa: justificativa.trim(),
+        });
+        onClose();
+      } else if (mode === 'atestado') {
+        const fd = new FormData();
+        fd.append('employee_id', employeeId);
+        fd.append('data_inicio', atestadoData);
+        fd.append('dias', atestadoDias);
+        fd.append('justificativa', justificativa.trim());
+        fd.append('arquivo', atestadoFile!);
+        await apiService.registerAtestado(fd);
+        onClose();
+      }
+    } catch {
+      setErrors(prev => ({ ...prev, submit: 'Erro ao salvar. Tente novamente.' }));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const isLoading = loading || submitting;
+  const modeColor = MODES.find(m => m.key === mode)?.color || '#3b82f6';
 
   return (
     <Dialog
       open={open}
-      // do not close on backdrop click; only on explicit actions
-      onClose={(event, reason) => {
-        if (reason === 'backdropClick') return;
-        if (reason === 'escapeKeyDown') return; // disable ESC
-        handleClose();
-      }}
+      onClose={(_, reason) => { if (reason === 'backdropClick' || reason === 'escapeKeyDown') return; onClose(); }}
       disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
       PaperProps={{
         sx: {
-          background: 'rgba(255, 255, 255, 0.05)',
-          backdropFilter: 'blur(20px)',
-          borderRadius: '16px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-        }
-      }}
-      sx={{
-        '& .MuiDialog-container': {
-          background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
+          background: 'linear-gradient(135deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.98) 100%)',
+          backdropFilter: 'blur(24px)',
+          borderRadius: '20px',
+          border: `1px solid ${modeColor}30`,
+          boxShadow: `0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px ${modeColor}15`,
+          transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
         }
       }}
     >
-      <DialogTitle 
-        sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          color: 'white',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          pb: 2,
-          fontWeight: 600
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }} component="span">
-          <AccessTimeIcon sx={{ color: 'rgba(255, 255, 255, 0.9)' }} />
-          <Box component="span">
-            Registrar Ponto Manual
+      {/* Header */}
+      <DialogTitle sx={{ p: 0, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <Box sx={{ px: 3, pt: 2.5, pb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Typography sx={{ color: 'white', fontWeight: 700, fontSize: 18, lineHeight: 1.2 }}>
+              Registro Manual
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, mt: 0.4 }}>
+              {MODES.find(m => m.key === mode)?.desc}
+            </Typography>
           </Box>
+          <IconButton onClick={onClose} disabled={isLoading} size="small"
+            sx={{ color: 'rgba(255,255,255,0.5)', '&:hover': { color: 'white', background: 'rgba(255,255,255,0.08)' } }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Box>
-        <IconButton 
-          onClick={handleClose} 
-          disabled={loading}
-          sx={{ 
-            color: 'rgba(255, 255, 255, 0.7)',
-            '&:hover': {
-              color: 'white',
-              background: 'rgba(255, 255, 255, 0.1)'
-            }
-          }}
-        >
-          <CloseIcon />
-        </IconButton>
+
+        {/* Mode tabs */}
+        <Box sx={{ px: 3, pb: 2, display: 'flex', gap: 1 }}>
+          {MODES.map(m => (
+            <Box
+              key={m.key}
+              onClick={() => { setMode(m.key); setErrors({}); }}
+              sx={{
+                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5,
+                py: 1.2, px: 0.5, borderRadius: '10px', cursor: 'pointer',
+                background: mode === m.key ? `${m.color}20` : 'rgba(255,255,255,0.03)',
+                border: `1.5px solid ${mode === m.key ? m.color : 'rgba(255,255,255,0.08)'}`,
+                transition: 'all 0.2s ease',
+                '&:hover': { background: `${m.color}15`, borderColor: `${m.color}60` },
+              }}
+            >
+              <Box sx={{ color: mode === m.key ? m.color : 'rgba(255,255,255,0.4)', transition: 'color 0.2s' }}>
+                {m.icon}
+              </Box>
+              <Typography sx={{ fontSize: 10, fontWeight: 700, color: mode === m.key ? m.color : 'rgba(255,255,255,0.4)', textAlign: 'center', lineHeight: 1.2, transition: 'color 0.2s' }}>
+                {m.label}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
       </DialogTitle>
 
       <form onSubmit={handleSubmit}>
-        <DialogContent sx={{ py: 4 }}>
+        <DialogContent sx={{ py: 3, px: 3 }}>
           {loadingEmployees ? (
             <Box display="flex" justifyContent="center" py={4}>
-              <CircularProgress sx={{ color: 'white' }} />
+              <CircularProgress size={32} sx={{ color: modeColor }} />
             </Box>
           ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <Box sx={{ width: '100%' }}>
-                <Autocomplete
-                  options={employees}
-                  getOptionLabel={(option) => option.nome || ''}
-                  value={employees.find(emp => emp.id === formData.employee_id) || null}
-                  isOptionEqualToValue={(option, value) => option.id === value.id}
-                  onChange={(_, newValue) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      employee_id: newValue ? newValue.id : '',
-                    }));
-                    if (!newValue && !employeeInput) {
-                      setErrors(prev => ({ ...prev, employee_id: 'Funcionário é obrigatório' }));
-                    } else {
-                      setErrors(prev => {
-                        const { employee_id, ...rest } = prev;
-                        return rest;
-                      });
-                    }
-                  }}
-                  inputValue={employeeInput}
-                  onInputChange={(_, newInputValue) => {
-                    setEmployeeInput(newInputValue);
-                    if (newInputValue) {
-                      setErrors(prev => {
-                        const { employee_id, ...rest } = prev;
-                        return rest;
-                      });
-                    }
-                    if (!newInputValue) {
-                      setFormData(prev => ({ ...prev, employee_id: '' }));
-                    }
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Funcionário"
-                      placeholder="Digite o nome do funcionário"
-                      error={!!errors.employee_id}
-                      helperText={errors.employee_id}
-                    />
-                  )}
-                  renderOption={(props, option) => (
-                    <li {...props} key={option.id}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
-                          {option.nome}
-                        </Typography>
-                        {option.cargo && (
-                          <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.65)' }}>
-                            {option.cargo}
-                          </Typography>
-                        )}
-                      </Box>
-                    </li>
-                  )}
-                  disabled={loading}
-                  loading={loadingEmployees}
-                  ListboxProps={{
-                    sx: {
-                      background: 'rgba(15, 23, 42, 0.95)',
-                      color: 'white',
-                      '& .MuiAutocomplete-option': {
-                        '&.Mui-focused': {
-                          backgroundColor: 'rgba(59, 130, 246, 0.35)'
-                        }
-                      }
-                    }
-                  }}
-                  noOptionsText={employeeInput ? 'Nenhum funcionário encontrado' : 'Digite o nome do funcionário'}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.7)',
-                      },
-                    },
-                    '& .MuiInputLabel-root': {
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      '&.Mui-focused': {
-                        color: 'rgba(255, 255, 255, 0.9)'
-                      }
-                    },
-                    '& .MuiAutocomplete-popupIndicator': {
-                      color: 'rgba(255, 255, 255, 0.7)'
-                    },
-                    '& .MuiCircularProgress-root': {
-                      color: 'white'
-                    }
-                  }}
-                />
-              </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
 
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                <TextField
-                  name="date"
-                  type="date"
-                  value={formData.date}
-                  onChange={handleChange}
-                  error={!!errors.data_hora}
-                  helperText={errors.data_hora}
-                  variant="outlined"
-                  InputLabelProps={{ shrink: true }}
-                  sx={{
-                    flex: 1,
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.7)',
-                      },
-                      background: 'rgba(255, 255, 255, 0.05)',
-                    },
-                    '& .MuiInputBase-input': {
-                      color: 'white',
-                    },
-                    '& input[type="date"]::-webkit-calendar-picker-indicator': {
-                      filter: 'invert(1) brightness(0.7)',
-                    },
-                  }}
-                />
-
-                <TextField
-                  fullWidth
-                  name="time"
-                  type="time"
-                  value={formData.time}
-                  onChange={handleChange}
-                  error={!!errors.data_hora}
-                  helperText={errors.data_hora}
-                  variant="outlined"
-                  InputLabelProps={{ shrink: true }}
-                  sx={{
-                    flex: 1,
-                    '& .MuiOutlinedInput-root': {
-                      color: 'white',
-                      '& fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.5)',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: 'rgba(255, 255, 255, 0.7)',
-                      },
-                      background: 'rgba(255, 255, 255, 0.05)',
-                    },
-                    '& .MuiInputBase-input': {
-                      color: 'white',
-                    },
-                    '& input[type="time"]::-webkit-calendar-picker-indicator': {
-                      filter: 'invert(1) brightness(0.7)',
-                    },
-                  }}
-                  disabled={formData.tipo === 'dia_inteiro' || loading}
-                />
-              </Box>
-
-              <FormControl 
-                fullWidth 
-                error={!!errors.tipo}
-                sx={{
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    '&.Mui-focused': {
-                      color: 'rgba(255, 255, 255, 0.9)'
-                    }
-                  },
-                  '& .MuiOutlinedInput-root': {
-                    color: 'white',
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.3)',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.5)',
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.7)',
-                    },
-                    background: 'rgba(255, 255, 255, 0.05)',
-                  },
-                  '& .MuiSelect-icon': {
-                    color: 'rgba(255, 255, 255, 0.7)'
-                  }
-                }}
-              >
-                <InputLabel>Tipo de Registro</InputLabel>
-                <Select
-                  name="tipo"
-                  value={formData.tipo}
-                  onChange={(event) => {
-                    const value = event.target.value as TipoRegistroManual;
-                    setFormData(prev => ({
-                      ...prev,
-                      tipo: value,
-                    }));
-                    if (errors.tipo) {
-                      setErrors(prev => {
-                        const { tipo, ...rest } = prev;
-                        return rest;
-                      });
-                    }
-                  }}
-                  label="Tipo de Registro"
-                  disabled={loading}
-                  MenuProps={{
-                    PaperProps: {
-                      sx: {
-                        background: 'rgba(255, 255, 255, 0.95)',
-                        backdropFilter: 'blur(20px)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-                      }
-                    }
-                  }}
-                >
-                  <MenuItem value="entrada">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#22c55e', flexShrink: 0 }} />
-                      Entrada
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="saída">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#ef4444', flexShrink: 0 }} />
-                      Saída
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="dia_inteiro">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#6b7280', flexShrink: 0 }} />
-                      Dia inteiro (Atestado/Afastamento)
-                    </Box>
-                  </MenuItem>
-                </Select>
-                {errors.tipo && (
-                  <Typography variant="caption" sx={{ color: '#ef4444', mt: 1 }}>
-                    {errors.tipo}
-                  </Typography>
+              {/* Employee selector — common */}
+              <Autocomplete
+                options={employees}
+                getOptionLabel={o => o.nome || ''}
+                value={selectedEmployee}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                onChange={(_, v) => { setEmployeeId(v?.id || ''); setErrors(p => ({ ...p, employee: '' })); }}
+                inputValue={employeeInput}
+                onInputChange={(_, v) => { setEmployeeInput(v); if (!v) setEmployeeId(''); }}
+                disabled={isLoading}
+                renderInput={params => (
+                  <TextField {...params} label="Funcionário *" error={!!errors.employee} helperText={errors.employee} sx={fieldSx} />
                 )}
-              </FormControl>
-
-              <TextField
-                fullWidth
-                name="justificativa"
-                label="Justificativa *"
-                placeholder="Informe o motivo do registro manual (obrigatório)"
-                value={formData.justificativa}
-                onChange={handleChange}
-                error={!!errors.justificativa}
-                helperText={errors.justificativa}
-                multiline
-                rows={3}
-                disabled={loading}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: 'white',
-                    '& fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.3)',
-                    },
-                    '&:hover fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.5)',
-                    },
-                    '&.Mui-focused fieldset': {
-                      borderColor: 'rgba(255, 255, 255, 0.7)',
-                    },
-                    background: 'rgba(255, 255, 255, 0.05)',
-                  },
-                  '& .MuiInputLabel-root': {
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    '&.Mui-focused': {
-                      color: 'rgba(255, 255, 255, 0.9)'
-                    }
-                  },
-                  '& .MuiFormHelperText-root': {
-                    color: errors.justificativa ? '#ef4444' : 'rgba(255, 255, 255, 0.5)',
-                  },
-                }}
+                renderOption={(props, opt) => (
+                  <li {...props} key={opt.id}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>{opt.nome}</Typography>
+                      {opt.cargo && <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>{opt.cargo}</Typography>}
+                    </Box>
+                  </li>
+                )}
+                ListboxProps={{ sx: { background: 'rgba(15,23,42,0.98)', '& .MuiAutocomplete-option.Mui-focused': { bgcolor: 'rgba(59,130,246,0.25)' } } }}
+                noOptionsText={<Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Nenhum funcionário encontrado</Typography>}
+                sx={{ '& .MuiAutocomplete-popupIndicator': { color: 'rgba(255,255,255,0.5)' } }}
               />
+
+              {/* ── Ponto Manual ─────────────────────────────────────────────── */}
+              <AnimatePresence mode="wait">
+                {mode === 'ponto' && (
+                  <motion.div key="ponto" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                      <TextField
+                        label="Data" type="date" value={pontoDate}
+                        onChange={e => { setPontoDate(e.target.value); setErrors(p => ({ ...p, data: '' })); }}
+                        error={!!errors.data} helperText={errors.data}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                      <TextField
+                        label="Hora" type="time" value={pontoTime}
+                        onChange={e => { setPontoTime(e.target.value); setErrors(p => ({ ...p, data: '' })); }}
+                        error={!!errors.data}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                    </Box>
+                    <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                      <Typography sx={{ fontSize: 12, color: 'rgba(148,163,184,0.9)' }}>
+                        💡 O tipo (entrada/saída) é calculado automaticamente com base nos registros existentes do dia.
+                      </Typography>
+                    </Box>
+                  </motion.div>
+                )}
+
+                {/* ── Férias / Folga ────────────────────────────────────────── */}
+                {mode === 'ferias' && (
+                  <motion.div key="ferias" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                      <TextField
+                        label="Data de Início" type="date" value={feriasInicio}
+                        onChange={e => { setFeriasInicio(e.target.value); setErrors(p => ({ ...p, data: '' })); }}
+                        error={!!errors.data} helperText={errors.data}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                      <TextField
+                        label="Data de Fim" type="date" value={feriasFim}
+                        onChange={e => { setFeriasFim(e.target.value); setErrors(p => ({ ...p, dataFim: '' })); }}
+                        error={!!errors.dataFim} helperText={errors.dataFim}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        inputProps={{ min: feriasInicio }}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                    </Box>
+                    {feriasInicio && feriasFim && feriasFim >= feriasInicio && (
+                      <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip
+                          label={`${Math.round((new Date(feriasFim).getTime() - new Date(feriasInicio).getTime()) / 86400000) + 1} dia(s)`}
+                          size="small"
+                          sx={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.4)', color: '#a78bfa', fontWeight: 700, fontSize: 11 }}
+                        />
+                        <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>marcados como Férias/Folga no espelho</Typography>
+                      </Box>
+                    )}
+                  </motion.div>
+                )}
+
+                {/* ── Atestado ─────────────────────────────────────────────── */}
+                {mode === 'atestado' && (
+                  <motion.div key="atestado" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                    <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                      <TextField
+                        label="Data do Atestado" type="date" value={atestadoData}
+                        onChange={e => { setAtestadoData(e.target.value); setErrors(p => ({ ...p, data: '' })); }}
+                        error={!!errors.data} helperText={errors.data}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 2, ...fieldSx }}
+                      />
+                      <TextField
+                        label="Dias afastamento" type="number" value={atestadoDias}
+                        onChange={e => { setAtestadoDias(e.target.value); setErrors(p => ({ ...p, dias: '' })); }}
+                        error={!!errors.dias} helperText={errors.dias}
+                        inputProps={{ min: 1, max: 365 }}
+                        disabled={isLoading}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                    </Box>
+
+                    {/* File upload */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      style={{ display: 'none' }}
+                      onChange={e => {
+                        const f = e.target.files?.[0] || null;
+                        setAtestadoFile(f);
+                        setErrors(p => ({ ...p, arquivo: '' }));
+                      }}
+                    />
+                    <Box
+                      onClick={() => fileInputRef.current?.click()}
+                      sx={{
+                        border: `2px dashed ${errors.arquivo ? '#ef4444' : atestadoFile ? '#14b8a6' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: 2, p: 2.5, textAlign: 'center', cursor: 'pointer',
+                        background: atestadoFile ? 'rgba(20,184,166,0.06)' : 'rgba(255,255,255,0.02)',
+                        transition: 'all 0.2s ease',
+                        '&:hover': { borderColor: '#14b8a6', background: 'rgba(20,184,166,0.06)' },
+                      }}
+                    >
+                      {atestadoFile ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                          <FileIcon sx={{ color: '#14b8a6', fontSize: 20 }} />
+                          <Typography sx={{ color: '#14b8a6', fontSize: 13, fontWeight: 600 }}>{atestadoFile.name}</Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>
+                            ({(atestadoFile.size / 1024).toFixed(0)} KB)
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Box>
+                          <UploadIcon sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 28, mb: 0.5 }} />
+                          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600 }}>Clique para selecionar o atestado</Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, mt: 0.3 }}>PDF, JPG ou PNG</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                    {errors.arquivo && <Typography sx={{ color: '#ef4444', fontSize: 11, mt: 0.5 }}>{errors.arquivo}</Typography>}
+
+                    <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.2)' }}>
+                      <Typography sx={{ fontSize: 12, color: 'rgba(148,163,184,0.9)' }}>
+                        🩺 Os dias de atestado contam como horas trabalhadas no espelho de ponto.
+                        O arquivo fica salvo e pode ser visualizado a qualquer momento.
+                      </Typography>
+                    </Box>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Justificativa — common */}
+              <TextField
+                label="Justificativa *"
+                placeholder={
+                  mode === 'ferias' ? 'Ex: Férias anuais — período acordado em contrato'
+                  : mode === 'atestado' ? 'Ex: Atestado médico — gripe com febre'
+                  : 'Informe o motivo do registro manual'
+                }
+                value={justificativa}
+                onChange={e => { setJustificativa(e.target.value); setErrors(p => ({ ...p, just: '' })); }}
+                error={!!errors.just}
+                helperText={errors.just}
+                multiline rows={2}
+                disabled={isLoading}
+                sx={fieldSx}
+              />
+
+              {errors.submit && (
+                <Typography sx={{ color: '#ef4444', fontSize: 12, textAlign: 'center' }}>{errors.submit}</Typography>
+              )}
             </Box>
           )}
         </DialogContent>
 
-        <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
-          <Button
-            onClick={handleClose}
-            disabled={loading}
-            sx={{
-              color: 'rgba(255, 255, 255, 0.7)',
-              '&:hover': {
-                background: 'rgba(255, 255, 255, 0.05)',
-                color: 'white'
-              }
-            }}
-          >
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0, borderTop: '1px solid rgba(255,255,255,0.07)', gap: 1 }}>
+          <Button onClick={onClose} disabled={isLoading}
+            sx={{ color: 'rgba(255,255,255,0.5)', '&:hover': { color: 'white', background: 'rgba(255,255,255,0.06)' } }}>
             Cancelar
           </Button>
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={loading || loadingEmployees}
-            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <AccessTimeIcon />}
-            sx={{ 
-              background: '#2563eb',
-              color: 'white',
-              fontWeight: 600,
-              px: 3,
-              '&:hover': {
-                background: '#1d4ed8',
-              },
-              '&:disabled': {
-                background: 'rgba(255, 255, 255, 0.1)',
-              }
-            }}
-          >
-            {loading ? 'Registrando...' : 'Registrar Ponto'}
+          <Button type="submit" variant="contained" disabled={isLoading || loadingEmployees}
+            startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : MODES.find(m => m.key === mode)?.icon}
+            sx={{
+              px: 3, fontWeight: 700,
+              background: `linear-gradient(135deg, ${modeColor}, ${modeColor}cc)`,
+              boxShadow: `0 4px 16px ${modeColor}40`,
+              '&:hover': { background: modeColor, boxShadow: `0 6px 20px ${modeColor}60` },
+              '&:disabled': { background: 'rgba(255,255,255,0.1)', boxShadow: 'none' },
+            }}>
+            {isLoading ? 'Salvando...'
+              : mode === 'ponto' ? 'Registrar Ponto'
+              : mode === 'ferias' ? 'Registrar Férias/Folga'
+              : 'Enviar Atestado'}
           </Button>
         </DialogActions>
       </form>
