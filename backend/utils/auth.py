@@ -71,6 +71,39 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def token_required(f):
+    """Decorator que verifica se o request contém um token JWT válido.
+
+    Extrai o token do header Authorization: Bearer <token> e passa
+    o payload decodificado como primeiro argumento para a função.
+
+    Uso:
+        @routes.route('/api/users', methods=['POST'])
+        @token_required
+        def create_user(payload):
+            ...
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # OPTIONS requests pass through without token validation (CORS preflight)
+        if flask_request.method == 'OPTIONS':
+            return ('', 200)
+
+        token = None
+        # O token pode vir no header Authorization: Bearer <token>
+        if 'Authorization' in flask_request.headers:
+            auth_header = flask_request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+        if not token:
+            return jsonify({'error': 'Token ausente'}), 401
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Token inválido'}), 401
+        return f(payload, *args, **kwargs)
+    return decorated
+
+
 def require_permission(permission: str):
     """Decorator aplicado após token_required. Verifica permissão específica.
 
