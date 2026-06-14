@@ -1,9 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+function applyUpdate(reg: ServiceWorkerRegistration) {
+  if (!reg.waiting) {
+    window.location.reload();
+    return;
+  }
+  // Garante que o flag de kiosk sobreviva ao reload
+  if (localStorage.getItem('@kiosk:active') === 'true') {
+    localStorage.setItem('@kiosk:active', 'true');
+  }
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  }, { once: true });
+  reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+}
+
 /**
- * Detecta nova versão do Service Worker e oferece atualização controlada.
- * Não recarrega automaticamente para não interromper o kiosk.
+ * Detecta nova versão do Service Worker e aplica a atualização.
+ *
+ * Kiosk (tablet de ponto): atualização silenciosa e automática após 5s.
+ * Outros dispositivos: toast manual "Atualizar agora".
+ *
+ * O recarregamento preserva @kiosk:active, então o tablet retorna à câmera
+ * via KioskAutoReturn em App.tsx.
  */
 export default function SwUpdateToast() {
   const [showUpdate, setShowUpdate] = useState(false);
@@ -12,12 +32,16 @@ export default function SwUpdateToast() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
-    const handleUpdateFound = (reg: ServiceWorkerRegistration) => {
-      const newWorker = reg.installing;
-      if (!newWorker) return;
+    const handleNewWorker = (reg: ServiceWorkerRegistration, newWorker: ServiceWorker) => {
       newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-          // Nova versão pronta mas aguardando — informar o usuário
+        if (newWorker.state !== 'installed' || !navigator.serviceWorker.controller) return;
+
+        const isKiosk = localStorage.getItem('@kiosk:active') === 'true';
+        if (isKiosk) {
+          // Aplica automaticamente após 5s — tempo suficiente para terminar
+          // qualquer captura facial em andamento antes de recarregar
+          setTimeout(() => applyUpdate(reg), 5_000);
+        } else {
           setRegistration(reg);
           setShowUpdate(true);
         }
@@ -25,32 +49,27 @@ export default function SwUpdateToast() {
     };
 
     navigator.serviceWorker.ready.then(reg => {
-      reg.addEventListener('updatefound', () => handleUpdateFound(reg));
-      // Checar se já há um worker esperando (ex: após reload)
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (newWorker) handleNewWorker(reg, newWorker);
+      });
+
+      // SW já aguardando quando a página carregou (ex: após reload com update pendente)
       if (reg.waiting && navigator.serviceWorker.controller) {
-        setRegistration(reg);
-        setShowUpdate(true);
+        const isKiosk = localStorage.getItem('@kiosk:active') === 'true';
+        if (isKiosk) {
+          setTimeout(() => applyUpdate(reg), 2_000);
+        } else {
+          setRegistration(reg);
+          setShowUpdate(true);
+        }
       }
     }).catch(() => {});
   }, []);
 
   const handleUpdate = () => {
-    if (!registration?.waiting) {
-      // SW já ativo — apenas recarregar
-      window.location.reload();
-      return;
-    }
-    const kioskWasActive = localStorage.getItem('@kiosk:active') === 'true';
-    // Listener: quando novo SW tomar controle, recarregar a página
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (kioskWasActive) {
-        // kiosk flag já está setado — ao recarregar, AuthContext irá redirecionar
-        localStorage.setItem('@kiosk:active', 'true');
-      }
-      window.location.reload();
-    }, { once: true });
-    // Ativar novo SW
-    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    if (registration) applyUpdate(registration);
+    else window.location.reload();
     setShowUpdate(false);
   };
 

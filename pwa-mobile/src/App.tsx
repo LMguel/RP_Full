@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
 import { useFullscreen } from './hooks/useFullscreen';
 import KioskErrorBoundary from './components/KioskErrorBoundary';
@@ -53,23 +53,34 @@ function RedirectIfSigned({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Redireciona empresa para /kiosk se a sessão foi restaurada após reload com kiosk ativo.
- * Garante que uma atualização do PWA não tire o tablet do modo kiosk.
+ * Redireciona empresa para /kiosk sempre que o flag @kiosk:active estiver ativo no localStorage.
+ * Lê o localStorage diretamente (não depende do estado de contexto) para reagir também a
+ * navegações que ocorrem após o mount inicial — ex.: erros de JS que causam navigate('/empresa').
+ * Aplicado a TODAS as rotas de empresa via EmpresaLayout (layout route).
  */
 function KioskAutoReturn({ children }: { children: React.ReactNode }) {
-  const { signed, userType, loading, kioskShouldRestore } = useAuth();
+  const { signed, userType, loading } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
-    // Se o usuário clicou em "Voltar" intencionalmente, não retorna ao kiosk
-    if ((location.state as any)?.fromKioskExit) return;
-    if (!loading && signed && userType === 'empresa' && kioskShouldRestore) {
+    if (loading || !signed || userType !== 'empresa') return;
+    if (localStorage.getItem('@kiosk:active') === 'true') {
       navigate('/kiosk', { replace: true });
     }
-  }, [loading, signed, userType, kioskShouldRestore, navigate, location]);
+  }, [loading, signed, userType, navigate]);
 
   return <>{children}</>;
+}
+
+/** Layout route que injeta o KioskAutoReturn em todas as sub-rotas da empresa. */
+function EmpresaLayout() {
+  return (
+    <RequireAuth requiredType="empresa">
+      <KioskAutoReturn>
+        <Outlet />
+      </KioskAutoReturn>
+    </RequireAuth>
+  );
 }
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -90,19 +101,15 @@ function AppRoutes() {
         <Route path="/funcionario/espelho" element={<RequireAuth requiredType="funcionario"><EspelhoPontoPage /></RequireAuth>} />
         <Route path="/funcionario/configuracoes" element={<RequireAuth requiredType="funcionario"><FuncionarioConfigPage /></RequireAuth>} />
 
-        {/* Empresa portal — KioskAutoReturn só aplica ao dashboard */}
-        <Route path="/empresa" element={
-          <RequireAuth requiredType="empresa">
-            <KioskAutoReturn>
-              <EmpresaDashboardPage />
-            </KioskAutoReturn>
-          </RequireAuth>
-        } />
-        <Route path="/empresa/funcionarios" element={<RequireAuth requiredType="empresa"><FuncionariosPage /></RequireAuth>} />
-        <Route path="/empresa/funcionarios/novo" element={<RequireAuth requiredType="empresa"><FuncionarioFormPage /></RequireAuth>} />
-        <Route path="/empresa/funcionarios/:id" element={<RequireAuth requiredType="empresa"><FuncionarioFormPage /></RequireAuth>} />
-        <Route path="/empresa/registros" element={<RequireAuth requiredType="empresa"><RegistrosEmpresaPage /></RequireAuth>} />
-        <Route path="/empresa/configuracoes" element={<RequireAuth requiredType="empresa"><ConfiguracoesEmpresaPage /></RequireAuth>} />
+        {/* Empresa portal — KioskAutoReturn em todas as rotas via layout route */}
+        <Route element={<EmpresaLayout />}>
+          <Route path="/empresa" element={<EmpresaDashboardPage />} />
+          <Route path="/empresa/funcionarios" element={<FuncionariosPage />} />
+          <Route path="/empresa/funcionarios/novo" element={<FuncionarioFormPage />} />
+          <Route path="/empresa/funcionarios/:id" element={<FuncionarioFormPage />} />
+          <Route path="/empresa/registros" element={<RegistrosEmpresaPage />} />
+          <Route path="/empresa/configuracoes" element={<ConfiguracoesEmpresaPage />} />
+        </Route>
 
         {/* Kiosk — envolto em ErrorBoundary para recovery sem stacktrace */}
         <Route path="/kiosk" element={

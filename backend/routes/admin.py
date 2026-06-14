@@ -28,6 +28,7 @@ dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_DEFAULT_REGION'
 table_user_company = dynamodb.Table(os.getenv('DYNAMODB_TABLE_USERS', 'UserCompany'))
 table_employees = dynamodb.Table(os.getenv('DYNAMODB_TABLE_EMPLOYEES', 'Employees'))
 table_time_records = dynamodb.Table(os.getenv('DYNAMODB_TABLE_RECORDS', 'TimeRecords'))
+table_config = dynamodb.Table(os.getenv('DYNAMODB_TABLE_CONFIG', 'ConfigCompany'))
 
 # ─── Admin authentication decorator ──────────────────────────────────────────
 
@@ -205,6 +206,16 @@ def get_companies():
         except Exception:
             records_per_company = defaultdict(int)
 
+        # Deduplicate: UserCompany tem uma linha por usuário; manter apenas o primeiro por company_id
+        seen_ids: set = set()
+        unique_companies = []
+        for c in companies:
+            cid = c.get('company_id', '')
+            if cid and cid not in seen_ids:
+                seen_ids.add(cid)
+                unique_companies.append(c)
+        companies = unique_companies
+
         # Enrich companies with employee and record counts
         enriched_companies = []
         for company in companies:
@@ -380,6 +391,12 @@ def get_company_details(company_id: str):
         # Get the first item (company data should be consistent across all users)
         company = items[0]
 
+        cfg = {}
+        try:
+            cfg = table_config.get_item(Key={'company_id': company_id}).get('Item', {})
+        except Exception:
+            pass
+
         return jsonify({
             'company': {
                 'companyId': company.get('company_id', ''),
@@ -388,10 +405,12 @@ def get_company_details(company_id: str):
                 'status': company.get('status', 'active'),
                 'dateCreated': company.get('data_criacao', ''),
                 'userId': company.get('user_id', ''),
-                'activeEmployees': 0,  # Will be calculated separately if needed
+                'activeEmployees': 0,
                 'expectedEmployees': company.get('numero_funcionarios', 0),
                 'payments': company.get('payments', {}),
-                'senha': company.get('senha', '')  # Return original password
+                'senha': company.get('senha', ''),
+                'rh_enabled': bool(cfg.get('rh_enabled', False)),
+                'plano': cfg.get('plano', ''),
             }
         }), 200
 
@@ -754,6 +773,62 @@ def resume_company(company_id: str):
     except Exception as e:
         print(f"Error in resume_company: {e}")
         return jsonify({'error': 'Erro interno do servidor'}), 500
+
+
+@admin_routes.route('/api/admin/companies/<company_id>', methods=['PATCH'])
+@admin_required
+def update_company(company_id: str):
+    """Update company metadata: empresa_nome, status, plano, rh_enabled."""
+    data = request.get_json() or {}
+    try:
+        query_response = table_user_company.query(
+            KeyConditionExpression='company_id = :cid',
+            ExpressionAttributeValues={':cid': company_id},
+            Limit=1,
+        )
+        items = query_response.get('Items', [])
+        if not items:
+            return jsonify({'error': 'Empresa não encontrada'}), 404
+        user_id = items[0].get('user_id')
+
+        uc_parts, uc_vals, uc_names = [], {}, {}
+        if 'empresa_nome' in data:
+            uc_parts.append('#nm = :nm')
+            uc_vals[':nm'] = data['empresa_nome']
+            uc_names['#nm'] = 'empresa_nome'
+        if 'status' in data and data['status'] in ('active', 'inactive', 'suspended'):
+            uc_parts.append('#st = :st')
+            uc_vals[':st'] = data['status']
+            uc_names['#st'] = 'status'
+        if uc_parts:
+            kw = {
+                'Key': {'company_id': company_id, 'user_id': user_id},
+                'UpdateExpression': 'SET ' + ', '.join(uc_parts),
+                'ExpressionAttributeValues': uc_vals,
+            }
+            if uc_names:
+                kw['ExpressionAttributeNames'] = uc_names
+            table_user_company.update_item(**kw)
+
+        cfg_parts, cfg_vals, cfg_names = [], {}, {}
+        if 'rh_enabled' in data:
+            cfg_parts.append('rh_enabled = :rh')
+            cfg_vals[':rh'] = bool(data['rh_enabled'])
+        if 'plano' in data:
+            cfg_parts.append('plano = :pl')
+            cfg_vals[':pl'] = str(data['plano'])
+        if cfg_parts:
+            table_config.update_item(
+                Key={'company_id': company_id},
+                UpdateExpression='SET ' + ', '.join(cfg_parts),
+                ExpressionAttributeValues=cfg_vals,
+            )
+
+        return jsonify({'success': True}), 200
+    except ClientError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @admin_routes.route('/api/admin/companies/<company_id>', methods=['DELETE'])

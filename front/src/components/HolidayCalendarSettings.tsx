@@ -385,14 +385,13 @@ const HolidayCalendarSettings: React.FC = () => {
       })),
     };
     try {
-      await apiService.post('/api/feriados/salvar', payload);
+      const resp = await apiService.post('/api/feriados/salvar', payload);
+      const saved = resp?.saved ?? holidays.length;
       setHasChanges(false);
-      toast.success('Calendário salvo com sucesso!');
-    } catch {
-      // Salvar localmente como fallback
-      localStorage.setItem(`feriados-${year}-${uf}`, JSON.stringify(holidays));
-      setHasChanges(false);
-      toast.success('Calendário salvo localmente');
+      toast.success(`Calendário salvo na empresa (${saved} feriados). Já reflete no espelho dos funcionários.`);
+    } catch (err: any) {
+      // NÃO mascarar como sucesso — o gestor precisa saber que não persistiu no servidor
+      toast.error(err?.response?.data?.error || 'Erro ao salvar calendário no servidor. Tente novamente.');
     } finally {
       setSaving(false);
     }
@@ -441,16 +440,18 @@ const HolidayCalendarSettings: React.FC = () => {
             </Typography>
           </Box>
           {loadingHolidays && !expanded && <CircularProgress size={16} sx={{ color:'rgba(255,255,255,0.4)' }} />}
-          {hasChanges && expanded && (
+          {/* Botão sempre visível quando há feriados carregados — permite persistir
+              o calendário na empresa mesmo sem edições (necessário para refletir no espelho). */}
+          {expanded && holidays.length > 0 && (
             <Button
               variant="contained"
               size="small"
               startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
               onClick={e => { e.stopPropagation(); saveAll(); }}
-              disabled={saving}
+              disabled={saving || loadingHolidays}
               sx={{ background:'linear-gradient(135deg,#3b82f6,#2563eb)', '&:hover':{background:'linear-gradient(135deg,#2563eb,#1d4ed8)'} }}
             >
-              {saving ? 'Salvando...' : 'Salvar Calendário'}
+              {saving ? 'Salvando...' : hasChanges ? 'Salvar Alterações' : 'Salvar na Empresa'}
             </Button>
           )}
           <IconButton size="small" sx={{ color:'rgba(255,255,255,0.5)', pointerEvents:'none' }}>

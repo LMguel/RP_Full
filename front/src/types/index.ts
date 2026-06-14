@@ -4,7 +4,7 @@ export type Permission =
   | 'dashboard' | 'funcionarios' | 'registros' | 'correcoes'
   | 'rh_folha' | 'configuracoes' | 'exportacoes' | 'ajustes'
   | 'excluir' | 'criar_usuario' | 'editar_usuario'
-  | 'fechar_competencia' | 'reconhecimento' | 'admin_aws';
+  | 'fechar_competencia' | 'reconhecimento';
 
 export interface PermissionOverride {
   add: Permission[];
@@ -41,6 +41,8 @@ export interface AuditLog {
   after?: Record<string, unknown>;
   ip?: string;
   device?: string;
+  motivo?: string;
+  justificativa?: string;
   created_at: string;
 }
 

@@ -1,31 +1,24 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiService } from '../services/api';
-import { 
-  Users, 
-  Clock, 
-  TrendingUp, 
-  TrendingDown, 
-  AlertTriangle,
-  Activity
-} from 'lucide-react';
-import { 
-  Box, 
-  Card, 
-  CardContent, 
-  Typography, 
-  Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Avatar,
-  Chip,
-  CircularProgress
+import {
+  Box, Card, CardContent, Typography, Alert,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Avatar, Chip, CircularProgress, Tooltip, IconButton, Divider, LinearProgress,
 } from '@mui/material';
+import {
+  Refresh as RefreshIcon,
+  CheckCircle as CheckIcon,
+  Cancel as AbsentIcon,
+  Warning as WarningIcon,
+  AccessTime as ClockIcon,
+  BuildCircle as BuildCircleIcon,
+} from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
+import PageLayout from '../sections/PageLayout';
+import { useCorrecoesCtx } from '../contexts/CorrecoesContext';
+import PendenciasAlertModal from '../components/PendenciasAlertModal';
+import { getDailySummaries } from '../services/dailySummaryService';
 
 interface PresentEmployee {
   name: string;
@@ -38,361 +31,152 @@ interface PresentEmployee {
 
 interface RecentRecord {
   employeeName: string;
+  employeeId?: string;
   recordType: string;
   time: string;
   statusKey: string;
-  statusLabel: string;
   method: string;
-  // Campos de status detalhado
   atraso_minutos?: number;
   horas_extras_minutos?: number;
-  entrada_antecipada_minutos?: number;
-  saida_antecipada_minutos?: number;
 }
 
-// Interface para os dados do dashboard
+interface TopEmployee {
+  name: string;
+  total_hours: number;
+  worked_hours: number;
+  extra_hours: number;
+  employee_id: string;
+}
+
 interface DashboardData {
   presentEmployees: number;
   totalEmployees: number;
   hoursMonth: number;
-  balanceMonth: number;
   alerts: any[];
   recentRecords: RecentRecord[];
   employeesPresent: PresentEmployee[];
+  topEmployee: TopEmployee | null;
 }
 
 const normalizeStatusKey = (status: any): string => {
-  if (!status && status !== 0) {
-    return 'normal';
-  }
-
-  const value = String(status).trim().toLowerCase();
-  if (!value) {
-    return 'normal';
-  }
-
-  const ascii = value
-    .normalize('NFD')
-    .replace(/[^a-z0-9]/gi, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
-
-  if (!ascii) {
-    return 'normal';
-  }
-
-  if (['entrada_antecipada', 'entradaantecipada', 'entrada_adiantada', 'entradaadiantada', 'adiantado'].includes(ascii)) {
-    return 'entrada_antecipada';
-  }
-
-  if (['saida_antecipada', 'saidaantecipada', 'saida_adiantada', 'saidaadiantada'].includes(ascii)) {
-    return 'saida_antecipada';
-  }
-
-  return ascii;
+  if (!status && status !== 0) return 'normal';
+  return String(status).trim().toLowerCase()
+    .normalize('NFD').replace(/[^a-z0-9]/gi, '_')
+    .replace(/_+/g, '_').replace(/^_|_$/g, '') || 'normal';
 };
 
-const STATUS_LABEL_MAP: Record<string, string> = {
-  entrada_antecipada: 'Entrada antecipada',
-  normal: 'Pontual',
-  saida_antecipada: 'Saída antecipada'
+const formatTime = (value: string): string => {
+  if (!value) return '--:--';
+  const t = value.trim();
+  if (t.includes('T')) {
+    const p = new Date(t);
+    if (!Number.isNaN(p.getTime())) return p.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+  return t.slice(0, 5);
 };
 
-const getStatusLabelFromKey = (statusKey: string): string => {
-  const key = statusKey || 'normal';
-  return STATUS_LABEL_MAP[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const fmtHBalance = (h: number): string => {
+  const sign = h >= 0 ? '+' : '-';
+  const abs = Math.abs(h);
+  const hh = Math.floor(abs);
+  const mm = Math.round((abs - hh) * 60);
+  if (hh === 0) return `${sign}${mm}min`;
+  return `${sign}${hh}h${mm > 0 ? `${mm}m` : ''}`;
 };
 
-const getStatusChipStyles = (statusKey: string) => {
-  switch (statusKey) {
-    case 'entrada_antecipada':
-      return {
-        bgcolor: '#e3f2fd',
-        color: '#1565c0',
-        border: '1px solid #90caf9'
-      };
-    case 'saida_antecipada':
-      return {
-        bgcolor: '#fff3e0',
-        color: '#ef6c00',
-        border: '1px solid #ffe0b2'
-      };
-    case 'presente':
-      return {
-        bgcolor: '#e8f5e9',
-        color: '#2e7d32',
-        border: '1px solid #c8e6c9'
-      };
-    case 'saiu':
-      return {
-        bgcolor: '#fce4ec',
-        color: '#c2185b',
-        border: '1px solid #f8bbd9'
-      };
-    case 'entrada':
-      return {
-        bgcolor: '#e3f2fd',
-        color: '#1976d2',
-        border: '1px solid #90caf9'
-      };
-    default:
-      return {
-        bgcolor: '#e8f5e9',
-        color: '#2e7d32',
-        border: '1px solid #c8e6c9'
-      };
-  }
-};
+const fadeUp = { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.32 } };
 
-// Função para obter status detalhado igual ao RecordsPageDetails
-const getDetailedStatus = (record: RecentRecord): Array<{ text: string; color: string }> => {
-  const statuses: Array<{ text: string; color: string }> = [];
+const CORRECTIONS_CACHE_KEY = '@rp:corrections_dash';
+const CORRECTIONS_TTL = 5 * 60 * 1000;
 
-  // Entrada antecipada
-  if (record.entrada_antecipada_minutos && record.entrada_antecipada_minutos > 0) {
-    statuses.push({
-      text: `Entrada ${record.entrada_antecipada_minutos} min antes`,
-      color: '#93c5fd' // azul claro
-    });
-  }
+function loadCorrectionsCache(): any[] | null {
+  try {
+    const raw = sessionStorage.getItem(CORRECTIONS_CACHE_KEY);
+    if (!raw) return null;
+    const { ts, list } = JSON.parse(raw);
+    if (Date.now() - ts > CORRECTIONS_TTL) return null;
+    return list;
+  } catch { return null; }
+}
 
-  // Hora extra
-  if (record.horas_extras_minutos && record.horas_extras_minutos > 0) {
-    statuses.push({
-      text: `+${record.horas_extras_minutos} min extra`,
-      color: '#10b981' // verde
-    });
-  }
-
-  // Saída antecipada
-  if (record.saida_antecipada_minutos && record.saida_antecipada_minutos > 0) {
-    statuses.push({
-      text: `Saiu ${record.saida_antecipada_minutos} min antes`,
-      color: '#f59e0b' // laranja
-    });
-  }
-
-  // Se não tem nenhum status especial
-  if (statuses.length === 0) {
-    return [{
-      text: 'Pontual',
-      color: '#10b981' // verde
-    }];
-  }
-
-  return statuses;
-};
-
-const formatRecordTime = (value: string): string => {
-  if (!value) {
-    return 'N/A';
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return 'N/A';
-  }
-
-  if (trimmed.includes('T')) {
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toLocaleTimeString('pt-BR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-    }
-  }
-
-  return trimmed;
-};
+function saveCorrectionsCache(list: any[]) {
+  try {
+    sessionStorage.setItem(CORRECTIONS_CACHE_KEY, JSON.stringify({ ts: Date.now(), list }));
+  } catch {}
+}
 
 const DashboardPage = () => {
-  // Estados
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isLoadingRef = useRef(false);
-  
-  // Refs para evitar dependências no useEffect
-  const loadDataRef = useRef<(() => Promise<void>) | null>(null);
+  const navigate = useNavigate();
+  const { totalPendencias, resumo: resumoCorreções, setCorrecoesData, modalDismissed, setModalDismissed } = useCorrecoesCtx();
+  const correctionsChecked = useRef(false);
 
-  // Função para fazer login automático se não estiver logado
-  const ensureLoggedIn = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      try {
-        // Tentar diferentes credenciais de teste
-        const credentialsToTry = [
-          { usuario_id: 'admin', senha: 'admin123' },
-          { usuario_id: 'teste', senha: 'teste123' },
-          { usuario_id: 'aaa', senha: 'aaaaaa' },
-          { usuario_id: 'user', senha: 'password' }
-        ];
+  const ensureLoggedIn = useCallback(() => !!localStorage.getItem('token'), []);
 
-        for (const credentials of credentialsToTry) {
-          try {
-            const loginData = await apiService.login(credentials);
-            return true;
-          } catch (loginError) {
-            // Login silencioso
-          }
-        }
-
-        return false;
-      } catch (error) {
-        return false;
-      }
-    } else {
-      return true;
-    }
-  }, []);
-
-  // Função para carregar dados do dashboard
   const loadDashboardData = useCallback(async () => {
-    // Evitar múltiplas chamadas simultâneas
-    if (isLoadingRef.current) {
-      return;
-    }
-
+    if (isLoadingRef.current) return;
     try {
-    setLoading(true);
-    isLoadingRef.current = true;
-    setError(null);
+      setLoading(true);
+      isLoadingRef.current = true;
+      setError(null);
+      if (!ensureLoggedIn()) throw new Error('Sessão expirada. Por favor, faça login novamente.');
 
-      // Garantir que estamos logados
-      const isLoggedIn = await ensureLoggedIn();
-      if (!isLoggedIn) {
-        throw new Error('Falha na autenticação. Não é possível acessar os dados sem login válido.');
-      }
+      // 2 chamadas em vez de 7: snapshot consolida tudo que o dashboard precisa
+      const [empResult, snapResult] = await Promise.allSettled([
+        apiService.get('/api/funcionarios'),
+        apiService.get('/api/dashboard/snapshot'),
+      ]);
 
-      // Lista das APIs essenciais que funcionam
-      const apiCalls = [
-        { name: 'all-employees', url: '/api/funcionarios' }, // Só usar funcionários para dados básicos
-        { name: 'hours-month', url: '/api/dashboard/hours-month' },
-        { name: 'balance-month', url: '/api/dashboard/balance-month' },
-        { name: 'recent-records', url: '/api/records/last-five' },
-        { name: 'present-employees', url: '/api/dashboard/present-employees' },
-        { name: 'employees-present', url: '/api/employees/present' },
-        { name: 'alerts-today', url: '/api/alerts/today' },
-        // Grafico de horas da semana removido
-      ];
-
-      try {
-        // Carregar dados essenciais sem timeout artificial para evitar vazios intermitentes
-        const results = await Promise.allSettled(
-          apiCalls.map((api) => apiService.get(api.url))
-        );
-
-      // Função auxiliar para extrair dados seguros - completamente silenciosa
-      const getSafeData = (result: any, apiName: string) => {
-        // Se a Promise foi resolvida
-        if (result.status === 'fulfilled' && result.value) {
-          // Verificar se é um erro simulado (nosso catch)
-          if (result.value.status >= 400 || result.value.data === null) {
-            return null;
-          }
-          
-          // Caso 1: Resposta do axios com .data
-          if (result.value.data !== undefined) {
-            return result.value.data;
-          }
-          
-          // Caso 2: Resposta direta
-          return result.value;
-        }
-        
-        // Qualquer outro caso - retornar null silenciosamente
-        return null;
+      const safe = (r: any) => r.status === 'fulfilled' && r.value ? (r.value.data ?? r.value) : null;
+      const safeArr = (v: any): any[] => {
+        if (Array.isArray(v)) return v;
+        if (v?.items && Array.isArray(v.items)) return v.items;
+        if (v?.data && Array.isArray(v.data)) return v.data;
+        return [];
       };
 
-      // Extrair dados essenciais
-      const allEmployeesData = getSafeData(results[0], 'all-employees') || { funcionarios: [] };
-      const hoursMonthData = getSafeData(results[1], 'hours-month') || { total_hours: 0 };
-      const balanceMonthData = getSafeData(results[2], 'balance-month') || { balance: 0 };
-      const recentRecordsData = getSafeData(results[3], 'recent-records') || { records: [] };
-      const presentEmployeesData = getSafeData(results[4], 'present-employees') || {};
-      const employeesPresentList = getSafeData(results[5], 'employees-present') || { employees: [] };
-      const alertsData = getSafeData(results[6], 'alerts-today') || { alerts: [] };
+      const allEmp  = safe(empResult)  || {};
+      const snap    = safe(snapResult) || {};
 
-      // Função auxiliar para extrair valores seguros
-      const getSafeValue = (data: any, key: string, defaultValue: any = 0) => {
-        if (data && typeof data === 'object') {
-          return data[key] ?? defaultValue;
-        }
-        return defaultValue;
-      };
+      const empList     = safeArr(allEmp.funcionarios || allEmp);
+      const presentData = snap.present || {};
+      const lastFive    = safeArr(snap.lastFive);
+      const empPresent  = safeArr(snap.employeesPresent);
 
-      const getSafeArray = (data: any, defaultValue: any[] = []) => {
-        if (Array.isArray(data)) return data;
-        if (data && Array.isArray(data.items)) return data.items;
-        if (data && Array.isArray(data.data)) return data.data;
-        return defaultValue;
-      };
+      const recentRecords: RecentRecord[] = lastFive.map((r: any) => ({
+        employeeName: r.nome || r.employee_name || 'N/A',
+        employeeId: r.funcionario_id || r.employee_id,
+        recordType: r.tipo || r.type || 'entrada',
+        time: r.hora || r.timestamp || '',
+        statusKey: normalizeStatusKey(r.status_key ?? r.status),
+        method: r.metodo || r.method || 'manual',
+        atraso_minutos: r.atraso_minutos || 0,
+        horas_extras_minutos: r.horas_extras_minutos || 0,
+      }));
 
-      // Usar dados reais dos funcionários presentes e registros
-      const funcionariosList = getSafeArray(allEmployeesData.funcionarios || allEmployeesData, []);
-      const totalEmployees = getSafeValue(presentEmployeesData, 'totalEmployees', funcionariosList.length);
-      const presentEmployees = getSafeValue(presentEmployeesData, 'presentEmployeesCount', 0);
-      
-      // Formatar registros recentes para o formato esperado
-      const formattedRecentRecords: RecentRecord[] = getSafeArray(recentRecordsData.records, []).map((record: any) => {
-        const statusKey = normalizeStatusKey(record.status_key ?? record.status);
-        const timeValue = record.hora || record.timestamp || '';
+      const employeesPresent: PresentEmployee[] = empPresent.map((e: any) => ({
+        name: e.nome || 'N/A',
+        statusKey: normalizeStatusKey(e.status_key ?? e.entry_status ?? e.status),
+        statusLabel: e.status_label || e.entry_status_label || e.status_key || 'Presente',
+        photoUrl: e.foto || '',
+        entryTime: e.hora_entrada || e.entry_time || '',
+        method: e.metodo || e.method || 'manual',
+      }));
 
-        return {
-          employeeName: record.nome || record.employee_name || 'N/A',
-          recordType: record.type || record.tipo || 'entrada',  // Compatibilidade type/tipo
-          time: typeof timeValue === 'string' ? timeValue : String(timeValue ?? ''),
-          statusKey,
-          statusLabel: record.status_label || getStatusLabelFromKey(statusKey),
-          method: record.metodo || record.method || 'manual',
-          // Campos de status detalhado
-          atraso_minutos: record.atraso_minutos || 0,
-          horas_extras_minutos: record.horas_extras_minutos || 0,
-          entrada_antecipada_minutos: record.entrada_antecipada_minutos || 0,
-          saida_antecipada_minutos: record.saida_antecipada_minutos || 0,
-        };
+      setData({
+        presentEmployees: (presentData as any).presentEmployeesCount ?? empPresent.length,
+        totalEmployees: (presentData as any).totalEmployees ?? empList.length,
+        hoursMonth: snap.hoursMonth ?? 0,
+        alerts: safeArr(snap.alerts),
+        recentRecords,
+        employeesPresent,
+        topEmployee: snap.topEmployee || null,
       });
-      
-      // Formatar funcionários presentes
-      const formattedEmployeesPresent: PresentEmployee[] = getSafeArray(employeesPresentList.employees, []).map((emp: any) => {
-        const statusKey = normalizeStatusKey(emp.status_key ?? emp.entry_status ?? emp.status);
-        return {
-          name: emp.nome || 'N/A',
-          statusKey,
-          statusLabel: emp.status_label || emp.entry_status_label || getStatusLabelFromKey(statusKey),
-          photoUrl: emp.foto || '',
-          entryTime: emp.hora_entrada || emp.entry_time || 'N/A',
-          method: emp.metodo || emp.method || 'manual'
-        };
-      });
-
-      const dashboardData: DashboardData = {
-        presentEmployees: presentEmployees,
-        totalEmployees: totalEmployees,
-        hoursMonth: getSafeValue(hoursMonthData, 'totalWorkedHoursMonth', 0),
-        balanceMonth: getSafeValue(balanceMonthData, 'totalBalanceMonth', 0),
-        alerts: getSafeArray(alertsData.alerts || alertsData, []),
-        recentRecords: formattedRecentRecords,
-        employeesPresent: formattedEmployeesPresent
-      };
-      
-      // Debug: verificar se os dados estão chegando
-      console.log('Dashboard Data:', {
-        recentRecords: formattedRecentRecords.length,
-        employeesPresent: formattedEmployeesPresent.length,
-        alerts: getSafeArray(alertsData.alerts || alertsData, []).length
-      });
-
-        setData(dashboardData);
-
-      } catch (innerError) {
-        throw innerError;
-      }
-
-    } catch (error) {
-      setError(`Erro ao carregar dados: ${error instanceof Error ? error.message : 'Erro desconhecido'}. Verifique a conexão com o banco de dados.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
       setData(null);
     } finally {
       setLoading(false);
@@ -400,516 +184,316 @@ const DashboardPage = () => {
     }
   }, [ensureLoggedIn]);
 
-  // Atualizar ref sempre que a função muda
+  useEffect(() => { loadDashboardData(); }, [loadDashboardData]);
+
+  // Busca pendências em background (uma vez por sessão, com cache de 5 min)
   useEffect(() => {
-    loadDataRef.current = loadDashboardData;
-  }, [loadDashboardData]);
+    if (correctionsChecked.current) return;
+    correctionsChecked.current = true;
 
-  // Efeito para carregar dados iniciais
-  useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+    const STATUS_PROBLEMA = new Set(['INCOMPLETO', 'FALTA', 'ATRASO', 'MISSING_EXIT', 'INCOMPLETE', 'ABSENT', 'LATE']);
+    const normSt = (s: any) => String((s as any).raw?.status ?? s.status ?? '').toUpperCase().replace(/-/g, '_');
 
-  // Atualização automática no foco desabilitada temporariamente
-  // para evitar múltiplas requisições que causam erro 500
-  // useEffect(() => {
-  //   let debounceTimer: number | null = null;
-  //   let lastFocusTime = 0;
-    
-  //   const debouncedLoadData = () => {
-  //     const now = Date.now();
-  //     // Só executa se passou mais de 5 segundos desde a última execução
-  //     if (now - lastFocusTime < 5000) {
-  //       return;
-  //     }
-      
-  //     if (debounceTimer) {
-  //       clearTimeout(debounceTimer);
-  //     }
-  //     debounceTimer = setTimeout(() => {
-  //       // Só carrega se não estiver já carregando e a função existe
-  //       if (loadDataRef.current && !isLoadingRef.current) {
-  //         lastFocusTime = Date.now();
-  //         loadDataRef.current();
-  //       }
-  //     }, 2000); // Debounce de 2 segundos
-  //   };
+    const applyProblemas = (problemas: any[]) => {
+      setCorrecoesData(problemas.length, {
+        total: problemas.length,
+        saida_nao_registrada:  problemas.filter(s => normSt(s) === 'MISSING_EXIT').length,
+        intervalo_incompleto:  problemas.filter(s => ['INCOMPLETO', 'INCOMPLETE'].includes(normSt(s))).length,
+        sem_registros:         problemas.filter(s => ['FALTA', 'ABSENT'].includes(normSt(s))).length,
+        registros_excedentes:  0,
+        quantidade_incorreta:  problemas.filter(s => ['ATRASO', 'LATE'].includes(normSt(s))).length,
+        proximos:              problemas.filter(s => (s as any).registros_proximos === true).length,
+      });
+    };
 
-  //   const handleFocus = () => {
-  //     debouncedLoadData();
-  //   };
-
-  //   const handleVisibilityChange = () => {
-  //     if (!document.hidden) {
-  //       debouncedLoadData();
-  //     }
-  //   };
-
-  //   // Adicionar listeners para diferentes eventos de foco
-  //   window.addEventListener('focus', handleFocus);
-  //   window.addEventListener('visibilitychange', handleVisibilityChange);
-
-  //   // Cleanup
-  //   return () => {
-  //     if (debounceTimer) {
-  //       clearTimeout(debounceTimer);
-  //     }
-  //     window.removeEventListener('focus', handleFocus);
-  //     window.removeEventListener('visibilitychange', handleVisibilityChange);
-  //   };
-  // }, []); // Remover dependências para evitar loop
-
-  // Função para obter cor baseada no valor
-  const getStatusColor = (value: number, isPositive: boolean = true) => {
-    if (isPositive) {
-      return value > 0 ? '#4caf50' : '#f44336';
+    const cached = loadCorrectionsCache();
+    if (cached) {
+      applyProblemas(cached);
+      return;
     }
-    return value < 0 ? '#f44336' : '#4caf50';
-  };
 
-  // Componente de card de métrica
-  const MetricCard = ({ title, value, icon: Icon, color, subtitle, trend }: any) => (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <Card sx={{ 
-        height: '100%', 
-        bgcolor: 'rgba(255, 255, 255, 0.1)', 
-        border: '1px solid rgba(255, 255, 255, 0.2)',
-        borderRadius: '16px',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-        backdropFilter: 'blur(20px)',
-        transition: 'transform 0.2s, box-shadow 0.2s',
-        '&:hover': {
-          transform: 'translateY(-4px)',
-          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.3)',
-          bgcolor: 'rgba(255, 255, 255, 0.15)'
-        }
-      }}>
-        <CardContent sx={{ p: 3 }}>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-            <Box sx={{ 
-              p: 1.5, 
-              borderRadius: '12px', 
-              bgcolor: color + '15',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <Icon size={28} color={color} />
-            </Box>
-            {trend && (
-              <Chip 
-                icon={trend > 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                label={`${trend > 0 ? '+' : ''}${trend}%`}
-                size="small"
-                color={trend > 0 ? 'success' : 'error'}
-              />
-            )}
-          </Box>
-          <Typography variant="h3" component="h2" sx={{ color: 'white', fontWeight: 700, mb: 1, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-            {value}
-          </Typography>
-          <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600, mb: 0.5 }}>
-            {title}
-          </Typography>
-          {subtitle && (
-            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-              {subtitle}
-            </Typography>
-          )}
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const today = `${year}-${String(month).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const inicio = `${year}-${String(month).padStart(2, '0')}-01`;
+    const ontem  = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
 
-  if (loading) {
-    return (
-      <Box sx={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        flexDirection: 'column',
-        minHeight: 300,
-      }}>
-        <CircularProgress size={60} sx={{ color: 'white', mb: 2 }} />
-        <Typography variant="h6" sx={{ color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
-          Carregando dashboard...
-        </Typography>
-      </Box>
-    );
-  }
+    getDailySummaries({ start_date: inicio, end_date: ontem }, 1, 1000)
+      .then(res => {
+        const seen = new Set<string>();
+        const problemas = (res?.summaries ?? []).filter(s => {
+          const date = s.date || (s as any).data || '';
+          if (date >= today) return false;
+          const st = normSt(s);
+          const isProximos = (s as any).registros_proximos === true;
+          if (!STATUS_PROBLEMA.has(st) && !isProximos) return false;
+          const key = `${s.employee_id}|${date}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        saveCorrectionsCache(problemas);
+        applyProblemas(problemas);
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const todayStr = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   if (error) {
     return (
-      <Box sx={{
-        p: 3,
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center'
-      }}>
-        <Card sx={{
-          maxWidth: 500,
-          bgcolor: 'rgba(255, 255, 255, 0.1)',
-          borderRadius: '16px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.15)'
-        }}>
-          <CardContent sx={{ p: 3 }}>
-            <Alert 
-              severity="error" 
-              sx={{ 
-                borderRadius: '12px',
-                '& .MuiAlert-action': {
-                  alignItems: 'center'
-                }
-              }}
-              action={
-                <button 
-                  onClick={loadDashboardData}
-                  style={{
-                    background: '#1976d2',
-                    color: 'white',
-                    border: 'none',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 500
-                  }}
-                >
-                  Tentar novamente
-                </button>
-              }
-            >
-              {error}
-            </Alert>
-          </CardContent>
-        </Card>
+      <Box sx={{ p: 2 }}>
+        <Alert severity="error" sx={{ borderRadius: 2 }}
+          action={<IconButton size="small" onClick={loadDashboardData} sx={{ color: 'inherit' }}><RefreshIcon /></IconButton>}>
+          {error}
+        </Alert>
       </Box>
     );
   }
 
-  if (!data) {
-    return (
-      <Box sx={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: 300,
-      }}>
-        <Typography variant="h6" sx={{ color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
-          Nenhum dado disponível
-        </Typography>
-      </Box>
-    );
-  }
+  const absentes = data ? data.totalEmployees - data.presentEmployees : 0;
+  const presencePercent = data && data.totalEmployees > 0 ? Math.round((data.presentEmployees / data.totalEmployees) * 100) : 0;
+  const accentColor = presencePercent >= 80 ? '#10b981' : '#f59e0b';
+  const visibleAlerts = data ? data.alerts.filter((a: any) => a.type !== 'atraso') : [];
+  const showModal = totalPendencias > 0 && resumoCorreções !== null && !modalDismissed && !loading;
+
+  const topFirstName = data?.topEmployee?.name.split(' ')[0] ?? null;
+  const topTotal     = data?.topEmployee?.total_hours ?? 0;
+  const topExtra     = data?.topEmployee?.extra_hours ?? 0;
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Título */}
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
-          <Box>
-            <Typography variant="h4" component="h1" gutterBottom fontWeight="bold" sx={{ color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
-              Dashboard
-            </Typography>
-            <Typography variant="subtitle1" sx={{ color: 'rgba(255,255,255,0.9)' }}>
-              Visão geral em tempo real da empresa
-            </Typography>
+    <PageLayout>
+      {resumoCorreções && (
+        <PendenciasAlertModal open={showModal} resumo={resumoCorreções} onClose={() => setModalDismissed(true)} />
+      )}
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, height: { xs: 'auto', md: 'calc(100vh - 120px)' } }}>
+
+        {/* ── Header ── */}
+        <motion.div {...fadeUp} style={{ flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', mb: 0.35 }}>
+                {todayStr}
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800, color: 'white', lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+                Visão Geral
+              </Typography>
+            </Box>
+            <Tooltip title="Atualizar">
+              <IconButton onClick={loadDashboardData} size="small"
+                sx={{ color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '9px', p: 0.75, '&:hover': { color: 'white', borderColor: 'rgba(255,255,255,0.28)', bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <RefreshIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
           </Box>
-          <button
-            onClick={loadDashboardData}
-            disabled={loading}
-            style={{
-              background: loading ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.2)',
-              color: 'white',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.2s',
-              opacity: loading ? 0.7 : 1
-            }}
-          >
-            {loading ? (
-              <>
-                <CircularProgress size={16} sx={{ color: 'white' }} />
-                Atualizando...
-              </>
-            ) : (
-              <>
-                🔄 Atualizar
-              </>
-            )}
-          </button>
+        </motion.div>
+
+        {/* ── 4 metric cards ── */}
+        <Box sx={{ flexShrink: 0, display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
+          {[
+            { label: 'Presentes',     value: loading ? '—' : `${data!.presentEmployees}`, suffix: loading ? '' : `/${data!.totalEmployees}`, sub: loading ? 'carregando…' : `${presencePercent}% hoje`, icon: <CheckIcon  sx={{ fontSize: 16 }} />, color: accentColor,  clickable: false },
+            { label: 'Ausências',     value: loading ? '—' : String(absentes),            suffix: '',                                          sub: loading ? 'carregando…' : absentes === 0 ? 'Sem faltas' : 'sem registro', icon: <AbsentIcon sx={{ fontSize: 16 }} />, color: loading ? '#64748b' : absentes === 0 ? '#10b981' : '#ef4444', clickable: false },
+            { label: 'Horas / mês',   value: loading ? '—' : `${data!.hoursMonth}h`,      suffix: '',                                          sub: loading ? 'carregando…' : 'total trabalhado', icon: <ClockIcon  sx={{ fontSize: 16 }} />, color: '#3b82f6',    clickable: false },
+            {
+              label: 'Destaque do Mês',
+              value: loading ? '—' : topFirstName ? `${topTotal}h` : '—',
+              suffix: '',
+              sub: loading ? 'carregando…' : topFirstName ? `${topFirstName}${topExtra > 0 ? ` · +${topExtra}h extras` : ''}` : 'sem dados',
+              icon: <Typography component="span" sx={{ fontSize: 14, lineHeight: 1, display: 'flex' }}>👑</Typography>,
+              color: '#fbbf24',
+              clickable: !loading && !!topFirstName,
+              onClick: () => data?.topEmployee?.employee_id && navigate(`/records/employee/${data.topEmployee!.employee_id}/${data.topEmployee!.name}`),
+            },
+          ].map((card, i) => (
+            <motion.div key={card.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.26, delay: i * 0.05 }}>
+              <Card
+                sx={{ cursor: card.clickable ? 'pointer' : 'default', '&:hover': card.clickable ? { opacity: 0.88 } : {} }}
+                onClick={'onClick' in card ? card.onClick : undefined}
+              >
+                <CardContent sx={{ p: '12px !important' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+                    <Box sx={{ p: 0.5, borderRadius: 1.25, bgcolor: card.color + '1f', color: card.color, display: 'flex' }}>{card.icon}</Box>
+                    <Typography sx={{ fontSize: 9.5, fontWeight: 700, color: 'rgba(255,255,255,0.36)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{card.label}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.25, mb: 0.15 }}>
+                    <Typography sx={{ fontSize: 22, fontWeight: 800, color: 'white', lineHeight: 1 }}>{card.value}</Typography>
+                    {card.suffix && <Typography sx={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.3)' }}>{card.suffix}</Typography>}
+                  </Box>
+                  <Typography sx={{ fontSize: 10.5, color: card.color, opacity: 0.9 }}>{card.sub}</Typography>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
         </Box>
-      </motion.div>
 
-      {/* Horas do mês */}
-      <Box sx={{ mb: 4 }}>
-        <MetricCard
-          title="Horas do Mês"
-          value={`${data.hoursMonth}h`}
-          icon={Clock}
-          color="#2e7d32"
-          subtitle="Total de horas trabalhadas no mês"
-        />
-      </Box>
-
-      {/* Presença de hoje */}
-      {data.totalEmployees > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.05 }}
-        >
-          <Card sx={{
-            mb: 4,
-            bgcolor: 'rgba(255, 255, 255, 0.1)',
-            border: data.presentEmployees < data.totalEmployees
-              ? '1px solid rgba(239,68,68,0.35)'
-              : '1px solid rgba(16,185,129,0.35)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-            backdropFilter: 'blur(20px)'
-          }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                <Box display="flex" alignItems="center">
-                  <Box sx={{
-                    p: 1.5, borderRadius: '12px',
-                    bgcolor: data.presentEmployees < data.totalEmployees ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', mr: 2
-                  }}>
-                    <AlertTriangle size={24} color={data.presentEmployees < data.totalEmployees ? '#ef4444' : '#10b981'} />
-                  </Box>
-                  <Box>
-                    <Typography variant="h6" sx={{ color: 'white', fontWeight: 600 }}>
-                      Presença de Hoje
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-                      {new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })}
-                    </Typography>
-                  </Box>
+        {/* ── Banner de pendências (compacto) ── */}
+        {totalPendencias > 0 && (
+          <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: 0.18 }} style={{ flexShrink: 0 }}>
+            <Card
+              onClick={() => navigate('/correcoes')}
+              sx={{
+                cursor: 'pointer',
+                background: 'linear-gradient(90deg, rgba(245,158,11,0.1) 0%, rgba(245,158,11,0.03) 100%)',
+                border: '1px solid rgba(245,158,11,0.22)',
+                '&:hover': { border: '1px solid rgba(245,158,11,0.42)', background: 'linear-gradient(90deg, rgba(245,158,11,0.16) 0%, rgba(245,158,11,0.06) 100%)' },
+              }}
+            >
+              <CardContent sx={{ p: '9px 14px !important', display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Box sx={{ p: 0.55, borderRadius: 1.25, bgcolor: 'rgba(245,158,11,0.16)', color: '#fbbf24', display: 'flex', flexShrink: 0 }}>
+                  <BuildCircleIcon sx={{ fontSize: 16 }} />
                 </Box>
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="h4" sx={{
-                    color: data.presentEmployees < data.totalEmployees ? '#f87171' : '#34d399',
-                    fontWeight: 800, lineHeight: 1
-                  }}>
-                    {data.presentEmployees}/{data.totalEmployees}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                    {data.totalEmployees - data.presentEmployees > 0
-                      ? `${data.totalEmployees - data.presentEmployees} sem registro`
-                      : 'Todos registraram'}
-                  </Typography>
-                </Box>
-              </Box>
-
-              {/* Barra de progresso visual */}
-              <Box sx={{ height: 6, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.1)', mb: 2, overflow: 'hidden' }}>
-                <Box sx={{
-                  height: '100%',
-                  width: `${data.totalEmployees > 0 ? Math.round((data.presentEmployees / data.totalEmployees) * 100) : 0}%`,
-                  bgcolor: data.presentEmployees < data.totalEmployees ? '#ef4444' : '#10b981',
-                  borderRadius: 3, transition: 'width 0.5s ease'
-                }} />
-              </Box>
-
-              {/* Lista de quem está presente */}
-              {data.employeesPresent && data.employeesPresent.length > 0 && (
-                <Box>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', mb: 1 }}>
-                    Presentes ({data.employeesPresent.length})
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {data.employeesPresent.slice(0, 12).map((emp, i) => (
-                      <Chip
-                        key={i}
-                        avatar={
-                          <Avatar sx={{ width: 20, height: 20, bgcolor: '#1976d2', fontSize: 10 }}>
-                            {emp.name?.charAt(0) || 'F'}
-                          </Avatar>
-                        }
-                        label={`${emp.name?.split(' ')[0]} — ${emp.entryTime}`}
-                        size="small"
-                        sx={{
-                          bgcolor: 'rgba(16,185,129,0.12)',
-                          border: '1px solid rgba(16,185,129,0.3)',
-                          color: 'rgba(255,255,255,0.85)',
-                          fontSize: 11,
-                          height: 24,
-                        }}
-                      />
-                    ))}
-                    {data.employeesPresent.length > 12 && (
-                      <Chip
-                        label={`+${data.employeesPresent.length - 12} mais`}
-                        size="small"
-                        sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', fontSize: 11, height: 24 }}
-                      />
-                    )}
-                  </Box>
-                </Box>
-              )}
-
-              {/* Aviso se há ausentes */}
-              {data.totalEmployees - data.presentEmployees > 0 && (
-                <Box sx={{ mt: data.employeesPresent.length > 0 ? 2 : 0, p: 1.5, bgcolor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 1.5 }}>
-                  <Typography sx={{ color: '#fca5a5', fontSize: 13, fontWeight: 500 }}>
-                    ⚠ {data.totalEmployees - data.presentEmployees} funcionário(s) ainda não registraram ponto hoje.
-                    {' '}Verifique se estão de folga, férias ou atestado.
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* Alertas */}
-      {data.alerts && data.alerts.filter(a => a.type !== 'atraso').length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-        >
-          <Card sx={{ 
-            mb: 4, 
-            bgcolor: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-            backdropFilter: 'blur(20px)'
-          }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" mb={3}>
-                <Box sx={{ 
-                  p: 1.5, 
-                  borderRadius: '12px', 
-                  bgcolor: '#ff9800', 
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  mr: 2
-                }}>
-                  <AlertTriangle size={24} />
-                </Box>
-                <Typography variant="h6" sx={{ color: 'white', fontWeight: 600, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-                  Alertas do Dia
+                <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: '#fbbf24', flex: 1 }}>
+                  {totalPendencias} {totalPendencias === 1 ? 'pendência' : 'pendências'} de ponto encontradas
                 </Typography>
-              </Box>
-              {data.alerts.filter(a => a.type !== 'atraso').map((alert, index) => (
-                <Alert key={index} severity={alert.severity || 'info'} sx={{ mb: 1, borderRadius: '8px' }}>
-                  {alert.message}
-                </Alert>
-              ))}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {/* Registros Recentes - Largura completa */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-        >
-          <Card sx={{
-            bgcolor: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-            backdropFilter: 'blur(20px)'
-          }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box display="flex" alignItems="center" mb={3}>
-                <Box sx={{ 
-                  p: 1.5, 
-                  borderRadius: '12px', 
-                  bgcolor: '#9c27b0', 
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  mr: 2
-                }}>
-                  <Activity size={24} />
-                </Box>
-                <Typography variant="h6" sx={{ color: 'white', fontWeight: 600, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-                  Registros Recentes
+                <Typography sx={{ fontSize: 11, color: '#f59e0b', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  Ver Correções →
                 </Typography>
-              </Box>
-              <TableContainer sx={{ bgcolor: 'transparent' }}>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Funcionário</TableCell>
-                      <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Tipo</TableCell>
-                      <TableCell sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 600, border: 'none' }}>Horário</TableCell>
-                      {/* Status removido conforme solicitado */}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {data.recentRecords && data.recentRecords.length > 0 ? (
-                      data.recentRecords.slice(0, 5).map((record, index) => (
-                        <TableRow key={index} sx={{ '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.04)' } }}>
-                          <TableCell sx={{ border: 'none', py: 2 }}>
-                            <Box display="flex" alignItems="center">
-                              <Avatar sx={{ 
-                                width: 40, 
-                                height: 40, 
-                                mr: 2, 
-                                bgcolor: '#1976d2',
-                                fontSize: '16px'
-                              }}>
-                                {record.employeeName?.charAt(0) || 'F'}
-                              </Avatar>
-                              <Typography sx={{ color: 'white', fontWeight: 500 }}>
-                                {record.employeeName || 'Funcionário'}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell sx={{ border: 'none', color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
-                            {record.recordType === 'entrada' ? 'Entrada' : 'Saída'}
-                          </TableCell>
-                          <TableCell sx={{ border: 'none', color: 'rgba(255,255,255,0.7)' }}>
-                            {formatRecordTime(record.time)}
-                          </TableCell>
-                          {/* Status coluna removida */}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* ── Seção principal: tabela (esq) + presença/alertas (dir) ── */}
+        <Box sx={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 1.5 }}>
+
+          {/* Últimos registros */}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, delay: 0.2 }}
+            style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Card sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+              <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, p: '12px !important' }}>
+                <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+                  <Typography sx={{ fontWeight: 700, color: 'white', fontSize: 13 }}>Últimos Registros</Typography>
+                  <Chip label="Ver todos →" onClick={() => navigate('/records')} size="small"
+                    sx={{ bgcolor: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.2)', color: '#93c5fd', fontSize: 10.5, height: 20, cursor: 'pointer', '&:hover': { bgcolor: 'rgba(59,130,246,0.2)' } }} />
+                </Box>
+                <Divider sx={{ flexShrink: 0, mb: 0.5 }} />
+                {loading ? (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5 }}>
+                    <CircularProgress size={20} sx={{ color: 'rgba(255,255,255,0.25)' }} />
+                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Carregando registros…</Typography>
+                  </Box>
+                ) : !data || data.recentRecords.length === 0 ? (
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography sx={{ fontSize: 13, color: 'rgba(255,255,255,0.28)', fontStyle: 'italic' }}>Nenhum registro hoje</Typography>
+                  </Box>
+                ) : (
+                  <TableContainer sx={{ flex: 1, overflow: 'auto', bgcolor: 'transparent' }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          {['Funcionário', 'Tipo', 'Horário', 'Status'].map(h => (
+                            <TableCell key={h} sx={{ bgcolor: 'rgba(10,22,66,0.9)', py: 0.75, fontSize: 11.5 }}>{h}</TableCell>
+                          ))}
                         </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={4} sx={{ border: 'none', py: 4, textAlign: 'center' }}>
-                          <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontStyle: 'italic' }}>
-                            Nenhum registro encontrado hoje
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
+                      </TableHead>
+                      <TableBody>
+                        {data.recentRecords.map((rec, i) => {
+                          const isEntrada = rec.recordType === 'entrada';
+                          const hasDelay  = (rec.atraso_minutos || 0) > 0;
+                          const hasExtra  = (rec.horas_extras_minutos || 0) > 0;
+                          return (
+                            <TableRow key={i} hover sx={{ cursor: rec.employeeId ? 'pointer' : 'default' }}
+                              onClick={() => rec.employeeId && navigate(`/records/employee/${rec.employeeId}/${rec.employeeName}`)}>
+                              <TableCell sx={{ py: 0.6 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Avatar sx={{ width: 24, height: 24, background: 'linear-gradient(135deg, #1e3a8a, #2563eb)', fontSize: 9.5, fontWeight: 700, flexShrink: 0 }}>
+                                    {rec.employeeName.charAt(0)}
+                                  </Avatar>
+                                  <Typography sx={{ fontWeight: 500, fontSize: 12 }}>
+                                    {rec.employeeName.split(' ').slice(0, 2).join(' ')}
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                              <TableCell sx={{ py: 0.6 }}>
+                                <Chip label={isEntrada ? 'Entrada' : 'Saída'} size="small"
+                                  sx={{ bgcolor: isEntrada ? 'rgba(16,185,129,0.14)' : 'rgba(59,130,246,0.14)', color: isEntrada ? '#34d399' : '#93c5fd', fontSize: 10, height: 18, border: 'none' }} />
+                              </TableCell>
+                              <TableCell sx={{ fontVariantNumeric: 'tabular-nums', fontSize: 12, color: 'rgba(255,255,255,0.7)', py: 0.6 }}>
+                                {formatTime(rec.time)}
+                              </TableCell>
+                              <TableCell sx={{ py: 0.6 }}>
+                                {hasDelay
+                                  ? <Typography sx={{ fontSize: 11, color: '#f87171' }}>−{rec.atraso_minutos}min</Typography>
+                                  : hasExtra
+                                  ? <Typography sx={{ fontSize: 11, color: '#34d399' }}>+{rec.horas_extras_minutos}min</Typography>
+                                  : <Typography sx={{ fontSize: 11, color: '#34d399' }}>Pontual</Typography>}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Coluna direita: Presença + Alertas */}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, delay: 0.25 }}
+            style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+
+            {/* Presença hoje */}
+            <Card sx={{ flexShrink: 0 }}>
+              <CardContent sx={{ p: '12px !important' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography sx={{ fontWeight: 700, color: 'white', fontSize: 13 }}>Presença Hoje</Typography>
+                  <Chip label={loading ? '—' : `${presencePercent}%`} size="small"
+                    sx={{ bgcolor: accentColor + '1f', color: accentColor, fontWeight: 700, fontSize: 10.5, height: 20, borderRadius: '6px' }} />
+                </Box>
+                <LinearProgress variant="determinate" value={presencePercent}
+                  sx={{ height: 3, borderRadius: 99, mb: 1, bgcolor: 'rgba(255,255,255,0.08)', '& .MuiLinearProgress-bar': { bgcolor: accentColor } }} />
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Box sx={{ flex: 1, py: 0.6, px: 1, borderRadius: '8px', bgcolor: 'rgba(16,185,129,0.09)', border: '1px solid rgba(16,185,129,0.18)', textAlign: 'center' }}>
+                    <Typography sx={{ fontSize: 18, fontWeight: 800, color: '#34d399', lineHeight: 1 }}>{loading ? '—' : data!.presentEmployees}</Typography>
+                    <Typography sx={{ fontSize: 9.5, color: 'rgba(255,255,255,0.36)', mt: 0.2 }}>presentes</Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, py: 0.6, px: 1, borderRadius: '8px', bgcolor: absentes > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)', border: `1px solid ${absentes > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`, textAlign: 'center' }}>
+                    <Typography sx={{ fontSize: 18, fontWeight: 800, color: absentes > 0 ? '#f87171' : 'rgba(255,255,255,0.4)', lineHeight: 1 }}>{loading ? '—' : absentes}</Typography>
+                    <Typography sx={{ fontSize: 9.5, color: 'rgba(255,255,255,0.36)', mt: 0.2 }}>ausentes</Typography>
+                  </Box>
+                </Box>
+                {!loading && absentes > 0 && (
+                  <Box sx={{ mt: 1, p: '6px 10px', bgcolor: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <WarningIcon sx={{ fontSize: 11, color: '#f87171', flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: 10, color: '#fca5a5', lineHeight: 1.3 }}>Verifique atestados ou folgas.</Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Alertas */}
+            <Card sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <CardContent sx={{ p: '12px !important' }}>
+                <Typography sx={{ fontWeight: 700, color: 'white', fontSize: 13, mb: 0.75 }}>Alertas</Typography>
+                {loading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.25 }}>
+                    <CircularProgress size={12} sx={{ color: 'rgba(255,255,255,0.25)' }} />
+                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>Verificando…</Typography>
+                  </Box>
+                ) : visibleAlerts.length === 0 ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.25 }}>
+                    <CheckIcon sx={{ fontSize: 14, color: '#10b981' }} />
+                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.36)' }}>Nenhum alerta no momento</Typography>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+                    {visibleAlerts.map((alert: any, i: number) => (
+                      <Alert key={i} severity={alert.severity || 'info'}
+                        sx={{ borderRadius: '8px', py: 0.4, px: 1.25, '& .MuiAlert-message': { fontSize: 11 }, '& .MuiAlert-icon': { fontSize: 14 } }}>
+                        {alert.message}
+                      </Alert>
+                    ))}
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        </Box>
       </Box>
-    </Box>
+    </PageLayout>
   );
 };
 

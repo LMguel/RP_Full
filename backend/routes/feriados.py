@@ -83,7 +83,7 @@ def get_feriados():
                         merged[str(data)] = h  # chave mais recente sobrescreve
 
             feriados = sorted(merged.values(), key=lambda h: str(h.get('date') or h.get('data') or ''))
-            print(f"[FERIADOS] GET ano={ano} uf={uf!r} company={company_id} → {len(feriados)} feriados (chaves: {[k for k in item.keys() if k.startswith(prefixo)]})")
+            print(f"[FERIADOS] GET ano={ano} uf={uf!r} company={company_id} -> {len(feriados)} feriados (chaves: {[k for k in item.keys() if k.startswith(prefixo)]})")
             return jsonify(feriados), 200
         except Exception as e:
             print(f"[FERIADOS] Erro na leitura: {e}")
@@ -182,7 +182,7 @@ def salvar_feriados():
                 ExpressionAttributeNames=expr_names,
                 ExpressionAttributeValues=expr_values,
             )
-            print(f"[FERIADOS] SALVO company={company_id} campo={campo} uf={uf!r} → {len(feriados)} feriados")
+            print(f"[FERIADOS] SALVO company={company_id} campo={campo} uf={uf!r} -> {len(feriados)} feriados")
         except Exception as e:
             # NÃO silenciar: o gestor precisa saber se a gravação falhou
             print(f"[FERIADOS] ERRO ao salvar: {e}")

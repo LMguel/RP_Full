@@ -75,13 +75,8 @@ const getCurrentMonth = (): string => {
   return `${year}-${month.toString().padStart(2, '0')}`;
 };
 
-const getMonthFromDate = (dateString: string): string => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  return `${year}-${month.toString().padStart(2, '0')}`;
-};
+const getMonthFromDate = (dateString: string): string =>
+  dateString ? dateString.substring(0, 7) : '';
 
 const UnifiedRecordsFilter: React.FC<UnifiedRecordsFilterProps> = ({
   selectedEmployee,

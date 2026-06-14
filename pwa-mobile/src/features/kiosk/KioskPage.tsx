@@ -4,8 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import apiService from '../../services/api';
 import { useAuth } from '../auth/AuthContext';
 import { useFullscreen } from '../../hooks/useFullscreen';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { useKioskWatchdog } from '../../hooks/useKioskWatchdog';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { pingBackend } from '../../hooks/useBackendStatus';
+import { renewSession } from '../../hooks/useSessionTimeout';
 import { getSaoPauloTimeString } from '../../utils/time';
 import KioskClock from './components/KioskClock';
 import KioskOfflineMode from './components/KioskOfflineMode';
@@ -90,11 +93,28 @@ export default function KioskPage() {
   // Fullscreen persistente: re-entra automaticamente se o usuário sair
   useFullscreen({ persistent: true });
 
+  // Impede o display de dormir enquanto o kiosk estiver ativo
+  useWakeLock();
+
+  // Reload periódico (4h) para liberar memória e evitar travamentos de tela longa
+  useKioskWatchdog({ isProcessing });
+
   // Kiosk persistence flag — usado para auto-retorno após reload/update
   useEffect(() => {
     localStorage.setItem('@kiosk:active', 'true');
     // Não limpar no unmount: queremos que o flag sobreviva a reloads.
     // O flag é limpo apenas quando o usuário clicar em "Voltar" explicitamente.
+  }, []);
+
+  // Renova a sessão da empresa a cada 6h para evitar logout automático em tablets 24/7
+  useEffect(() => {
+    renewSession('empresa');
+    const id = setInterval(() => {
+      if (localStorage.getItem('@kiosk:active') === 'true') {
+        renewSession('empresa');
+      }
+    }, 6 * 60 * 60 * 1000);
+    return () => clearInterval(id);
   }, []);
 
   // Keep backendAvailableRef in sync with current state (stale-closure guard)
@@ -271,7 +291,13 @@ export default function KioskPage() {
         dateStr,
       );
 
+      if (res.too_soon) {
+        setError('Você já registrou em menos de 5 minutos');
+        setTimeout(() => { setError(''); handleCancelConfirmation(); }, 3500);
+        return;
+      }
       if (res.success) {
+        renewSession('empresa');
         if (capturedUrl) URL.revokeObjectURL(capturedUrl);
         setCapturedUrl(null);
         setConfirmData(null);

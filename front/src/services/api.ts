@@ -398,6 +398,15 @@ class ApiService {
     const response = await this.api.get(`/api/audit?${params.toString()}`);
     return response.data as { logs: import('../types').AuditLog[]; count: number };
   }
+
+  async getCompanyFeatures(): Promise<{ rh_enabled: boolean }> {
+    try {
+      const response = await this.api.get('/api/company/features');
+      return response.data;
+    } catch {
+      return { rh_enabled: false };
+    }
+  }
 }
 
 export const apiService = new ApiService();

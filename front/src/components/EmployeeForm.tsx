@@ -160,6 +160,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [intervaloPersonalizado, setIntervaloPersonalizado] = useState<boolean>(employee?.intervalo_personalizado || false);
   const [intervaloEmp, setIntervaloEmp] = useState<string>(employee?.intervalo_emp?.toString() || '');
+  // Intervalo padrão (minutos). 0 é válido. Default 60 para novos com horário fixo.
+  const [intervaloPadrao, setIntervaloPadrao] = useState<string>(
+    employee?.intervalo_padrao_minutos !== undefined && employee?.intervalo_padrao_minutos !== null
+      ? String(employee.intervalo_padrao_minutos)
+      : (employee ? '' : '60')
+  );
   const [tipoHorario, setTipoHorario] = useState<'fixo' | 'variavel'>(
     employee?.horario_entrada ? 'fixo' : 'variavel'
   );
@@ -200,6 +206,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setPhotoPreview(employee.foto_url);
       setIntervaloPersonalizado(!!employee.intervalo_personalizado);
       setIntervaloEmp(employee.intervalo_emp ? employee.intervalo_emp.toString() : '');
+      setIntervaloPadrao(
+        employee.intervalo_padrao_minutos !== undefined && employee.intervalo_padrao_minutos !== null
+          ? String(employee.intervalo_padrao_minutos)
+          : (employee.intervalo_emp ? String(employee.intervalo_emp) : '60')
+      );
       setTipoHorario(employee.horario_entrada ? 'fixo' : 'variavel');
 
       const predHora = employee.pred_hora || '';
@@ -223,6 +234,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setHorariosPorDia(buildDefaultSchedule());
       setIntervaloPersonalizado(false);
       setIntervaloEmp('');
+      setIntervaloPadrao('60');
     }
     setErrors({});
   }, [employee, open]);
@@ -347,6 +359,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         if (cfg?.entrada) formDataToSend.append('horario_entrada', cfg.entrada);
         if (cfg?.saida)   formDataToSend.append('horario_saida',   cfg.saida);
       }
+
+      // Intervalo padrão em minutos (0 é válido = sem intervalo)
+      const ipNum = intervaloPadrao.trim() === '' ? 60 : Math.max(0, parseInt(intervaloPadrao) || 0);
+      formDataToSend.append('intervalo_padrao_minutos', String(ipNum));
     }
 
     await onSubmit(formDataToSend);
@@ -609,41 +625,31 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               )}
             </Box>
 
-            {/* Intervalo de Almoço — sempre visível, opcional */}
-            <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
-              <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
-                Intervalo de Almoço
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mb: 2 }}>
-                Opcional. Configure apenas se o funcionário tiver um intervalo diferente do padrão da empresa.
-              </Typography>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={intervaloPersonalizado}
-                    onChange={(e) => { setIntervaloPersonalizado(e.target.checked); if (!e.target.checked) setIntervaloEmp(''); }}
-                    disabled={loading}
-                    sx={{ color: 'rgba(255, 255, 255, 0.5)', '&.Mui-checked': { color: '#3b82f6' } }}
-                  />
-                }
-                label="Configurar intervalo personalizado"
-                sx={{ '& .MuiFormControlLabel-label': { color: 'rgba(255, 255, 255, 0.8)', fontSize: 14 } }}
-              />
-              {intervaloPersonalizado && (
+            {/* Intervalo padrão — apenas para horário fixo */}
+            {tipoHorario === 'fixo' && (
+              <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
+                <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
+                  Intervalo Padrão (Almoço)
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mb: 2 }}>
+                  Minutos descontados da jornada como intervalo. Use <strong>0</strong> para funcionários sem intervalo (ex: meio período).
+                  O intervalo é flexível — o funcionário pode sair para almoçar em qualquer horário.
+                </Typography>
                 <TextField
                   fullWidth
-                  label="Duração do intervalo (minutos)"
-                  value={intervaloEmp}
-                  onChange={(e) => setIntervaloEmp(e.target.value)}
+                  label="Intervalo padrão (minutos)"
+                  value={intervaloPadrao}
+                  onChange={(e) => setIntervaloPadrao(e.target.value)}
                   type="number"
                   disabled={loading}
                   variant="outlined"
-                  inputProps={{ min: 0 }}
-                  helperText="Ex: 60 para 1 hora de almoço"
-                  sx={{ mt: 2, ...inputSx }}
+                  inputProps={{ min: 0, max: 480 }}
+                  helperText="Ex: 0 (sem intervalo) · 60 (1h almoço) · 90 (1h30 almoço)"
+                  sx={inputSx}
                 />
-              )}
-            </Box>
+              </Box>
+            )}
+
 
           </Box>
         </DialogContent>

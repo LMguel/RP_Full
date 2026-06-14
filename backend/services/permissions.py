@@ -5,7 +5,7 @@ ALL_PERMISSIONS: list[str] = [
     "dashboard", "funcionarios", "registros", "correcoes",
     "rh_folha", "configuracoes", "exportacoes", "ajustes",
     "excluir", "criar_usuario", "editar_usuario",
-    "fechar_competencia", "reconhecimento", "admin_aws",
+    "fechar_competencia", "reconhecimento",
 ]
 
 ROLE_DEFAULTS: dict[str, list[str]] = {

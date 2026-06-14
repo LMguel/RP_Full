@@ -30,7 +30,6 @@ const ALL_PERMISSIONS: { key: Permission; label: string }[] = [
   { key: 'editar_usuario',    label: 'Editar usuários' },
   { key: 'fechar_competencia',label: 'Fechar competência' },
   { key: 'reconhecimento',    label: 'Reconhecimento facial' },
-  { key: 'admin_aws',         label: 'Admin AWS' },
 ];
 
 const ROLE_DEFAULTS: Record<UserRole, Permission[]> = {

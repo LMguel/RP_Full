@@ -20,6 +20,8 @@ export interface CompanySummary {
   payments: Payment;
   recordsCount?: number;
   senha?: string;
+  rh_enabled?: boolean;
+  plano?: string;
 }
 
 export interface CreateCompanyPayload {
@@ -168,6 +170,12 @@ async function fetchFromBackend(endpoint: string, options?: RequestInit) {
     headers: { ...getHeaders(), ...options?.headers },
   });
 
+  if (response.status === 401) {
+    localStorage.removeItem("rp_admin_portal_session");
+    window.location.href = "/login";
+    throw new Error("Sessão expirada");
+  }
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Erro desconhecido" }));
     throw new Error(error.error || `Erro na requisição: ${response.status}`);
@@ -239,6 +247,21 @@ export async function fetchCompanyDetails(companyId: string): Promise<CompanySum
   const response = await fetchFromBackend(`/api/admin/companies/${companyId}`);
   return response.company;
 }
+
+export interface UpdateCompanyPayload {
+  empresa_nome?: string;
+  status?: CompanyStatus;
+  rh_enabled?: boolean;
+  plano?: string;
+}
+
+export async function updateCompany(companyId: string, payload: UpdateCompanyPayload): Promise<void> {
+  await fetchFromBackend(`/api/admin/companies/${companyId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 
 export async function fetchCompanyEmployees(companyId: string): Promise<CompanyEmployee[]> {
   try {

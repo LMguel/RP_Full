@@ -88,13 +88,14 @@ function DiffViewer({ before, after }: { before?: Record<string, unknown>; after
 function LogRow({ log }: { log: AuditLog }) {
   const [expanded, setExpanded] = useState(false);
   const hasDiff = !!(log.before || log.after);
+  const motivo = log.motivo || log.justificativa || (log.after as Record<string,unknown>)?.justificativa as string || (log.before as Record<string,unknown>)?.justificativa_ajuste as string || '';
 
   return (
     <>
       <TableRow
         hover
-        sx={{ cursor: hasDiff ? 'pointer' : 'default' }}
-        onClick={() => hasDiff && setExpanded(e => !e)}
+        sx={{ cursor: hasDiff || motivo ? 'pointer' : 'default' }}
+        onClick={() => (hasDiff || motivo) && setExpanded(e => !e)}
       >
         <TableCell>
           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)' }}>
@@ -125,19 +126,32 @@ function LogRow({ log }: { log: AuditLog }) {
             {log.entity_id}
           </Typography>
         </TableCell>
+        <TableCell>
+          {motivo && (
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic', maxWidth: 160, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {motivo}
+            </Typography>
+          )}
+        </TableCell>
         <TableCell align="right">
-          {hasDiff && (
+          {(hasDiff || motivo) && (
             <IconButton size="small" onClick={e => { e.stopPropagation(); setExpanded(x => !x); }}>
               {expanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
             </IconButton>
           )}
         </TableCell>
       </TableRow>
-      {hasDiff && (
+      {(hasDiff || motivo) && (
         <TableRow>
-          <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
+          <TableCell colSpan={7} sx={{ py: 0, border: 0 }}>
             <Collapse in={expanded} timeout="auto" unmountOnExit>
               <Box sx={{ py: 1.5, px: 2 }}>
+                {motivo && (
+                  <Box sx={{ mb: 1.5, p: 1.25, borderRadius: 1, bgcolor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block' }}>Motivo</Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(245,158,11,0.9)', mt: 0.25 }}>{motivo}</Typography>
+                  </Box>
+                )}
                 <DiffViewer before={log.before} after={log.after} />
                 {log.ip && (
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.3)', mt: 1, display: 'block' }}>
@@ -153,11 +167,32 @@ function LogRow({ log }: { log: AuditLog }) {
   );
 }
 
+function currentMonthISO() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function todayISO() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function firstDayOfMonthISO(yearMonth: string) {
+  return `${yearMonth}-01`;
+}
+
+function lastDayOfMonthISO(yearMonth: string) {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return `${yearMonth}-${String(last).padStart(2, '0')}`;
+}
+
 const AuditPage: React.FC = () => {
   const [logs, setLogs]         = useState<AuditLog[]>([]);
   const [loading, setLoading]   = useState(false);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo]     = useState('');
+  const [month, setMonth]       = useState(currentMonthISO());
+  const [dateFrom, setDateFrom] = useState(firstDayOfMonthISO(currentMonthISO()));
+  const [dateTo, setDateTo]     = useState(todayISO());
   const [action, setAction]     = useState('');
   const [entity, setEntity]     = useState('');
 
@@ -179,7 +214,13 @@ const AuditPage: React.FC = () => {
     }
   }, [dateFrom, dateTo, action, entity]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  function handleMonthChange(m: string) {
+    setMonth(m);
+    setDateFrom(firstDayOfMonthISO(m));
+    setDateTo(lastDayOfMonthISO(m));
+  }
 
   return (
     <PageLayout>
@@ -197,13 +238,18 @@ const AuditPage: React.FC = () => {
         <CardContent>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <TextField
+              label="Mês" type="month" value={month}
+              onChange={e => handleMonthChange(e.target.value)}
+              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: 160 }}
+            />
+            <TextField
               label="Data inicial" type="date" value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
+              onChange={e => { setDateFrom(e.target.value); setMonth(''); }}
               size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: 160 }}
             />
             <TextField
               label="Data final" type="date" value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
+              onChange={e => { setDateTo(e.target.value); setMonth(''); }}
               size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: 160 }}
             />
             <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -253,13 +299,14 @@ const AuditPage: React.FC = () => {
                     <TableCell>Entidade</TableCell>
                     <TableCell>Ação</TableCell>
                     <TableCell>ID</TableCell>
+                    <TableCell>Motivo</TableCell>
                     <TableCell />
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {logs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'rgba(255,255,255,0.35)' }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'rgba(255,255,255,0.35)' }}>
                         Nenhum evento encontrado para os filtros selecionados
                       </TableCell>
                     </TableRow>

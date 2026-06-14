@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 import calendar
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.aws import tabela_configuracoes as table_config
 from services.overtime import calculate_overtime
@@ -748,6 +749,66 @@ def get_balance_month():
         print(f"Erro em balance-month: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@dashboard_routes.route('/api/dashboard/top-employee', methods=['GET'])
+def get_top_employee():
+    """Funcionário com mais horas trabalhadas no mês (calculado de TimeRecords)"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido'}), 401
+
+    company_id = payload.get('company_id')
+    now = datetime.now()
+    current_month = f"{now.year}-{now.month:02d}"
+
+    try:
+        active_employees = _get_active_employees(company_id)
+        if not active_employees:
+            return jsonify({'top_employee': None}), 200
+
+        totals: dict = {}
+
+        for employee in active_employees:
+            emp_name = employee.get('nome') or employee.get('name') or ''
+            emp_minutes = Decimal('0')
+            resolved_id = None
+
+            for candidate_id in _candidate_employee_ids(employee):
+                month_records = _fetch_employee_month_records(company_id, candidate_id, current_month)
+                if not month_records:
+                    continue
+                emp_minutes = _compute_worked_minutes(month_records)
+                resolved_id = candidate_id
+                break
+
+            if resolved_id and emp_minutes > 0:
+                totals[resolved_id] = {
+                    'minutes': emp_minutes,
+                    'name': emp_name,
+                }
+
+        if not totals:
+            return jsonify({'top_employee': None}), 200
+
+        top_id  = max(totals, key=lambda k: totals[k]['minutes'])
+        top     = totals[top_id]
+        worked_hours = float(top['minutes'] / 60)
+
+        return jsonify({
+            'top_employee': {
+                'name': top['name'] or 'N/A',
+                'total_hours': round(worked_hours, 1),
+                'worked_hours': round(worked_hours, 1),
+                'extra_hours': 0.0,
+                'employee_id': top_id,
+            }
+        }), 200
+
+    except Exception as e:
+        print(f"Erro em top-employee: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @dashboard_routes.route('/api/alerts/today', methods=['GET'])
 def get_alerts_today():
     """Alertas do dia atual"""
@@ -1037,4 +1098,171 @@ def get_employees_present():
 
     except Exception as e:
         print(f"Erro em employees-present: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@dashboard_routes.route('/api/dashboard/snapshot', methods=['GET'])
+def get_dashboard_snapshot():
+    """
+    Snapshot completo do dashboard em uma única chamada.
+    Substitui 6 endpoints separados usando queries paralelas via ThreadPoolExecutor.
+    """
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido'}), 401
+
+    company_id = payload.get('company_id')
+    today = date.today()
+    today_str = today.isoformat()
+    now = datetime.now()
+    current_month = f"{now.year}-{now.month:02d}"
+
+    try:
+        company_settings = _get_company_settings(company_id)
+        employees = _get_active_employees(company_id)
+        total_employees = len(employees)
+
+        if not employees:
+            return jsonify({
+                'present': {'presentEmployeesCount': 0, 'currentlyOnSiteCount': 0, 'totalEmployees': 0},
+                'employeesPresent': [],
+                'lastFive': [],
+                'alerts': [],
+                'hoursMonth': 0.0,
+                'topEmployee': None,
+            })
+
+        # Queries paralelas: registros de hoje E do mês, um worker por funcionário
+        def fetch_today(employee):
+            for cid in _candidate_employee_ids(employee):
+                records = _fetch_employee_records(company_id, cid, today_str)
+                if records:
+                    return employee, cid, records
+            return employee, None, []
+
+        def fetch_month(employee):
+            for cid in _candidate_employee_ids(employee):
+                records = _fetch_employee_month_records(company_id, cid, current_month)
+                if records:
+                    return employee, cid, _compute_worked_minutes(records)
+            return employee, None, Decimal('0')
+
+        max_workers = min(40, total_employees)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            today_futures  = list(pool.map(fetch_today,  employees))
+            month_futures  = list(pool.map(fetch_month,  employees))
+
+        # Processar resultados de hoje
+        attendance_summaries = []
+        for employee, resolved_id, records in today_futures:
+            summary = _build_attendance_summary(
+                employee, records, company_settings,
+                identifier_override=resolved_id,
+            )
+            summary['employee'] = employee
+            summary['resolved_employee_id'] = resolved_id or summary.get('employee_id')
+            attendance_summaries.append(summary)
+
+        # --- Presença ---
+        attended_count = sum(1 for s in attendance_summaries if s.get('attended_today'))
+        present_count  = sum(1 for s in attendance_summaries if s.get('present'))
+
+        # --- Lista de funcionários com registro hoje ---
+        employees_present = []
+        for summary in attendance_summaries:
+            if not summary.get('records'):
+                continue
+            is_present = summary.get('present', False)
+            employees_present.append({
+                'foto': summary.get('photo_url', ''),
+                'nome': summary.get('name', 'N/A'),
+                'hora_entrada': summary.get('arrival_str') or 'N/A',
+                'status_key': 'presente' if is_present else 'saiu',
+                'status_label': 'Presente' if is_present else 'Saiu',
+                'entry_status': summary.get('entry_status', 'normal'),
+                'entry_status_label': summary.get('entry_status_label', 'Normal'),
+                'metodo': 'manual',
+            })
+        employees_present.sort(key=lambda x: x.get('hora_entrada') or '')
+
+        # --- Últimos 5 registros ---
+        daily_records: List[Dict[str, Any]] = []
+        for summary in attendance_summaries:
+            emp_name = summary.get('name', 'N/A')
+            emp_id   = summary.get('employee_id')
+            for record in summary.get('records', []):
+                record_dt: Optional[datetime] = record.get('datetime')
+                if not record_dt or record_dt.date() != today:
+                    continue
+                record_type = record.get('tipo', 'entrada')
+                if record_type in ('saída', 'out'):
+                    record_type = 'saida'
+                elif record_type not in ('entrada', 'saida'):
+                    record_type = 'entrada'
+                daily_records.append({
+                    'nome': emp_name,
+                    'funcionario_id': emp_id,
+                    'hora': record_dt.strftime('%H:%M:%S'),
+                    'tipo': record_type,
+                    'metodo': record.get('method', 'manual'),
+                    '_dt': record_dt,
+                })
+        daily_records.sort(key=lambda x: x['_dt'], reverse=True)
+        last_five = daily_records[:5]
+        for r in last_five:
+            r.pop('_dt', None)
+
+        # --- Alertas ---
+        alerts = []
+        for summary in attendance_summaries:
+            if not summary.get('records'):
+                alerts.append({
+                    'type': 'ausencia',
+                    'message': f"{summary.get('name', 'Funcionário')} ainda não registrou ponto hoje",
+                    'severity': 'info',
+                })
+
+        # --- Horas do mês + Destaque ---
+        total_month_minutes = Decimal('0')
+        top_minutes  = Decimal('0')
+        top_name     = ''
+        top_id       = None
+
+        for employee, cid, minutes in month_futures:
+            if minutes > 0:
+                total_month_minutes += minutes
+                if minutes > top_minutes:
+                    top_minutes = minutes
+                    top_name    = employee.get('nome', '')
+                    top_id      = cid
+
+        hours_month = round(float(total_month_minutes / 60), 1)
+        top_employee = None
+        if top_id:
+            worked_h = round(float(top_minutes / 60), 1)
+            top_employee = {
+                'name': top_name,
+                'total_hours': worked_h,
+                'worked_hours': worked_h,
+                'extra_hours': 0.0,
+                'employee_id': top_id,
+            }
+
+        return jsonify({
+            'present': {
+                'presentEmployeesCount': attended_count,
+                'currentlyOnSiteCount': present_count,
+                'totalEmployees': total_employees,
+            },
+            'employeesPresent': employees_present,
+            'lastFive': last_five,
+            'alerts': alerts,
+            'hoursMonth': hours_month,
+            'topEmployee': top_employee,
+        })
+
+    except Exception as e:
+        print(f"Erro em dashboard/snapshot: {str(e)}")
+        import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500

@@ -36,11 +36,14 @@ import {
   BuildCircle as BuildCircleIcon,
   WorkspacePremium as RHIcon,
   HistoryEdu as HistoryEduIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCorrecoesCtx } from '../contexts/CorrecoesContext';
+import { apiService } from '../services/api';
+import { toast } from 'react-hot-toast';
 import { Permission } from '../types';
 
 const logoUrl = new URL('../image/logo.png', import.meta.url).href;
@@ -86,11 +89,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen]         = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [anchorEl, setAnchorEl]             = useState<null | HTMLElement>(null);
+  const [rhEnabled, setRhEnabled]           = useState<boolean>(true);
   const theme   = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate  = useNavigate();
   const location  = useLocation();
-  const { user, logout, hasPermission } = useAuth();
+  const { user, logout, hasPermission, userName } = useAuth();
+
+  useEffect(() => {
+    apiService.getCompanyFeatures().then(f => setRhEnabled(f.rh_enabled)).catch(() => {});
+  }, []);
 
   const visibleMainRoutes = mainRoutes.filter(r => !r.permission || hasPermission(r.permission));
   const visibleToolRoutes = toolRoutes.filter(r => !r.permission || hasPermission(r.permission));
@@ -222,6 +230,39 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     );
   };
 
+  const LockedNavItem: React.FC<{ route: RouteConfig }> = ({ route }) => (
+    <ListItem disablePadding sx={{ mb: 0.25 }}>
+      <Tooltip title={drawerCollapsed ? `${route.text} — Plano Plus` : 'RH/Folha disponível apenas no plano Plus. Entre em contato para solicitar upgrade.'} placement="right">
+        <ListItemButton
+          onClick={() => toast('RH / Folha disponível apenas no plano Plus. Entre em contato para solicitar upgrade.')}
+          sx={{
+            borderRadius: '10px',
+            justifyContent: drawerCollapsed ? 'center' : 'flex-start',
+            px: drawerCollapsed ? 0 : 1.25,
+            py: 0.9,
+            minHeight: 40,
+            color: 'rgba(255,255,255,0.28)',
+            cursor: 'not-allowed',
+            '&:hover': { background: 'rgba(255,255,255,0.03)' },
+          }}
+        >
+          <ListItemIcon sx={{ color: 'rgba(255,255,255,0.22)', minWidth: drawerCollapsed ? 0 : 34, justifyContent: 'center' }}>
+            {route.icon}
+          </ListItemIcon>
+          {!drawerCollapsed && (
+            <>
+              <ListItemText
+                primary={route.text}
+                sx={{ '& .MuiListItemText-primary': { fontSize: '13.5px', color: 'rgba(255,255,255,0.28)' } }}
+              />
+              <LockIcon sx={{ fontSize: 13, color: 'rgba(255,255,255,0.22)', ml: 0.5 }} />
+            </>
+          )}
+        </ListItemButton>
+      </Tooltip>
+    </ListItem>
+  );
+
   const SectionLabel: React.FC<{ label: string }> = ({ label }) =>
     drawerCollapsed ? (
       <Box sx={{ my: 1, mx: 'auto', width: 28, height: 1, bgcolor: 'rgba(255,255,255,0.07)' }} />
@@ -302,11 +343,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <SectionLabel label="Gestão" />
         <List disablePadding sx={{ mb: 1.5 }}>
           {visibleMainRoutes.map(r => (
-            <NavItem
-              key={r.path}
-              route={r}
-              badge={r.path === '/correcoes' && totalPendencias > 0 ? totalPendencias : undefined}
-            />
+            r.path === '/rh' && !rhEnabled
+              ? <LockedNavItem key={r.path} route={r} />
+              : <NavItem
+                  key={r.path}
+                  route={r}
+                  badge={r.path === '/correcoes' && totalPendencias > 0 ? totalPendencias : undefined}
+                />
           ))}
         </List>
 
@@ -437,19 +480,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           {/* Right: company + user */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-            {user?.empresa_nome && (
+            {user && (
               <Box sx={{
                 display: { xs: 'none', sm: 'flex' },
-                alignItems: 'center',
-                gap: 0.75,
+                flexDirection: 'column',
+                alignItems: 'flex-end',
                 px: 1.25,
-                py: 0.5,
+                py: 0.4,
                 borderRadius: '8px',
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.07)',
               }}>
-                <Box sx={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
-                <Typography sx={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap' }}>
+                <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                  {userName || user.usuario_id}
+                </Typography>
+                <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
                   {user.empresa_nome}
                 </Typography>
               </Box>
@@ -597,10 +642,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {user && (
           <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
-              {user.empresa_nome}
+              {userName || user.usuario_id}
             </Typography>
             <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
-              {user.usuario_id}
+              {user.empresa_nome}
             </Typography>
           </Box>
         )}

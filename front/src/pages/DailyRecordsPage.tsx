@@ -6,8 +6,12 @@ import { Box, Typography, Snackbar, Alert } from '@mui/material';
 import { motion } from 'framer-motion';
 import { apiService } from '../services/api';
 import { Employee } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 const DailyRecordsPage: React.FC = () => {
+  const { role } = useAuth();
+  const isViewer = role === 'VIEWER';
+
   // Estados para o formulário de adicionar registro
   const [formOpen, setFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -64,7 +68,6 @@ const DailyRecordsPage: React.FC = () => {
   const handleSaveRecord = async (recordData: {
     employee_id: string;
     data_hora: string;
-    tipo: 'entrada' | 'saída' | 'dia_inteiro';
     justificativa: string;
   }) => {
     setSubmitting(true);
@@ -103,14 +106,16 @@ const DailyRecordsPage: React.FC = () => {
           </Box>
         </motion.div>
         
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
-          <button
-            onClick={handleAddRecord}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
-          >
-            + Adicionar Registro Manual
-          </button>
-        </motion.div>
+        {!isViewer && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
+            <button
+              onClick={handleAddRecord}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+            >
+              + Adicionar Registro Manual
+            </button>
+          </motion.div>
+        )}
       </Box>
 
       <DailyRecordsTable />

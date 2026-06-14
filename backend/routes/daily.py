@@ -12,6 +12,29 @@ from utils.registro_normalizer import (
     extrair_employee_id as _norm_emp_d,
     extrair_data_hora as _norm_dh_d,
 )
+
+
+def _tem_registros_proximos(records, limite_min=10):
+    """Retorna True se algum par de registros válidos está a menos de limite_min minutos."""
+    validos = [r for r in records if str(r.get('status', '')).upper() != 'INVALIDADO']
+    for i in range(len(validos)):
+        for j in range(i + 1, len(validos)):
+            try:
+                t1 = str(validos[i].get('data_hora') or validos[i].get('timestamp') or '')
+                t2 = str(validos[j].get('data_hora') or validos[j].get('timestamp') or '')
+                if not t1 or not t2:
+                    continue
+                def _parse(s):
+                    s = s[:19]
+                    if 'T' in s:
+                        return datetime.fromisoformat(s)
+                    return datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+                diff = abs((_parse(t1) - _parse(t2)).total_seconds()) / 60
+                if diff < limite_min:
+                    return True
+            except Exception:
+                pass
+    return False
 from services.calculation_engine import (
     calculate_worked_minutes as eng_worked,
     get_display_times as eng_display,
@@ -481,8 +504,81 @@ def get_daily_summaries():
             ipm = emp_info.get('intervalo_padrao_minutos')
             if ipm is not None:
                 break_duration = int(ipm)  # 0 é válido (sem intervalo)
+                # Só exige 4 batidas quando o funcionário TEM intervalo explícito > 0
+                emp_exige_intervalo = break_duration > 0
             else:
                 break_duration = duracao_intervalo_padrao
+                # Sem configuração explícita → fluxo de 2 batidas (entrada/saída)
+                emp_exige_intervalo = False
+
+            # ── Tipos especiais: férias/folga e atestado ──────────────────────
+            record_types_in_day = set(
+                str(r.get('type', r.get('tipo', ''))).lower()
+                for r in records
+            )
+            _special_type = None
+            if 'ferias_folga' in record_types_in_day:
+                _special_type = 'ferias_folga'
+            elif 'atestado' in record_types_in_day:
+                _special_type = 'atestado'
+
+            if _special_type:
+                # Calcular previsto para usar como trabalhado
+                _exp = eng_expected(
+                    scheduled_start, scheduled_end,
+                    intervalo_automatico=False,
+                    break_duration=break_duration,
+                ) if (scheduled_start and scheduled_end) else 0
+                _exp = _exp or 0
+                _atestado_url = next(
+                    (r.get('atestado_url') for r in records if r.get('atestado_url')), None
+                ) if _special_type == 'atestado' else None
+
+                try:
+                    wd = datetime.strptime(date_str, '%Y-%m-%d').weekday()
+                    dia_semana_map = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+                    dia_semana = dia_semana_map[wd]
+                except Exception:
+                    dia_semana = None
+
+                status_label = 'FERIAS' if _special_type == 'ferias_folga' else 'ATESTADO'
+                summary_obj = {
+                    'nome': emp_nome,
+                    'employee_id': emp_id,
+                    'dia_semana': dia_semana,
+                    'data': date_str,
+                    'hora_entrada': None,
+                    'intervalo_saida': None,
+                    'intervalo_volta': None,
+                    'hora_saida': None,
+                    'horas_trabalhadas': round(_exp / 60, 2),
+                    'horas_trabalhadas_min': _exp,
+                    'horas_trabalhadas_str': minutes_to_hhmm(_exp),
+                    'horas_previstas': round(_exp / 60, 2),
+                    'horas_previstas_min': _exp,
+                    'horas_previstas_str': minutes_to_hhmm(_exp),
+                    'horas_extras': 0,
+                    'horas_extras_min': 0,
+                    'horas_extras_str': '00:00',
+                    'banco_horas_dia': 0,
+                    'banco_horas_dia_str': '00:00',
+                    'atraso_minutos': 0,
+                    'atraso_entrada_minutos': 0,
+                    'excesso_intervalo_minutos': 0,
+                    'saida_antecipada_minutos': 0,
+                    'saida_antecipada_str': '00:00',
+                    'intervalo_automatico': intervalo_automatico,
+                    'intervalo_padrao_minutos': break_duration,
+                    'horario_variavel': variavel,
+                    'status': status_label,
+                    'n_punches': 0,
+                    'tipo_especial': _special_type,
+                    'atestado_url': _atestado_url,
+                    'intervalo_automatico': intervalo_automatico,
+                    'registros_proximos': _tem_registros_proximos(records),
+                }
+                summaries.append(summary_obj)
+                continue
 
             # ── Motor canônico: todos os cálculos passam por aqui ──
             worked_min, first_iso, last_iso = eng_worked(
@@ -516,8 +612,15 @@ def get_daily_summaries():
             elif intervalo_automatico:
                 day_status = 'INCOMPLETO' if last_iso is None else 'PRESENTE'
             else:
-                # Número ímpar de batidas = algum par entrada/saída sem correspondente
-                day_status = 'INCOMPLETO' if n_punches_count % 2 == 1 else 'PRESENTE'
+                # Modo manual: exige 4 batidas apenas quando o funcionário tem
+                # intervalo_padrao_minutos > 0 definido explicitamente.
+                # Sem configuração explícita → 2 batidas (entrada/saída).
+                # Número ímpar é sempre INCOMPLETO independentemente.
+                expected_punches = 4 if emp_exige_intervalo else 2
+                if n_punches_count < expected_punches or n_punches_count % 2 == 1:
+                    day_status = 'INCOMPLETO'
+                else:
+                    day_status = 'PRESENTE'
 
             # Inicializar campos de breakdown (usados no summary_obj abaixo)
             atraso_entrada = 0
@@ -553,11 +656,14 @@ def get_daily_summaries():
 
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
 
-                # Hora extra = saída real além de (horario_saida + tolerância)
-                horas_extras_min = eng_overtime_exit(last_iso, scheduled_end, tolerancia_atraso)
+                # Hora extra CLT (Art. 59 + Art. 58 §1):
+                # - Se saída exceder apenas a tolerância (de minimis): não conta.
+                # - Se exceder a tolerância: conta TODOS os minutos desde o horário
+                #   contratado (não só o excesso), pois a variação não é mais de minimis.
+                raw_overtime = eng_overtime_exit(last_iso, scheduled_end, 0)
+                horas_extras_min = raw_overtime if raw_overtime > tolerancia_atraso else 0
 
                 # Banco = horas_extras - atrasos_totais - saida_antecipada
-                # (mesma base do resumo mensal no frontend)
                 banco_horas_dia = horas_extras_min - atraso_min - saida_antecipada_min
             else:
                 # ── MODO AUTOMÁTICO (intervalo_automatico=True) ───────────────
@@ -570,7 +676,10 @@ def get_daily_summaries():
                 )
                 atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
-                banco_horas_dia = apply_bank_tolerance(worked_min - expected_min, tolerancia_atraso)
+                # CLT Art. 58 §1: variações dentro da tolerância ignoradas (de minimis)
+                # Se ultrapassar, conta tudo (não só o excesso)
+                saldo_bruto = worked_min - expected_min
+                banco_horas_dia = saldo_bruto if abs(saldo_bruto) > tolerancia_atraso else 0
                 horas_extras_min = max(0, banco_horas_dia) if expected_min > 0 else 0
 
             try:
@@ -610,6 +719,9 @@ def get_daily_summaries():
                 'horario_variavel': variavel,
                 'status': day_status,
                 'n_punches': n_punches_count,
+                'tipo_especial': None,
+                'atestado_url': None,
+                'registros_proximos': _tem_registros_proximos(records),
             }
 
             summaries.append(summary_obj)
@@ -686,24 +798,44 @@ def get_day_details(employee_id, date):
             print(f"[WARNING] Erro ao buscar DailySummary: {str(summary_error)}")
             summary = None
         
-        # Buscar registros individuais do dia
-        response = table_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id) & 
-                           Attr('funcionario_id').eq(employee_id)
+        # Buscar registros individuais do dia via query pela sort key (employee_id#date_time)
+        # Isso encontra tanto registros com campo 'employee_id' quanto 'funcionario_id'
+        resp = table_records.query(
+            KeyConditionExpression=Key('company_id').eq(company_id) &
+                                   Key('employee_id#date_time').begins_with(f"{employee_id}#{date}")
         )
-        
-        records = response.get('Items', [])
-        
-        # Filtrar por data e ignorar registros INVALIDADOS/AJUSTADOS
+        records = resp.get('Items', [])
+
+        # Paginar se necessário
+        while 'LastEvaluatedKey' in resp:
+            resp = table_records.query(
+                KeyConditionExpression=Key('company_id').eq(company_id) &
+                                       Key('employee_id#date_time').begins_with(f"{employee_id}#{date}"),
+                ExclusiveStartKey=resp['LastEvaluatedKey']
+            )
+            records.extend(resp.get('Items', []))
+
+        # Excluir registros INVALIDADOS/AJUSTADOS da view
         day_records = [
-            r for r in records 
-            if r.get('data_hora', '')[:10] == date
-            and (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')
+            r for r in records
+            if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')
         ]
         
         # Ordenar por data_hora
         day_records.sort(key=lambda r: r.get('data_hora', ''))
-        
+
+        # Converter Decimal para float/int para serialização JSON
+        def conv(v):
+            if isinstance(v, Decimal):
+                return float(v)
+            if isinstance(v, dict):
+                return {k: conv(vv) for k, vv in v.items()}
+            if isinstance(v, list):
+                return [conv(i) for i in v]
+            return v
+
+        day_records = [conv(r) for r in day_records]
+
         # Mapear summary para retornar apenas campos objetivos
         mapped_summary = None
         if summary:

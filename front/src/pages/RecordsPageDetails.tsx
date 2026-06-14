@@ -505,7 +505,7 @@ const RecordsDetailedPage: React.FC = () => {
   const [invalidateJustificativa, setInvalidateJustificativa] = useState('');
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
   const [recordToAdjust, setRecordToAdjust] = useState<TimeRecord | null>(null);
-  const [adjustData, setAdjustData] = useState({ date: '', time: '', tipo: 'entrada' as 'entrada' | 'saída', justificativa: '' });
+  const [adjustData, setAdjustData] = useState({ date: '', time: '', justificativa: '' });
   const [submitting, setSubmitting] = useState(false);
   
   // Popover para exibir justificativa ao clicar no status
@@ -846,7 +846,6 @@ const RecordsDetailedPage: React.FC = () => {
       const formattedDateTime = `${adjustData.date} ${adjustData.time}:00`;
       await apiService.adjustTimeRecord(recordToAdjust.registro_id, {
         data_hora: formattedDateTime,
-        tipo: adjustData.tipo,
         justificativa: adjustData.justificativa.trim(),
       });
       showSnackbar('Registro ajustado com sucesso! Um novo registro foi criado.', 'success');
@@ -1398,16 +1397,6 @@ const RecordsDetailedPage: React.FC = () => {
                   sx={{ flex: 1 }}
                 />
               </Box>
-              <TextField
-                select
-                label="Tipo"
-                value={adjustData.tipo}
-                onChange={(e) => setAdjustData(prev => ({ ...prev, tipo: e.target.value as 'entrada' | 'saída' }))}
-                SelectProps={{ native: true }}
-              >
-                <option value="entrada">Entrada</option>
-                <option value="saída">Saída</option>
-              </TextField>
               <TextField
                 fullWidth
                 label="Justificativa *"

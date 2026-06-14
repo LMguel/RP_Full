@@ -1,24 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Card,
-  CardContent,
   TextField,
   Button,
   Typography,
   InputAdornment,
   IconButton,
   CircularProgress,
-  Container,
   Checkbox,
   FormControlLabel,
+  Divider,
 } from '@mui/material';
 import {
   Visibility,
   VisibilityOff,
-  Login as LoginIcon,
   Person as PersonIcon,
   Lock as LockIcon,
+  CheckCircleOutline as FeatureIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,27 +24,48 @@ import { useNavigate } from 'react-router-dom';
 
 const logoUrl = new URL('../image/logo.png', import.meta.url).href;
 
+const inputSx = {
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '10px',
+    background: 'rgba(255,255,255,0.06)',
+    color: 'white',
+    transition: 'box-shadow 0.2s ease',
+    '& fieldset': { borderColor: 'rgba(255,255,255,0.14)' },
+    '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+    '&.Mui-focused fieldset': { borderColor: 'rgba(96,165,250,0.7)' },
+    '&.Mui-focused': { boxShadow: '0 0 0 3px rgba(37,99,235,0.2)' },
+    '& input': { color: 'white' },
+    '& input::placeholder': { color: 'rgba(255,255,255,0.35)', opacity: 1 },
+    '& .MuiSvgIcon-root': { color: 'rgba(255,255,255,0.4)' },
+  },
+  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.45)' },
+  '& .MuiInputLabel-root.Mui-focused': { color: '#60a5fa' },
+  '& .MuiFormHelperText-root': { color: '#f87171', ml: 0 },
+};
+
+const features = [
+  'Registro de ponto por reconhecimento facial',
+  'Espelho de ponto e banco de horas automático',
+  'Feriados, turnos e configurações por empresa',
+];
+
 const LoginForm: React.FC = () => {
-  const [formData, setFormData] = useState({
-    usuario_id: '',
-    senha: '',
-  });
+  const [formData, setFormData]       = useState({ usuario_id: '', senha: '' });
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors]           = useState<Record<string, string>>({});
   const [rememberLogin, setRememberLogin] = useState(false);
-  
+
   const { login, isLoading } = useAuth();
   const navigate = useNavigate();
 
-  // Carregar dados salvos do localStorage ao iniciar
   useEffect(() => {
-    const savedLogin = localStorage.getItem('rememberedLogin');
-    if (savedLogin) {
+    const saved = localStorage.getItem('rememberedLogin');
+    if (saved) {
       try {
-        const { usuario_id, senha } = JSON.parse(savedLogin);
+        const { usuario_id, senha } = JSON.parse(saved);
         setFormData({ usuario_id, senha });
         setRememberLogin(true);
-      } catch (e) {
+      } catch {
         localStorage.removeItem('rememberedLogin');
       }
     }
@@ -54,318 +73,281 @@ const LoginForm: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-    
-    // Clear error when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: '',
-      }));
-    }
+    setFormData(prev => ({ ...prev, [name]: value }));
+    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
   };
 
-  const validateForm = () => {
+  const validate = () => {
     const newErrors: Record<string, string> = {};
-
-    if (!formData.usuario_id.trim()) {
-      newErrors.usuario_id = 'ID do usuário é obrigatório';
-    }
-
-    if (!formData.senha) {
-      newErrors.senha = 'Senha é obrigatória';
-    }
-
+    if (!formData.usuario_id.trim()) newErrors.usuario_id = 'ID obrigatório';
+    if (!formData.senha)            newErrors.senha       = 'Senha obrigatória';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
-    // Salvar ou remover login do localStorage
-    if (rememberLogin) {
-      localStorage.setItem('rememberedLogin', JSON.stringify(formData));
-    } else {
-      localStorage.removeItem('rememberedLogin');
-    }
-
+    if (!validate()) return;
+    rememberLogin
+      ? localStorage.setItem('rememberedLogin', JSON.stringify(formData))
+      : localStorage.removeItem('rememberedLogin');
     const success = await login(formData);
-    if (success) {
-      navigate('/dashboard');
-    }
+    if (success) navigate('/dashboard');
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        width: '100vw',
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #1d4ed8 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        overflow: 'auto',
+    <Box sx={{
+      minHeight: '100vh',
+      width: '100vw',
+      position: 'fixed',
+      inset: 0,
+      overflow: 'auto',
+      background: `
+        radial-gradient(ellipse 110% 50% at 65% -8%, rgba(96,165,250,0.25) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 40% at 5% 95%, rgba(99,102,241,0.14) 0%, transparent 55%),
+        linear-gradient(155deg, #112466 0%, #1a3a8a 45%, #1e40af 100%)
+      `,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      p: { xs: 2, md: 0 },
+    }}>
+      {/* Container split */}
+      <Box sx={{
+        width: '100%',
+        maxWidth: { xs: 440, md: 960 },
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+        minHeight: { md: 560 },
+        borderRadius: '20px',
+        overflow: 'hidden',
+        boxShadow: '0 32px 80px rgba(0,0,0,0.45)',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}>
 
-      }}
-    >
-      <Container maxWidth="sm" sx={{ position: 'relative', zIndex: 1, py: 4 }}>
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
-        >
-          <Card
-            sx={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              backdropFilter: 'blur(20px)',
-              borderRadius: '16px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              maxWidth: 400,
-              mx: 'auto',
-            }}
+        {/* ── Lado esquerdo: branding ── */}
+        <Box sx={{
+          display: { xs: 'none', md: 'flex' },
+          flexDirection: 'column',
+          justifyContent: 'center',
+          p: 5,
+          background: 'rgba(255,255,255,0.04)',
+          backdropFilter: 'blur(24px)',
+          borderRight: '1px solid rgba(255,255,255,0.08)',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {/* Decorative spotlight */}
+          <Box sx={{
+            position: 'absolute',
+            top: -80, left: -80,
+            width: 300, height: 300,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(37,99,235,0.25) 0%, transparent 70%)',
+            pointerEvents: 'none',
+          }} />
+
+          <motion.div
+            initial={{ opacity: 0, x: -24 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
           >
-            <CardContent sx={{ p: { xs: 4, sm: 5 }, textAlign: 'center' }}>
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 0.2, duration: 0.4 }}
-                style={{ marginBottom: 48 }}
-              >
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mb: 3,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 150, // Aumentado de 120 para 150
-                      height: 150, // Aumentado de 120 para 150
-                      backgroundColor: 'white',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <img 
-                      src={logoUrl} 
-                      alt="RP Logo"
-                      style={{
-                        width: '200%', // Aumentado de 80% para 90%
-                        height: '200%', // Aumentado de 80% para 90%
-                        objectFit: 'contain',
-                      }}
-                    />
-                  </Box>
-                </Box>
-
-                <Typography 
-                  variant="h5" 
-                  sx={{ 
-                    fontWeight: 400, 
-                    color: 'rgba(255, 255, 255, 0.9)', 
-                    mb: 1,
-                    letterSpacing: '0.5px',
-                    fontSize: '18px'
-                  }}
-                >
-                  Sistema de Controle de Ponto Eletrônico
+            {/* Logo mark */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 5 }}>
+              <Box sx={{
+                width: 40, height: 40,
+                background: 'white',
+                borderRadius: '11px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                overflow: 'hidden',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                flexShrink: 0,
+              }}>
+                <img src={logoUrl} alt="RP" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              </Box>
+              <Box>
+                <Typography sx={{ fontWeight: 800, color: 'white', fontSize: 15, letterSpacing: '0.04em', lineHeight: 1.1 }}>
+                  REGISTRA.PONTO
                 </Typography>
-              </motion.div>
+                <Typography sx={{ color: 'rgba(255,255,255,0.38)', fontSize: 11 }}>
+                  Controle de Ponto
+                </Typography>
+              </Box>
+            </Box>
 
-              <form onSubmit={handleSubmit}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
-                  <Box>
-                    <TextField
-                      fullWidth
-                      placeholder="ID do Usuário"
-                      name="usuario_id"
-                      value={formData.usuario_id}
-                      onChange={handleChange}
-                      error={!!errors.usuario_id}
-                      helperText={errors.usuario_id}
-                      variant="outlined"
-                      disabled={isLoading}
-                      size="medium"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 20 }} />
-                          </InputAdornment>
-                        ),
-                        sx: {
-                          color: 'white',
-                          fontSize: '16px',
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            borderWidth: '1px',
-                            borderColor: 'rgba(255, 255, 255, 0.3)',
-                            borderRadius: '8px',
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.5)',
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.7)',
-                          },
-                          '& input': {
-                            padding: '14px 12px 14px 0',
-                            color: 'white',
-                          },
-                          '& input::placeholder': {
-                            color: 'rgba(255, 255, 255, 0.6)',
-                            opacity: 1,
-                          },
-                          background: 'rgba(255, 255, 255, 0.05)',
-                        }
-                      }}
-                      FormHelperTextProps={{
-                        sx: { color: '#ef4444' }
-                      }}
-                    />
+            <Typography variant="h4" sx={{ fontWeight: 800, color: 'white', letterSpacing: '-0.02em', lineHeight: 1.2, mb: 1.5 }}>
+              Ponto eletrônico simples e confiável
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 1.7, mb: 4 }}>
+              Gerencie registros, horários e banco de horas da sua equipe em um só lugar.
+            </Typography>
+
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {features.map((f, i) => (
+                <motion.div key={i} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.3 + i * 0.1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                    <FeatureIcon sx={{ fontSize: 16, color: '#34d399', flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: 13, color: 'rgba(255,255,255,0.65)' }}>{f}</Typography>
                   </Box>
+                </motion.div>
+              ))}
+            </Box>
+          </motion.div>
+        </Box>
 
-                  <Box>
-                    <TextField
-                      fullWidth
-                      placeholder="Senha"
-                      name="senha"
-                      type={showPassword ? 'text' : 'password'}
-                      value={formData.senha}
-                      onChange={handleChange}
-                      error={!!errors.senha}
-                      helperText={errors.senha}
-                      variant="outlined"
-                      disabled={isLoading}
-                      size="medium"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LockIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 20 }} />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              onClick={() => setShowPassword(!showPassword)}
-                              edge="end"
-                              disabled={isLoading}
-                              aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                              sx={{
-                                color: 'rgba(255, 255, 255, 0.7)',
-                                '&:hover': {
-                                  color: 'rgba(255, 255, 255, 0.9)',
-                                }
-                              }}
-                            >
-                              {showPassword ? <VisibilityOff /> : <Visibility />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                        sx: {
-                          color: 'white',
-                          fontSize: '16px',
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            borderWidth: '1px',
-                            borderColor: 'rgba(255, 255, 255, 0.3)',
-                            borderRadius: '8px',
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.5)',
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'rgba(255, 255, 255, 0.7)',
-                          },
-                          '& input': {
-                            padding: '14px 12px 14px 0',
-                            color: 'white',
-                          },
-                          '& input::placeholder': {
-                            color: 'rgba(255, 255, 255, 0.6)',
-                            opacity: 1,
-                          },
-                          background: 'rgba(255, 255, 255, 0.05)',
-                        }
-                      }}
-                      FormHelperTextProps={{
-                        sx: { color: '#ef4444' }
-                      }}
-                    />
-                  </Box>
-                </Box>
+        {/* ── Lado direito: formulário ── */}
+        <Box sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          p: { xs: 3, sm: 4, md: 5 },
+          background: 'rgba(255,255,255,0.06)',
+          backdropFilter: 'blur(24px)',
+        }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: 'easeOut' }}
+          >
+            {/* Logo no mobile */}
+            <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', gap: 1.5, mb: 4 }}>
+              <Box sx={{
+                width: 36, height: 36,
+                background: 'white',
+                borderRadius: '10px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                overflow: 'hidden', flexShrink: 0,
+              }}>
+                <img src={logoUrl} alt="RP" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              </Box>
+              <Typography sx={{ fontWeight: 800, color: 'white', fontSize: 14, letterSpacing: '0.04em' }}>
+                REGISTRA.PONTO
+              </Typography>
+            </Box>
 
-                <Box sx={{ mt: 2 }}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={rememberLogin}
-                        onChange={(e) => setRememberLogin(e.target.checked)}
-                        sx={{
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          '&.Mui-checked': {
-                            color: '#60a5fa',
-                          },
-                        }}
-                      />
-                    }
-                    label="Lembrar login"
-                    sx={{
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      '& .MuiTypography-root': {
-                        fontSize: '14px',
-                      },
-                    }}
-                  />
-                </Box>
+            <Typography variant="h5" sx={{ fontWeight: 800, color: 'white', letterSpacing: '-0.015em', mb: 0.75 }}>
+              Bem-vindo de volta
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.42)', fontSize: 13.5, mb: 3.5 }}>
+              Entre com suas credenciais de acesso
+            </Typography>
 
-                <Button
-                  type="submit"
+            <form onSubmit={handleSubmit}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
                   fullWidth
-                  variant="contained"
-                  size="large"
+                  placeholder="ID do usuário"
+                  name="usuario_id"
+                  value={formData.usuario_id}
+                  onChange={handleChange}
+                  error={!!errors.usuario_id}
+                  helperText={errors.usuario_id}
                   disabled={isLoading}
-                  startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
-                  sx={{ 
-                    mt: 4,
-                    py: 2, 
-                    borderRadius: '8px', 
-                    background: '#2563eb',
-                    fontSize: '16px',
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      background: '#1d4ed8',
-                    },
-                    '&:disabled': {
-                      background: 'rgba(255, 255, 255, 0.1)',
-                    },
+                  autoComplete="username"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonIcon sx={{ fontSize: 18 }} />
+                      </InputAdornment>
+                    ),
                   }}
-                >
-                  {isLoading ? 'Entrando...' : 'Entrar'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </Container>
+                  sx={inputSx}
+                />
+
+                <TextField
+                  fullWidth
+                  placeholder="Senha"
+                  name="senha"
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.senha}
+                  onChange={handleChange}
+                  error={!!errors.senha}
+                  helperText={errors.senha}
+                  disabled={isLoading}
+                  autoComplete="current-password"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockIcon sx={{ fontSize: 18 }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          disabled={isLoading}
+                          aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                          sx={{ color: 'rgba(255,255,255,0.4)', '&:hover': { color: 'rgba(255,255,255,0.7)' } }}
+                        >
+                          {showPassword ? <VisibilityOff sx={{ fontSize: 18 }} /> : <Visibility sx={{ fontSize: 18 }} />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={inputSx}
+                />
+              </Box>
+
+              <Box sx={{ mt: 1.5, mb: 3 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={rememberLogin}
+                      onChange={e => setRememberLogin(e.target.checked)}
+                      size="small"
+                      sx={{
+                        color: 'rgba(255,255,255,0.3)',
+                        p: 0.75,
+                        '&.Mui-checked': { color: '#60a5fa' },
+                      }}
+                    />
+                  }
+                  label="Lembrar login"
+                  sx={{ '& .MuiTypography-root': { fontSize: 13, color: 'rgba(255,255,255,0.55)' } }}
+                />
+              </Box>
+
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                disabled={isLoading}
+                sx={{
+                  py: 1.5,
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                  boxShadow: '0 4px 16px rgba(37,99,235,0.4)',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  letterSpacing: '0.01em',
+                  textTransform: 'none',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    boxShadow: '0 6px 24px rgba(37,99,235,0.5)',
+                    transform: 'translateY(-1px)',
+                  },
+                  '&:disabled': {
+                    background: 'rgba(255,255,255,0.08)',
+                    color: 'rgba(255,255,255,0.3)',
+                  },
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                {isLoading
+                  ? <><CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />Entrando...</>
+                  : 'Entrar'}
+              </Button>
+            </form>
+
+            <Divider sx={{ mt: 3.5, borderColor: 'rgba(255,255,255,0.07)' }} />
+            <Typography sx={{ mt: 2, textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.22)' }}>
+              REGISTRA.PONTO © {new Date().getFullYear()}
+            </Typography>
+          </motion.div>
+        </Box>
+      </Box>
     </Box>
   );
 };

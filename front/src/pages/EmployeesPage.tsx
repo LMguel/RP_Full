@@ -46,7 +46,8 @@ import { Employee } from '../types';
 import EmployeeForm from '../components/EmployeeForm';
 
 const EmployeesPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
+  const isViewer = role === 'VIEWER';
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,13 +283,15 @@ const EmployeesPage: React.FC = () => {
             </p>
           </motion.div>
           
-          <button
-            onClick={() => setFormOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
-          >
-            <AddIcon />
-            Cadastrar Funcionário
-          </button>
+          {!isViewer && (
+            <button
+              onClick={() => setFormOpen(true)}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+            >
+              <AddIcon />
+              Cadastrar Funcionário
+            </button>
+          )}
         </div>
 
         {error && (
@@ -476,17 +479,11 @@ const EmployeesPage: React.FC = () => {
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">
-                            {(() => {
-                              const ia = companySettings?.intervalo_automatico === true || companySettings?.intervalo_automatico === 'true';
-                              if (!ia) {
-                                // Almoço manual: intervalo calculado pelas batidas, não exibir valor fixo
-                                return 'Manual';
-                              }
-                              if (companySettings?.duracao_intervalo != null) {
-                                return `${companySettings.duracao_intervalo} min`;
-                              }
-                              return '-';
-                            })()}
+                            {employee.intervalo_padrao_minutos != null
+                              ? `${employee.intervalo_padrao_minutos} min`
+                              : employee.intervalo_emp != null
+                              ? `${employee.intervalo_emp} min`
+                              : '-'}
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
@@ -498,13 +495,15 @@ const EmployeesPage: React.FC = () => {
                           {employee.ativo === false ? 'Desativado' : 'Ativado'}
                         </TableCell>
                         <TableCell align="center">
-                          <IconButton
-                            onClick={(e) => handleMenuOpen(e, employee)}
-                            size="small"
-                            sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
-                          >
-                            <MoreVertIcon />
-                          </IconButton>
+                          {!isViewer && (
+                            <IconButton
+                              onClick={(e) => handleMenuOpen(e, employee)}
+                              size="small"
+                              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                            >
+                              <MoreVertIcon />
+                            </IconButton>
+                          )}
                         </TableCell>
                       </TableRow>
                       );
@@ -568,11 +567,11 @@ const EmployeesPage: React.FC = () => {
           }
         }}
       >
-        <MenuItem onClick={handleEdit}>
+        <MenuItem onClick={handleEdit} sx={{ color: '#111827' }}>
           <ListItemIcon>
-            <EditIcon fontSize="small" />
+            <EditIcon fontSize="small" sx={{ color: '#374151' }} />
           </ListItemIcon>
-          <ListItemText>Editar</ListItemText>
+          <ListItemText primaryTypographyProps={{ sx: { color: '#111827' } }}>Editar</ListItemText>
         </MenuItem>
 
         <MenuItem onClick={handleDelete} sx={{ color: '#ef4444' }}>

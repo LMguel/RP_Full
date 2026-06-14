@@ -14,13 +14,19 @@ interface AuthContextValue {
   signInFuncionario: (id: string, senha: string) => Promise<FuncionarioUser>;
   signInEmpresa: (usuario: string, senha: string) => Promise<EmpresaUser>;
   signOut: () => void;
+  /** Logout para o botão "Sair" do kiosk: limpa auth mas preserva cache de funcionários
+   *  (IndexedDB) e credenciais salvas — ambos necessários para registros offline e
+   *  para o tablet reconectar automaticamente depois. */
+  signOutKiosk: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({} as AuthContextValue);
 
-async function cleanupOnLogout(companyId?: string): Promise<void> {
-  // 1. Limpar cache de funcionários no IndexedDB
-  try { await clearEmployeeCache(companyId); } catch { /* ignore */ }
+async function cleanupOnLogout(companyId?: string, opts: { preserveCache?: boolean } = {}): Promise<void> {
+  // 1. Cache de funcionários no IndexedDB — preservar quando solicitado (registros offline)
+  if (!opts.preserveCache) {
+    try { await clearEmployeeCache(companyId); } catch { /* ignore */ }
+  }
 
   // 2. Limpar caches de API do service worker (não remover assets PWA)
   if ('caches' in window) {
@@ -57,6 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const companyId = (user as EmpresaUser)?.company_id;
     await cleanupOnLogout(companyId);
+    apiService.setAuthToken(null);
+    setUser(null);
+    setUserType(null);
+    setKioskShouldRestore(false);
+  }, [user]);
+
+  const signOutKiosk = useCallback(async () => {
+    const companyId = (user as EmpresaUser)?.company_id;
+    // preserveCache: true — mantém employees_cache (IndexedDB) e credenciais salvas
+    // para que registros offline pendentes possam sincronizar e o tablet reconecte sozinho
+    await cleanupOnLogout(companyId, { preserveCache: true });
     apiService.setAuthToken(null);
     setUser(null);
     setUserType(null);
@@ -138,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInFuncionario,
       signInEmpresa,
       signOut,
+      signOutKiosk,
     }}>
       {children}
     </AuthContext.Provider>

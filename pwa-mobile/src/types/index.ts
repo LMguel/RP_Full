@@ -177,6 +177,7 @@ export interface RegisterPointResult {
   timestamp?: string;
   ponto_completo?: boolean;
   error?: string;
+  too_soon?: boolean;
 }
 
 export interface CredenciaisFuncionario {

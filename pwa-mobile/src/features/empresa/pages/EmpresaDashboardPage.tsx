@@ -7,14 +7,18 @@ import type { EmpresaUser } from '../../../types';
 
 export default function EmpresaDashboardPage() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user, signOutKiosk } = useAuth();
   const empresa = user as EmpresaUser;
   const { pendingCount, syncStatus, backendAvailable } = useOfflineSync();
 
-  const handleLogout = () => { signOut(); navigate('/'); };
+  const handleLogout = async () => {
+    await signOutKiosk();
+    navigate('/empresa/login', { state: { fromLogout: true } });
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col select-none">
+
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-5">
         <div className="flex items-center justify-between">
@@ -53,7 +57,10 @@ export default function EmpresaDashboardPage() {
             {syncStatus === 'syncing' && (
               <motion.div key="syncing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-blue-500/15 border-blue-500/30 text-blue-300">
-                <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
                 Sincronizando...
               </motion.div>
             )}
@@ -67,58 +74,74 @@ export default function EmpresaDashboardPage() {
         </div>
       </div>
 
-      {/* ── Main Actions ─────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col px-5 py-6 gap-5">
+      {/* ── Main content ─────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col px-5 py-6">
 
-        {/* KIOSK — Primary hero button */}
+        {/* ABRIR CÂMERA — hero principal, toma toda a altura disponível */}
         <motion.button
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, duration: 0.3 }}
-          whileTap={{ scale: 0.98 }}
+          transition={{ delay: 0.05, duration: 0.35 }}
+          whileTap={{ scale: 0.97 }}
           onClick={() => navigate('/kiosk')}
-          className="flex-1 min-h-[220px] w-full bg-gradient-to-br from-emerald-600/30 via-emerald-700/20 to-teal-800/20 border-2 border-emerald-500/50 rounded-3xl p-8 text-left hover:border-emerald-400/80 hover:from-emerald-600/40 active:scale-[0.97] transition-all shadow-2xl shadow-emerald-600/10 group"
+          className="flex-1 w-full relative overflow-hidden rounded-3xl text-left active:scale-[0.97] transition-transform shadow-2xl shadow-emerald-500/20 group"
+          style={{ minHeight: 260 }}
         >
-          <div className="flex flex-col h-full justify-between">
+          {/* Fundo sólido com gradiente vibrante */}
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700" />
+
+          {/* Textura sutil no fundo */}
+          <div className="absolute inset-0 opacity-[0.07]"
+            style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '28px 28px' }} />
+
+          {/* Brilho animado no toque */}
+          <div className="absolute inset-0 bg-white/0 group-active:bg-white/10 transition-colors duration-150" />
+
+          <div className="relative z-10 flex flex-col h-full justify-between p-8">
+            {/* Ícone de câmera */}
             <div className="flex items-start justify-between">
-              <div className="w-20 h-20 bg-emerald-500/25 rounded-2xl flex items-center justify-center group-hover:bg-emerald-500/35 transition-colors shadow-lg">
-                <svg className="w-10 h-10 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-sm">
+                <svg className="w-11 h-11 text-white drop-shadow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                    d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </div>
-              <span className="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full font-semibold tracking-wide">FACIAL</span>
+              <span className="bg-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-full tracking-wide backdrop-blur-sm">
+                RECONHECIMENTO FACIAL
+              </span>
             </div>
+
+            {/* Textos */}
             <div>
-              <p className="text-emerald-300/70 text-base font-medium uppercase tracking-widest mb-1">Registrar Ponto</p>
-              <h2 className="text-white text-4xl font-black leading-tight">Modo Kiosk</h2>
-              <p className="text-slate-400 text-base mt-2">Terminal de reconhecimento facial</p>
+              <p className="text-emerald-100/80 text-sm font-semibold uppercase tracking-widest mb-2">
+                Registrar Ponto
+              </p>
+              <h2 className="text-white font-black leading-none" style={{ fontSize: 52 }}>
+                Abrir<br />Câmera
+              </h2>
+              <p className="text-white/70 text-base mt-3 font-medium">
+                Toque para iniciar o registro facial
+              </p>
             </div>
           </div>
         </motion.button>
 
-        {/* CADASTRAR — Secondary hero button */}
+        {/* Cadastrar funcionário — link discreto, menor e escondido */}
         <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.12, duration: 0.3 }}
-          whileTap={{ scale: 0.98 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
           onClick={() => navigate('/empresa/funcionarios/novo')}
-          className="flex-1 min-h-[200px] w-full bg-gradient-to-br from-blue-600/25 via-blue-700/15 to-indigo-800/15 border-2 border-blue-500/40 rounded-3xl p-8 text-left hover:border-blue-400/70 hover:from-blue-600/35 active:scale-[0.97] transition-all shadow-2xl shadow-blue-600/10 group"
+          className="flex items-center justify-center gap-2 py-5 text-slate-600 hover:text-slate-400 active:text-slate-300 transition-colors text-sm"
         >
-          <div className="flex flex-col h-full justify-between">
-            <div className="w-18 h-18 bg-blue-500/20 rounded-2xl flex items-center justify-center group-hover:bg-blue-500/30 transition-colors shadow-lg w-20 h-20">
-              <svg className="w-10 h-10 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-blue-300/70 text-base font-medium uppercase tracking-widest mb-1">Gestão</p>
-              <h2 className="text-white text-3xl font-black leading-tight">Cadastrar Funcionário</h2>
-              <p className="text-slate-400 text-base mt-2">Novo colaborador com foto facial</p>
-            </div>
-          </div>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+          </svg>
+          Cadastrar funcionário
         </motion.button>
+
       </div>
     </div>
   );

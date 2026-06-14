@@ -23,6 +23,7 @@ import unicodedata
 import re
 from utils.logger import setup_logger
 from utils.response_utils import sanitize_employee, sanitize_employees
+from services.audit_service import log_event as _log_audit
 from utils.registro_normalizer import (
     extrair_employee_id as _norm_emp,
     extrair_data_hora as _norm_dh,
@@ -44,6 +45,14 @@ s3 = boto3.client('s3', region_name=REGIAO)
 routes = Blueprint('routes', __name__)
 
 logger = setup_logger()
+
+
+def _viewer_readonly(payload: dict):
+    """Retorna 403 se o usuário é VIEWER (somente leitura)."""
+    if (payload.get('role') or 'OWNER') == 'VIEWER':
+        return jsonify({'error': 'Permissão negada: perfil viewer é somente leitura'}), 403
+    return None
+
 
 # Função para normalizar string removendo acentos e caracteres especiais
 def normalizar_string(texto):
@@ -183,12 +192,15 @@ def invalidar_registro(registro_id):
         payload = verify_token(token)
         if not payload:
             return jsonify({'error': 'Token inválido'}), 401
-        
+
+        if (payload.get('role') or 'OWNER') == 'VIEWER':
+            return jsonify({'error': 'Permissão negada: perfil viewer é somente leitura'}), 403
+
         company_id = payload.get('company_id')
-        
+
         if not company_id:
             return jsonify({'error': 'Company ID não encontrado no token'}), 400
-        
+
         # Justificativa obrigatória
         data = request.get_json() or {}
         justificativa = (data.get('justificativa') or '').strip()
@@ -235,7 +247,7 @@ def invalidar_registro(registro_id):
                 'employee_id#date_time': composite_key
             })
             if 'Item' not in verify_response:
-                print(f"[INVALIDAR REGISTRO] ❌ Registro não encontrado no DynamoDB")
+                print(f"[INVALIDAR REGISTRO] ERRO: Registro nao encontrado no DynamoDB")
                 return jsonify({'error': 'Registro não encontrado'}), 404
             
             registro_atual = verify_response['Item']
@@ -258,7 +270,16 @@ def invalidar_registro(registro_id):
                     ':user': payload.get('usuario_id', payload.get('email', 'admin'))
                 }
             )
-            print(f"[INVALIDAR REGISTRO] ✅ Registro invalidado com sucesso! Justificativa: {justificativa}")
+            print(f"[INVALIDAR REGISTRO] OK: Registro invalidado. Justificativa: {justificativa}")
+            _log_audit(
+                company_id=company_id,
+                user_id=payload.get('usuario_id', payload.get('email', '')),
+                user_name=payload.get('user_name', payload.get('usuario_id', '')),
+                entity='RECORD', entity_id=registro_id, action='INVALIDATE',
+                before={'status': status_atual, 'data_hora': registro_atual.get('data_hora')},
+                after={'status': 'INVALIDADO', 'justificativa': justificativa},
+                request=request,
+            )
             return jsonify({'success': True, 'message': 'Registro invalidado com sucesso'}), 200
         except Exception:
             import traceback
@@ -331,9 +352,11 @@ def buscar_funcionario(payload, funcionario_id):
 @routes.route('/funcionarios/<funcionario_id>', methods=['PUT'])
 @token_required
 def atualizar_funcionario(payload, funcionario_id):
+    _v = _viewer_readonly(payload)
+    if _v: return _v
     try:
         empresa_id = payload.get('company_id')
-        
+
         if not empresa_id:
             return jsonify({'error': 'Company ID não encontrado no token'}), 400
         
@@ -598,6 +621,9 @@ def excluir_funcionario(funcionario_id):
         if not payload:
             return jsonify({'error': 'Token inválido'}), 401
 
+        if (payload.get('role') or 'OWNER') == 'VIEWER':
+            return jsonify({'error': 'Permissão negada: perfil viewer é somente leitura'}), 403
+
         empresa_id = payload.get('company_id')
 
         if not empresa_id:
@@ -699,6 +725,8 @@ def excluir_funcionario(funcionario_id):
 @routes.route('/cadastrar_funcionario', methods=['POST'])
 @token_required
 def cadastrar_funcionario(payload):
+    _v = _viewer_readonly(payload)
+    if _v: return _v
     try:
         # Suportar tanto FormData (com foto) quanto JSON (sem foto para testes)
         if request.content_type and 'application/json' in request.content_type:
@@ -1129,11 +1157,13 @@ def listar_registros(payload):
                 if not horario_entrada_esperado or not horario_saida_esperado:
                     continue
 
-                # Encontrar entrada e saída do dia
+                # Encontrar entrada e saída do dia — apenas registros ATIVO
                 entrada_reg = None
                 saida_reg = None
-                
+
                 for r in regs_do_dia:
+                    if str(r.get('status', 'ATIVO')).upper() in ('INVALIDADO', 'AJUSTADO'):
+                        continue
                     r_tipo = r.get('type', r.get('tipo', ''))
                     if r_tipo == 'entrada' and not entrada_reg:
                         entrada_reg = r
@@ -1226,10 +1256,6 @@ def listar_registros(payload):
                 data_hora   = _norm_dh(reg)
                 data_hora   = str(data_hora) if data_hora else ''
 
-                # Filtro de segurança (normalizer já aplicou, mas garante status)
-                _rec_status = str(reg.get('status') or 'ATIVO').upper()
-                if _rec_status in ('INVALIDADO', 'AJUSTADO'):
-                    continue  # exclui inválidos da listagem de detalhes
                 if funcionario_id and employee_id.lower() != funcionario_id.lower():
                     continue
                 if not funcionario_id and _fids_low and employee_id.lower() not in _fids_low:
@@ -1252,6 +1278,11 @@ def listar_registros(payload):
                 if tipo_registro in ('saída', 'saida'):
                     horas_extras_minutos = status_calculado.get('horas_extras_minutos', 0)
                 composite_key = str(reg.get('employee_id#date_time') or '')
+                _status = reg.get('status', 'ATIVO')
+                # Normaliza campos de auditoria: invalidar_registro usa invalidado_*, ajustar_registro usa ajustado_*
+                _invalidado_por = reg.get('invalidado_por', '') or reg.get('ajustado_por', '')
+                _invalidado_em  = reg.get('invalidado_em', '')  or reg.get('ajustado_em', '')
+                _justificativa  = reg.get('justificativa', '') or reg.get('justificativa_ajuste', '') or reg.get('motivo', '')
                 registro_formatado = {
                     'registro_id': f"{reg.get('company_id', '')}_{composite_key or f'{employee_id}#{data_hora}'}",
                     'funcionario_id': employee_id,
@@ -1260,13 +1291,15 @@ def listar_registros(payload):
                     'tipo': tipo_registro,
                     'method': metodo_registro,
                     'horas_extras_minutos': horas_extras_minutos,
-                    'status': reg.get('status', 'ATIVO'),
-                    'justificativa': reg.get('justificativa', ''),
+                    'status': _status,
+                    'justificativa': _justificativa,
                     'registro_original_id': reg.get('registro_original_id', ''),
                     'registro_original_key': reg.get('registro_original_key', ''),
-                    'invalidado_em': reg.get('invalidado_em', ''),
-                    'invalidado_por': reg.get('invalidado_por', ''),
+                    'ajuste_id': reg.get('ajuste_id', ''),
+                    'invalidado_em': _invalidado_em,
+                    'invalidado_por': _invalidado_por,
                     'ajustado_por': reg.get('ajustado_por', ''),
+                    'ajustado_em': reg.get('ajustado_em', ''),
                     'criado_por': reg.get('criado_por', ''),
                     'criado_em': reg.get('criado_em', ''),
                 }
@@ -1946,15 +1979,18 @@ def ajustar_registro(payload, registro_id):
     """
     if request.method == 'OPTIONS':
         return '', 200
-    
+
+    _v = _viewer_readonly(payload)
+    if _v: return _v
+
     data = request.get_json()
     if not data:
         return jsonify({'error': 'JSON inválido ou ausente'}), 400
-    
+
     justificativa = (data.get('justificativa') or '').strip()
     if not justificativa:
         return jsonify({'error': 'Justificativa é obrigatória para ajustar um registro'}), 400
-    
+
     nova_data_hora = data.get('data_hora')  # Nova data/hora corrigida
     novo_tipo = data.get('tipo')  # Tipo pode mudar (entrada/saída)
     
@@ -2002,26 +2038,37 @@ def ajustar_registro(payload, registro_id):
         employee_id = registro_original.get('employee_id')
         tipo_final = novo_tipo or registro_original.get('type', registro_original.get('tipo', 'entrada'))
         
-        # 1. Marcar registro original como AJUSTADO
+        # 1. Marcar registro original como INVALIDADO (preservado no histórico)
+        _caller = payload.get('usuario_id', payload.get('email', 'admin'))
+        _now = datetime.now().isoformat()
+        _ajuste_id = str(uuid.uuid4())
+
         tabela_registros.update_item(
             Key={
                 'company_id': company_id,
                 'employee_id#date_time': composite_key
             },
-            UpdateExpression='SET #status = :status, ajustado_em = :now, ajustado_por = :user, justificativa_ajuste = :justificativa',
+            UpdateExpression=(
+                'SET #status = :status, '
+                'invalidado_por = :user, invalidado_em = :now, '
+                'ajustado_por = :user, ajustado_em = :now, '
+                'justificativa_ajuste = :justificativa, motivo = :justificativa, '
+                'ajuste_id = :ajuste_id'
+            ),
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
-                ':status': 'AJUSTADO',
-                ':now': datetime.now().isoformat(),
-                ':user': payload.get('usuario_id', payload.get('email', 'admin')),
-                ':justificativa': justificativa
+                ':status': 'INVALIDADO',
+                ':now': _now,
+                ':user': _caller,
+                ':justificativa': justificativa,
+                ':ajuste_id': _ajuste_id,
             }
         )
-        
+
         # 2. Criar novo registro vinculado ao original
         novo_id = str(uuid.uuid4())
         novo_sort_key = f"{employee_id}#{nova_data_hora}"
-        
+
         novo_registro = {
             'company_id': company_id,
             'employee_id#date_time': novo_sort_key,
@@ -2035,15 +2082,27 @@ def ajustar_registro(payload, registro_id):
             'justificativa': justificativa,
             'registro_original_id': registro_original.get('registro_id', ''),
             'registro_original_key': composite_key,
-            'ajustado_por': payload.get('usuario_id', payload.get('email', 'admin')),
-            'criado_em': datetime.now().isoformat(),
+            'ajuste_id': _ajuste_id,
+            'ajustado_por': _caller,
+            'ajustado_em': _now,
+            'criado_em': _now,
             'funcionario_nome': registro_original.get('funcionario_nome', ''),
             'empresa_nome': registro_original.get('empresa_nome', '')
         }
         
         tabela_registros.put_item(Item=novo_registro)
-        
-        print(f"[AJUSTE REGISTRO] ✅ Registro original {composite_key} marcado como AJUSTADO. Novo registro criado: {novo_sort_key}")
+
+        _log_audit(
+            company_id=company_id,
+            user_id=payload.get('usuario_id', payload.get('email', '')),
+            user_name=payload.get('user_name', payload.get('usuario_id', '')),
+            entity='RECORD', entity_id=registro_id, action='ADJUST',
+            before={'data_hora': registro_original.get('data_hora'), 'type': registro_original.get('type', registro_original.get('tipo')), 'status': 'ATIVO'},
+            after={'data_hora': nova_data_hora, 'type': tipo_final, 'status': 'ATIVO', 'justificativa': justificativa},
+            request=request,
+        )
+
+        print(f"[AJUSTE REGISTRO] OK: original {composite_key} -> INVALIDADO. Novo: {novo_sort_key}")
         return jsonify({
             'success': True,
             'message': 'Registro ajustado com sucesso',
@@ -2058,7 +2117,8 @@ def ajustar_registro(payload, registro_id):
 @routes.route('/registrar_ponto_manual', methods=['POST'])
 @token_required
 def registrar_ponto_manual(payload):
-    # ✅ CORREÇÃO: Usar request.get_json() em vez de request.data
+    _v = _viewer_readonly(payload)
+    if _v: return _v
     data = request.get_json()
     if not data:
         return jsonify({'mensagem': 'JSON inválido ou ausente'}), 400
@@ -2106,7 +2166,7 @@ def registrar_ponto_manual(payload):
         except Exception:
             count_ativos = 0
         tipo_map = {0: 'entrada', 1: 'saida_almoco', 2: 'retorno_almoco', 3: 'saída'}
-        tipo = tipo_map.get(count_ativos, 'entrada')
+        tipo = tipo_map.get(count_ativos, 'revisao' if count_ativos >= 4 else 'entrada')
 
     id_registro = str(uuid.uuid4())
 
@@ -2281,6 +2341,17 @@ def registrar_ponto_manual(payload):
     
     # Salva no DynamoDB
     tabela_registros.put_item(Item=registro)
+
+    _log_audit(
+        company_id=empresa_id,
+        user_id=payload.get('usuario_id', payload.get('email', '')),
+        user_name=payload.get('user_name', payload.get('usuario_id', '')),
+        entity='RECORD', entity_id=id_registro, action='CREATE',
+        before=None,
+        after={'employee_id': employee_id, 'data_hora': data_hora, 'type': tipo, 'method': 'MANUAL', 'justificativa': justificativa},
+        request=request,
+    )
+
     return jsonify({'mensagem': f'Ponto manual registrado como {tipo} com sucesso'}), 200
 
 @routes.route('/registrar_ferias', methods=['POST'])

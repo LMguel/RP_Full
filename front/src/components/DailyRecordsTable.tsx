@@ -10,6 +10,7 @@ import {
   TableRow,
   Paper,
   CircularProgress,
+  Chip,
 } from '@mui/material';
 import { AccessTime as AccessTimeIcon } from '@mui/icons-material';
 import UnifiedRecordsFilter from './UnifiedRecordsFilter';
@@ -80,6 +81,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
   const currentDate = new Date();
   const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+  const todayISO = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(currentDate.getDate()).padStart(2,'0')}`;
 
   // Tipo simplificado para filtro
   type EmployeeOption = { id: string; nome: string; cargo?: string };
@@ -158,22 +160,32 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       console.log('[DailyRecordsTable] summaries recebidos:', response.summaries.length);
       console.log('[DailyRecordsTable] Primeiro item:', response.summaries[0]);
 
-      const normalized = response.summaries.map((s: any) => ({
-        employee_id: s.employee_id || s.funcionario_id || s.id,
-        employee_name: s.employee_name || s.nome || s.name,
-        date: s.date || s.data,
-        first_entry_time: s.first_entry_time || s.hora_entrada || s.actual_start,
-        intervalo_saida: s.intervalo_saida || null,
-        intervalo_volta: s.intervalo_volta || null,
-        intervalo_automatico: s.intervalo_automatico ?? false,
-        last_exit_time: s.last_exit_time || s.hora_saida || s.actual_end,
-        worked_hours: s.worked_hours || s.horas_trabalhadas || 0,
-        worked_hours_str: s.horas_trabalhadas_str || null,
-        horas_extras: s.horas_extras || 0,
-        horas_extras_str: s.horas_extras_str || null,
-        intervalo_descontado: s.intervalo_descontado ?? 0,
-        raw: s,
-      }));
+      const normalized = response.summaries.map((s: any) => {
+        const extrasMin = Number(s.horas_extras_min ?? s.horas_extras ?? 0);
+        const bancoMin  = s.banco_horas_dia != null ? Number(s.banco_horas_dia) : null;
+        return {
+          employee_id: s.employee_id || s.funcionario_id || s.id,
+          employee_name: s.employee_name || s.nome || s.name,
+          date: s.date || s.data,
+          first_entry_time: s.first_entry_time || s.hora_entrada || s.actual_start,
+          intervalo_saida: s.intervalo_saida || null,
+          intervalo_volta: s.intervalo_volta || null,
+          intervalo_automatico: s.intervalo_automatico ?? false,
+          last_exit_time: s.last_exit_time || s.hora_saida || s.actual_end,
+          worked_hours: s.worked_hours || s.horas_trabalhadas || 0,
+          worked_hours_str: s.horas_trabalhadas_str || null,
+          horas_extras_min: extrasMin,
+          horas_extras_str: extrasMin > 0 ? (s.horas_extras_str || null) : null,
+          atraso_minutos: Number(s.atraso_minutos ?? 0),
+          banco_horas_dia: bancoMin,
+          banco_horas_dia_str: s.banco_horas_dia_str ?? null,
+          intervalo_descontado: s.intervalo_descontado ?? 0,
+          horas_previstas_str: s.horas_previstas_str ?? null,
+          horas_previstas_min: s.horas_previstas_min ?? null,
+          horario_variavel: s.horario_variavel ?? false,
+          raw: s,
+        };
+      });
 
       console.log('[DailyRecordsTable] Normalized:', normalized.length, normalized[0]);
       setSummaries(normalized);
@@ -256,19 +268,23 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       return;
     }
     const rows = summaries.map(s => {
-      const sched = scheduleMap[String(s.employee_id)];
-      const previstoMin = sched ? getExpectedMinutesForDate(s.date, sched) : null;
-      const previsto = previstoMin !== null ? toHHMM(previstoMin) : '-';
+      const isToday = (s.date || '') === todayISO;
+      // Previsto vem do backend (fonte única). Variável não tem previsto.
+      const previsto = isToday ? '—' : (s.horario_variavel ? '—' : (s.horas_previstas_str || '-'));
+      const rawStatus = isToday ? 'Em processamento' : String(s.raw?.status || '—');
       return {
         Data: formatDateLabel(s.date),
         Funcionário: s.employee_name,
+        Status: rawStatus,
         Entrada: s.first_entry_time || '-',
         'Saída Intervalo': s.intervalo_saida || (s.intervalo_automatico ? '*' : '-'),
         'Volta Intervalo': s.intervalo_volta || (s.intervalo_automatico ? '*' : '-'),
         Saída: s.last_exit_time || '-',
-        'Horas Trabalhadas': s.worked_hours_str || '-',
+        'Horas Trabalhadas': isToday ? '—' : (s.worked_hours_str || '-'),
         'Horas Previstas': previsto,
-        'Hora Extra': s.horas_extras_str || '-',
+        'Hora Extra': isToday ? '—' : (s.horas_extras_str ? `+${s.horas_extras_str}` : '-'),
+        'Atrasos': isToday ? '—' : (s.atraso_minutos > 0 ? `-${toHHMM(s.atraso_minutos)}` : '-'),
+        'Banco Dia': isToday ? '—' : (s.banco_horas_dia == null ? '-' : `${s.banco_horas_dia >= 0 ? '+' : '-'}${s.banco_horas_dia_str || toHHMM(s.banco_horas_dia)}`),
       };
     });
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -311,15 +327,18 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
         <Table size="small">
           <TableHead>
             <TableRow>
-              {['Data', 'Funcionário', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas', 'H. Extra'].map((h, i) => (
-                <TableCell key={h} align={i < 2 ? 'left' : 'center'} sx={{ fontWeight: 700, color: 'rgba(255,255,255,0.7)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid rgba(255,255,255,0.1)', py: 1.5, px: i < 2 ? 2 : 1, whiteSpace: 'nowrap' }}>{h}</TableCell>
+              {['Data', 'Funcionário', 'Status', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas', 'H. Extra', 'Atrasos', 'Banco Dia'].map((h, i) => (
+                <TableCell key={h} align={i < 2 ? 'left' : 'center'}
+                  sx={{ fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid rgba(255,255,255,0.1)', py: 1.5, px: i < 2 ? 2 : 1, whiteSpace: 'nowrap',
+                    color: h === 'H. Extra' ? '#a78bfa' : h === 'Atrasos' ? '#f59e0b' : h === 'Banco Dia' ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.7)',
+                  }}>{h}</TableCell>
               ))}
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={12} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={32} sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                   <Typography variant="body2" sx={{ mt: 2, color: 'rgba(255, 255, 255, 0.6)' }}>
                     Carregando registros...
@@ -328,7 +347,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               </TableRow>
             ) : summaries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={12} align="center" sx={{ py: 6 }}>
                   <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
                     Nenhum registro encontrado
                   </Typography>
@@ -338,17 +357,32 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
               summaries
                 .filter(s => !selectedEmployee || s.employee_id === selectedEmployee.id)
                 .map(s => {
-                  const sched = scheduleMap[String(s.employee_id)];
-                  const previstoMin = sched ? getExpectedMinutesForDate(s.date, sched) : null;
-                  const previstoStr = previstoMin !== null ? toHHMM(previstoMin) : null;
+                  const isToday = (s.date || '') === todayISO;
+                  // Previsto vem do BACKEND (fonte única — mesma lógica do espelho)
+                  const previstoStr = s.horario_variavel ? null : (s.horas_previstas_str || null);
                   const dateFmt = formatDate(s.date);
                   const cellSx = { py: 1, px: 1 };
                   const monoSx = { fontFamily: 'monospace', fontSize: 12 };
+
+                  // Status chip
+                  const rawStatus = isToday ? 'EM_PROCESSAMENTO' : String(s.raw?.status || '').toUpperCase();
+                  const statusCfg: Record<string, { label: string; color: string; bg: string; border: string }> = {
+                    PRESENTE:         { label: '✓ Presente',       color: '#10b981', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.35)' },
+                    ATRASO:           { label: '! Atraso',          color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.35)' },
+                    INCOMPLETO:       { label: '⚠ Incompleto',      color: '#eab308', bg: 'rgba(234,179,8,0.12)',   border: 'rgba(234,179,8,0.35)' },
+                    FALTA:            { label: '✗ Falta',           color: '#ef4444', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.35)' },
+                    FERIADO:          { label: 'F Feriado',         color: '#facc15', bg: 'rgba(250,204,21,0.12)',  border: 'rgba(250,204,21,0.35)' },
+                    FERIAS:           { label: '🏖 Férias/Folga',   color: '#a78bfa', bg: 'rgba(139,92,246,0.12)',  border: 'rgba(139,92,246,0.35)' },
+                    ATESTADO:         { label: '🩺 Atestado',       color: '#2dd4bf', bg: 'rgba(20,184,166,0.12)',  border: 'rgba(20,184,166,0.35)' },
+                    EM_PROCESSAMENTO: { label: '⏳ Processando',    color: 'rgba(148,163,184,0.85)', bg: 'rgba(100,116,139,0.10)', border: 'rgba(100,116,139,0.32)' },
+                  };
+                  const sc = statusCfg[rawStatus] || { label: '—', color: 'rgba(255,255,255,0.3)', bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.12)' };
+
                   return (
-                  <TableRow key={`${s.employee_id}-${s.date}`} sx={{ '& td': { borderBottom: '1px solid rgba(255,255,255,0.06)' }, '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}>
+                  <TableRow key={`${s.employee_id}-${s.date}`} sx={{ '& td': { borderBottom: '1px solid rgba(255,255,255,0.06)' }, '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' }, ...(isToday && { background: 'rgba(100,116,139,0.04)' }) }}>
                     {/* Data */}
                     <TableCell sx={{ py: 1, px: 2 }}>
-                      <Typography variant="body2" fontWeight={700} sx={{ color: 'white', fontSize: 12, whiteSpace: 'nowrap' }}>{dateFmt.full}</Typography>
+                      <Typography variant="body2" fontWeight={700} sx={{ color: isToday ? 'rgba(148,163,184,0.8)' : 'white', fontSize: 12, whiteSpace: 'nowrap' }}>{dateFmt.full}</Typography>
                       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', textTransform: 'capitalize', fontSize: 10 }}>{dateFmt.weekday}</Typography>
                     </TableCell>
                     {/* Funcionário */}
@@ -358,6 +392,18 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                           '&:hover': { color: 'white', textDecoration: 'underline' } }}>
                         {s.employee_name}
                       </Typography>
+                    </TableCell>
+                    {/* Status */}
+                    <TableCell align="center" sx={{ py: 1, px: 1 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
+                        <Chip label={sc.label} size="small"
+                          onClick={rawStatus === 'ATESTADO' && s.raw?.atestado_url ? () => window.open(s.raw.atestado_url, '_blank') : undefined}
+                          sx={{ height: 18, fontSize: 10, fontWeight: 700, background: sc.bg, border: `1px solid ${sc.border}`, color: sc.color, cursor: rawStatus === 'ATESTADO' && s.raw?.atestado_url ? 'pointer' : 'default' }} />
+                        {rawStatus === 'ATESTADO' && s.raw?.atestado_url && (
+                          <Typography sx={{ fontSize: 9, color: 'rgba(45,212,191,0.7)', textDecoration: 'underline', cursor: 'pointer' }}
+                            onClick={() => window.open(s.raw.atestado_url, '_blank')}>Ver doc</Typography>
+                        )}
+                      </Box>
                     </TableCell>
                     {/* Entrada */}
                     <TableCell align="center" sx={cellSx}>
@@ -385,17 +431,49 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
                     </TableCell>
                     {/* Horas Trabalhadas */}
                     <TableCell align="center" sx={cellSx}>
-                      <Typography variant="body2" sx={{ ...monoSx, color: 'white', fontWeight: 700 }}>{s.worked_hours_str || '—'}</Typography>
+                      <Typography variant="body2" sx={{ ...monoSx, color: isToday ? 'rgba(255,255,255,0.3)' : 'white', fontWeight: isToday ? 400 : 700 }}>
+                        {isToday ? '—' : (s.worked_hours_str || '—')}
+                      </Typography>
                     </TableCell>
                     {/* Horas Previstas */}
                     <TableCell align="center" sx={cellSx}>
-                      <Typography variant="body2" sx={{ ...monoSx, color: 'rgba(255,255,255,0.5)' }}>{previstoStr || '—'}</Typography>
+                      <Typography variant="body2" sx={{ ...monoSx, color: 'rgba(255,255,255,0.5)' }}>
+                        {isToday ? '—' : (previstoStr || '—')}
+                      </Typography>
                     </TableCell>
                     {/* Hora Extra */}
                     <TableCell align="center" sx={cellSx}>
-                      <Typography variant="body2" sx={{ ...monoSx, color: s.horas_extras_str ? '#4ade80' : 'rgba(255,255,255,0.3)', fontWeight: s.horas_extras_str ? 700 : 400 }}>
-                        {s.horas_extras_str ? `+${s.horas_extras_str}` : '—'}
-                      </Typography>
+                      {isToday ? (
+                        <Typography variant="body2" sx={{ ...monoSx, color: 'rgba(255,255,255,0.25)' }}>—</Typography>
+                      ) : (
+                        <Typography variant="body2" sx={{ ...monoSx, color: s.horas_extras_str ? '#4ade80' : 'rgba(255,255,255,0.3)', fontWeight: s.horas_extras_str ? 700 : 400 }}>
+                          {s.horas_extras_str ? `+${s.horas_extras_str}` : '—'}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    {/* Atrasos */}
+                    <TableCell align="center" sx={cellSx}>
+                      {isToday ? (
+                        <Typography variant="body2" sx={{ ...monoSx, color: 'rgba(255,255,255,0.25)' }}>—</Typography>
+                      ) : (
+                        <Typography variant="body2" sx={{ ...monoSx, color: s.atraso_minutos > 0 ? '#f59e0b' : 'rgba(255,255,255,0.3)', fontWeight: s.atraso_minutos > 0 ? 700 : 400 }}>
+                          {s.atraso_minutos > 0 ? `-${toHHMM(s.atraso_minutos)}` : '—'}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    {/* Banco Dia */}
+                    <TableCell align="center" sx={cellSx}>
+                      {isToday ? (
+                        <Typography variant="body2" sx={{ ...monoSx, color: 'rgba(255,255,255,0.25)' }}>—</Typography>
+                      ) : s.banco_horas_dia == null ? (
+                        <Typography variant="body2" sx={{ ...monoSx, color: 'rgba(255,255,255,0.25)' }}>—</Typography>
+                      ) : (
+                        <Typography variant="body2" sx={{ ...monoSx,
+                          color: s.banco_horas_dia > 0 ? '#4ade80' : s.banco_horas_dia < 0 ? '#f87171' : 'rgba(255,255,255,0.4)',
+                          fontWeight: s.banco_horas_dia !== 0 ? 700 : 400 }}>
+                          {`${s.banco_horas_dia >= 0 ? '+' : '-'}${s.banco_horas_dia_str || toHHMM(s.banco_horas_dia)}`}
+                        </Typography>
+                      )}
                     </TableCell>
                   </TableRow>
                   );

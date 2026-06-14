@@ -377,6 +377,27 @@ def registrar_ponto_facial(payload):
             ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or ultimo.get('tipo_registro', '')).lower()
             tipo = 'entrada' if ultimo_tipo in ('saida', 'saída', 'saida_almoco') else 'saida'
 
+            # Bloquear registro se o último foi há menos de 5 minutos (evita duplo-clique por esquecimento)
+            ultimo_ts_str = str(ultimo.get('timestamp') or ultimo.get('data_hora') or '')
+            if ultimo_ts_str:
+                try:
+                    if 'T' in ultimo_ts_str:
+                        ultimo_dt = datetime.fromisoformat(ultimo_ts_str.replace('Z', '+00:00'))
+                        if ultimo_dt.tzinfo is None:
+                            ultimo_dt = TZ_SP.localize(ultimo_dt)
+                    else:
+                        ultimo_dt = datetime.strptime(ultimo_ts_str[:19], '%Y-%m-%d %H:%M:%S')
+                        ultimo_dt = TZ_SP.localize(ultimo_dt)
+                    diff_min = (agora - ultimo_dt).total_seconds() / 60
+                    if diff_min < 5:
+                        return jsonify({
+                            'success': False,
+                            'too_soon': True,
+                            'error': 'Você já registrou em menos de 5 minutos',
+                        }), 200
+                except Exception as e_ts:
+                    print(f"[FACIAL] Aviso ao verificar intervalo mínimo: {e_ts}")
+
         tipo_label = {'entrada': 'Entrada', 'saida': 'Saída', 'saída': 'Saída'}.get(tipo, tipo)
 
         timestamp_iso = agora.isoformat()

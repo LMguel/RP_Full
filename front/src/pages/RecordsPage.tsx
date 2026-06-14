@@ -56,29 +56,58 @@ interface EmployeeSummary {
 
 const _DOW_KEYS: WeekdayKey[] = ['sun','mon','tue','wed','thu','fri','sat'];
 
-/** Conta dias úteis esperados no período para um funcionário. */
-function calcDiasEsperados(emp: Employee, start: string, end: string): number {
+/** Conta dias úteis esperados no período para um funcionário, excluindo feriados. */
+function calcDiasEsperados(emp: Employee, start: string, end: string, holidays: Set<string> = new Set(), todayISO: string = ''): number {
   if (!emp.horario_entrada || !emp.horario_saida) return 0;
   const sDate = new Date(start + 'T12:00:00');
   const eDate = new Date(end + 'T12:00:00');
   let count = 0;
   for (const d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (todayISO && iso >= todayISO) continue; // EM_PROCESSAMENTO — hoje e futuro não contam
+    if (holidays.has(iso)) continue;
     const key = _DOW_KEYS[d.getDay()];
     if (emp.custom_schedule) {
       const ds = (emp.custom_schedule as WeeklyScheduleMap)[key];
       if (ds && ds.active !== false && ds.start && ds.end) count++;
     } else {
-      // Fallback: Seg-Sex
       if (d.getDay() >= 1 && d.getDay() <= 5) count++;
     }
   }
   return count;
 }
 
+const _parseHHMM = (s: string) => { const [h, m] = (s || '').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+
+/** Calcula crédito de minutos para feriados que caem em dias úteis do funcionário. */
+function calcFeriadosCredit(emp: Employee, start: string, end: string, holidays: Set<string>): number {
+  if (!emp.horario_entrada || !emp.horario_saida || holidays.size === 0) return 0;
+  const todayISO = new Date().toISOString().split('T')[0];
+  let credit = 0;
+  for (const iso of holidays) {
+    if (iso < start || iso > end || iso >= todayISO) continue; // hoje = EM_PROCESSAMENTO
+    const dow = new Date(iso + 'T12:00:00').getDay();
+    const key = _DOW_KEYS[dow];
+    let isWorkday = false;
+    if (emp.custom_schedule) {
+      const ds = (emp.custom_schedule as WeeklyScheduleMap)[key];
+      isWorkday = !!(ds && ds.active !== false && ds.start && ds.end);
+    } else {
+      isWorkday = dow >= 1 && dow <= 5;
+    }
+    if (isWorkday) {
+      const intervalo = (emp.intervalo_padrao_minutos != null) ? Number(emp.intervalo_padrao_minutos) : 60;
+      credit += Math.max(0, _parseHHMM(emp.horario_saida!) - _parseHHMM(emp.horario_entrada!) - intervalo);
+    }
+  }
+  return credit;
+}
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 const RecordsSummaryPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
+  const isViewer = role === 'VIEWER';
   const navigate = useNavigate();
   type EmployeeOption = { id: string; nome: string; cargo?: string };
 
@@ -102,8 +131,9 @@ const RecordsSummaryPage: React.FC = () => {
   const [snackbarOpen, setSnackbarOpen]       = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success'|'error'|'warning'|'info'>('success');
-  const [formOpen, setFormOpen]   = useState(false);
+  const [formOpen, setFormOpen]     = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [processingCount, setProcessingCount] = useState(0);
 
   // Dados da empresa (para Excel)
   const [empresaNome, setEmpresaNome] = useState('');
@@ -126,7 +156,7 @@ const RecordsSummaryPage: React.FC = () => {
   const getFirstDayOfMonth  = (ym: string) => { const [y,m]=ym.split('-').map(Number); return `${y}-${String(m).padStart(2,'0')}-01`; };
   const getLastDayOfMonth   = (ym: string) => { const [y,m]=ym.split('-').map(Number); const l=new Date(y,m,0).getDate(); return `${y}-${String(m).padStart(2,'0')}-${String(l).padStart(2,'0')}`; };
   const getCurrentMonth     = () => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; };
-  const getMonthFromDate    = (s: string) => { if(!s) return ''; const d=new Date(s); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
+  const getMonthFromDate    = (s: string) => s ? s.substring(0, 7) : '';
   const showSnackbar = (msg: string, sev: typeof snackbarSeverity) => { setSnackbarMessage(msg); setSnackbarSeverity(sev); setSnackbarOpen(true); };
 
   // ── Buscar dados ──────────────────────────────────────────────────────────────
@@ -146,20 +176,48 @@ const RecordsSummaryPage: React.FC = () => {
       if (dateRange.end_date)   params.end_date   = dateRange.end_date;
       if (selectedEmployee?.id) params.employee_id = selectedEmployee.id;
 
-      // Busca paralela: summaries + todos os funcionários ativos
-      const [dailyResp, empResp] = await Promise.all([
+      // Busca paralela: summaries + funcionários + configurações
+      const startYear = (dateRange.start_date || '').split('-')[0] || String(new Date().getFullYear());
+      const [dailyResp, empResp, cfgResp] = await Promise.all([
         apiService.get('/api/registros-diarios', params),
         apiService.getEmployees(),
+        apiService.get('/api/configuracoes'),
       ]);
+
+      // Montar set de feriados ativos no período
+      const uf = cfgResp?.empresa_uf || '';
+      let feriadosRaw: any[] = [];
+      try {
+        feriadosRaw = await apiService.get('/api/feriados', { ano: startYear, uf });
+      } catch { /* sem feriados */ }
+      const holidaySet = new Set<string>(
+        (Array.isArray(feriadosRaw) ? feriadosRaw : [])
+          .filter((h: any) => h?.active !== false && h?.ativo !== false)
+          .map((h: any) => String(h?.date || h?.data || ''))
+          .filter(Boolean)
+      );
 
       const dailyList: any[] = dailyResp?.summaries || [];
       const allEmps: Employee[] = empResp?.funcionarios || [];
 
-      // Agrupar dias por employee_id
+      // Hoje — dias em processamento nunca entram nos indicadores oficiais
+      const _n = new Date();
+      const todayISO = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
+
+      // Contar funcionários com registros hoje (para o banner informativo)
+      const empWithTodayActivity = new Set<string>();
+      for (const day of dailyList) {
+        const dayDate = String(day.data || day.date || '');
+        if (dayDate === todayISO) empWithTodayActivity.add(String(day.employee_id || ''));
+      }
+      setProcessingCount(empWithTodayActivity.size);
+
+      // Agrupar dias por employee_id — EXCLUINDO hoje
       const byEmpDays: Record<string, any[]> = {};
       for (const day of dailyList) {
         const empId = String(day.employee_id || '');
-        if (!empId) continue;
+        const dayDate = String(day.data || day.date || '');
+        if (!empId || dayDate === todayISO) continue; // hoje = EM_PROCESSAMENTO
         byEmpDays[empId] = byEmpDays[empId] || [];
         byEmpDays[empId].push(day);
       }
@@ -188,11 +246,25 @@ const RecordsSummaryPage: React.FC = () => {
             }
           }
 
-          // Dias esperados e estimativa de faltas (apenas jornada fixa)
+          // Crédito de feriados (igualar ao espelho): feriado = trabalhado + previsto
+          if (!variavel) {
+            const ferCredit = calcFeriadosCredit(
+              emp,
+              dateRange.start_date || currentMonthStart.toISOString().split('T')[0],
+              dateRange.end_date   || currentMonthEnd.toISOString().split('T')[0],
+              holidaySet,
+            );
+            minTrabalhados += ferCredit;
+            minPrevistos   += ferCredit;
+          }
+
+          // Dias esperados e estimativa de faltas (excluindo feriados)
           const diasEsperados = variavel ? 0 : calcDiasEsperados(
             emp,
             dateRange.start_date || currentMonthStart.toISOString().split('T')[0],
             dateRange.end_date   || currentMonthEnd.toISOString().split('T')[0],
+            holidaySet,
+            todayISO,
           );
           const faltas = variavel ? 0 : Math.max(0, diasEsperados - presentes);
 
@@ -310,6 +382,11 @@ const RecordsSummaryPage: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleFormClose = () => {
+    setFormOpen(false);
+    buscarRegistros();
   };
 
   // ── Cards e filtros ───────────────────────────────────────────────────────────
@@ -538,14 +615,31 @@ const RecordsSummaryPage: React.FC = () => {
         <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5 }}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
             <h1 className="text-3xl font-bold text-white">Espelho De Ponto</h1>
-            <button
-              onClick={() => setFormOpen(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
-            >
-              + Adicionar Registro Manual
-            </button>
+            {!isViewer && (
+              <button
+                onClick={() => setFormOpen(true)}
+                className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+              >
+                + Adicionar Registro Manual
+              </button>
+            )}
           </div>
         </motion.div>
+
+        {/* Banner — Dia em processamento */}
+        {!loading && processingCount > 0 && (
+          <motion.div initial={{ opacity:0, y:-8 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.35 }}>
+            <Alert
+              icon={<span style={{ fontSize:16 }}>⏳</span>}
+              severity="info"
+              sx={{ mb:2, background:'rgba(100,116,139,0.10)', border:'1px solid rgba(100,116,139,0.28)', color:'rgba(203,213,225,0.9)', '& .MuiAlert-icon':{ color:'rgba(148,163,184,0.8)' }, borderRadius:2, py:0.75 }}
+            >
+              <strong>{processingCount} funcionário{processingCount !== 1 ? 's' : ''}</strong> com registros hoje —
+              {' '}dia atual em processamento e <strong>não incluído</strong> nos indicadores oficiais.
+              Os dados serão consolidados amanhã.
+            </Alert>
+          </motion.div>
+        )}
 
         {/* Cards de resumo */}
         {!loading && (
@@ -657,7 +751,10 @@ const RecordsSummaryPage: React.FC = () => {
                           key={s.employee_id}
                           hover
                           sx={{ cursor:'pointer', '& td':{ borderBottom:'1px solid rgba(255,255,255,0.06)' }, '&:hover':{ background:'rgba(255,255,255,0.04)' }, borderLeft: isSemReg ? '3px solid #ef4444' : s.statusPeriodo === 'INCOMPLETO' ? '3px solid #f59e0b' : 'none' }}
-                          onClick={() => navigate(`/records/employee/${s.employee_id}/${encodeURIComponent(s.funcionario_nome)}`)}
+                          onClick={() => {
+                            const month = selectedMonth || (dateRange.start_date ? dateRange.start_date.substring(0, 7) : '');
+                            navigate(`/records/employee/${s.employee_id}/${encodeURIComponent(s.funcionario_nome)}${month ? `?month=${month}` : ''}`);
+                          }}
                         >
                           {/* Funcionário */}
                           <TableCell sx={{ py:1.5, pl:2 }}>
@@ -751,7 +848,7 @@ const RecordsSummaryPage: React.FC = () => {
 
         <TimeRecordForm
           open={formOpen}
-          onClose={() => setFormOpen(false)}
+          onClose={handleFormClose}
           onSubmit={handleSaveRecord}
           loading={submitting}
           employees={employees}

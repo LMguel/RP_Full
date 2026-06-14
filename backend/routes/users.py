@@ -13,11 +13,30 @@ from flask import Blueprint, request, jsonify
 import boto3
 import os
 import bcrypt
+import decimal
+import json
+import traceback
+import logging
 from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from utils.auth import token_required, require_permission
 from services.permissions import ALLOWED_ROLES_FOR_NEW, ALL_PERMISSIONS, calculate_permissions
 from services.audit_service import log_event
+
+logger = logging.getLogger(__name__)
+
+
+def _to_json_safe(obj):
+    """Converte tipos não-serializáveis do DynamoDB (Decimal, set) para JSON."""
+    if isinstance(obj, decimal.Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, dict):
+        return {k: _to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_json_safe(i) for i in obj]
+    return obj
 
 users_routes = Blueprint('users_routes', __name__)
 
@@ -121,7 +140,7 @@ def create_user(payload):
 
     log_event(
         company_id=company_id, user_id=caller_id,
-        user_name=payload.get('empresa_nome', ''),
+        user_name=payload.get('user_name', payload.get('usuario_id', '')),
         entity='USER', entity_id=user_id, action='CREATE',
         before=None, after={'user_id': user_id, 'role': role, 'name': name},
         request=request,
@@ -140,7 +159,15 @@ def update_user(payload, target_user_id):
         return '', 200
 
     company_id = payload.get('company_id')
-    resp = _table_users.get_item(Key={'company_id': company_id, 'user_id': target_user_id})
+    if not company_id:
+        return jsonify({'error': 'company_id ausente no token — faça logout e login novamente'}), 400
+
+    try:
+        resp = _table_users.get_item(Key={'company_id': company_id, 'user_id': target_user_id})
+    except Exception as exc:
+        logger.error(f'[update_user] get_item falhou: {exc}\n{traceback.format_exc()}')
+        return jsonify({'error': f'Erro ao buscar usuário: {type(exc).__name__}: {exc}'}), 500
+
     existing = resp.get('Item')
     if not existing:
         return jsonify({'error': 'Usuário não encontrado'}), 404
@@ -153,10 +180,10 @@ def update_user(payload, target_user_id):
     if existing.get('role') == 'OWNER' and caller_role != 'OWNER':
         return jsonify({'error': 'Somente o OWNER pode editar o OWNER'}), 403
 
-    data   = request.get_json() or {}
-    now    = datetime.now(timezone.utc).isoformat()
+    data = request.get_json() or {}
+    now  = datetime.now(timezone.utc).isoformat()
 
-    before = {k: existing.get(k) for k in ['name', 'email', 'role', 'permissions', 'active']}
+    before = {k: _to_json_safe(existing.get(k)) for k in ['name', 'email', 'role', 'permissions', 'active']}
 
     expr_parts: list[str] = ['updated_at = :ua', 'updated_by = :ub']
     vals: dict = {':ua': now, ':ub': caller}
@@ -164,12 +191,14 @@ def update_user(payload, target_user_id):
 
     if 'name' in data:
         expr_parts.append('#nm = :name')
-        vals[':name'] = data['name']
+        vals[':name'] = data['name'] or ''
         names['#nm'] = 'name'
 
     if 'email' in data:
-        expr_parts.append('email = :email')
-        vals[':email'] = data['email']
+        email_val = data['email'] or ''
+        if email_val:  # só atualiza se não-vazio (DynamoDB não permite string vazia em alguns contextos)
+            expr_parts.append('email = :email')
+            vals[':email'] = email_val
 
     if 'role' in data and existing.get('role') != 'OWNER':
         new_role = data['role']
@@ -185,8 +214,9 @@ def update_user(payload, target_user_id):
             'add':    [p for p in raw.get('add', [])    if p in ALL_PERMISSIONS],
             'remove': [p for p in raw.get('remove', []) if p in ALL_PERMISSIONS],
         }
-        expr_parts.append('permissions = :perms')
+        expr_parts.append('#perms = :perms')
         vals[':perms'] = clean
+        names['#perms'] = 'permissions'
 
     if 'active' in data and existing.get('role') != 'OWNER':
         expr_parts.append('active = :active')
@@ -201,13 +231,18 @@ def update_user(payload, target_user_id):
     if names:
         kwargs['ExpressionAttributeNames'] = names
 
-    result    = _table_users.update_item(**kwargs)
-    after_item = result.get('Attributes', {})
+    try:
+        result     = _table_users.update_item(**kwargs)
+        after_item = _to_json_safe(result.get('Attributes', {}))
+    except Exception as exc:
+        logger.error(f'[update_user] update_item falhou: {exc}\n{traceback.format_exc()}')
+        return jsonify({'error': f'Erro ao salvar no banco: {type(exc).__name__}: {exc}'}), 500
+
     after = {k: after_item.get(k) for k in ['name', 'email', 'role', 'permissions', 'active']}
 
     log_event(
         company_id=company_id, user_id=caller,
-        user_name=payload.get('empresa_nome', ''),
+        user_name=payload.get('user_name', payload.get('usuario_id', '')),
         entity='USER', entity_id=target_user_id, action='EDIT',
         before=before, after=after, request=request,
     )
@@ -240,7 +275,7 @@ def delete_user(payload, target_user_id):
 
     log_event(
         company_id=company_id, user_id=caller,
-        user_name=payload.get('empresa_nome', ''),
+        user_name=payload.get('user_name', payload.get('usuario_id', '')),
         entity='USER', entity_id=target_user_id, action='DELETE',
         before={'user_id': target_user_id, 'role': existing.get('role'), 'name': existing.get('name')},
         after=None, request=request,
@@ -282,7 +317,7 @@ def toggle_user_active(payload, target_user_id):
 
     log_event(
         company_id=company_id, user_id=caller,
-        user_name=payload.get('empresa_nome', ''),
+        user_name=payload.get('user_name', payload.get('usuario_id', '')),
         entity='USER', entity_id=target_user_id, action='EDIT',
         before={'active': not new_active}, after={'active': new_active},
         request=request,
