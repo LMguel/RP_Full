@@ -60,6 +60,9 @@ else:
         'http://localhost:4173',
         'https://registra-ponto.duckdns.org',
         'https://pwa.registra-ponto.duckdns.org',
+        'https://app.registraponto.app.br',
+        'https://painel.registraponto.app.br',
+        'https://pwa.registraponto.app.br',
     ]
 
 CORS(
