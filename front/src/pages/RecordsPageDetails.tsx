@@ -344,8 +344,6 @@ const getDetailedStatus = (record: TimeRecord, employees: Employee[], companySet
     const padraoMin = (Number.isFinite(padraoH) ? padraoH : 0) * 60 + (Number.isFinite(padraoM) ? padraoM : 0);
     const realMin = (Number.isFinite(realH) ? realH : 0) * 60 + (Number.isFinite(realM) ? realM : 0);
     const desvio = realMin - padraoMin;
-    // Log do cálculo
-    console.log(`Registro ${record.registro_id || ''} | Funcionário: ${record.funcionario_nome || ''} | Horário padrão: ${horarioEntrada} | Horário real: ${horarioReal} | Tolerância usada: ${toleranciaAtraso} | Desvio: ${desvio} min`);
 
     if (desvio >= -toleranciaAtraso && desvio <= toleranciaAtraso) {
       // Dentro da janela de tolerância (-tolerancia .. +tolerancia)

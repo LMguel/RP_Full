@@ -364,10 +364,37 @@ def registrar_ponto_facial(payload):
         except Exception as e:
             print(f"[FACIAL] Aviso: configurações da empresa não obtidas: {e}")
 
-        # 3) Determinar entrada/saída via Query tenant-aware.
+        # 3) Determinar horário do registro.
+        # Online:  usa horário do servidor (fonte autoritativa).
+        # Offline: usa data_hora enviado pelo PWA (horário real da captura no tablet).
+        #          O servidor NUNCA sobrescreve o horário de um registro offline.
+        agora_servidor = datetime.now(TZ_SP)
+        is_offline = bool(data.get('offline'))
+
+        if is_offline:
+            data_hora_body = (data.get('data_hora') or '').strip()
+            if not data_hora_body:
+                return jsonify({'error': 'data_hora é obrigatório para registros offline'}), 400
+            try:
+                agora_registro = TZ_SP.localize(
+                    datetime.strptime(data_hora_body[:19], '%Y-%m-%d %H:%M:%S')
+                )
+            except ValueError:
+                return jsonify({
+                    'error': f'data_hora inválido: {data_hora_body!r}. Formato esperado: YYYY-MM-DD HH:MM:SS'
+                }), 400
+            # Rejeitar apenas se o relógio do tablet estiver mais de 5 min adiantado em relação ao servidor
+            if (agora_registro - agora_servidor).total_seconds() > 300:
+                return jsonify({
+                    'error': 'Horário do registro está no futuro. Verifique o relógio do dispositivo.'
+                }), 400
+        else:
+            agora_registro = agora_servidor
+
+        # 4) Determinar entrada/saída via Query tenant-aware.
+        # Para offline, usa a DATA DO REGISTRO ORIGINAL (não a data de hoje no servidor).
         # Regra: baseado no ÚLTIMO registro do dia — alterna ENTRADA → SAÍDA → ENTRADA → SAÍDA.
-        agora = datetime.now(TZ_SP)
-        hoje = agora.strftime('%Y-%m-%d')
+        hoje = agora_registro.strftime('%Y-%m-%d')
         registros_hoje = _registros_do_dia(token_company_id, funcionario_id, hoje)
 
         if not registros_hoje:
@@ -377,41 +404,43 @@ def registrar_ponto_facial(payload):
             ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or ultimo.get('tipo_registro', '')).lower()
             tipo = 'entrada' if ultimo_tipo in ('saida', 'saída', 'saida_almoco') else 'saida'
 
-            # Bloquear registro se o último foi há menos de 5 minutos (evita duplo-clique por esquecimento)
-            ultimo_ts_str = str(ultimo.get('timestamp') or ultimo.get('data_hora') or '')
-            if ultimo_ts_str:
-                try:
-                    if 'T' in ultimo_ts_str:
-                        ultimo_dt = datetime.fromisoformat(ultimo_ts_str.replace('Z', '+00:00'))
-                        if ultimo_dt.tzinfo is None:
+            # Bloquear registro duplicado só para online (evita duplo-clique por esquecimento).
+            # Offline não aplica: o registro foi feito intencionalmente no momento da captura.
+            if not is_offline:
+                ultimo_ts_str = str(ultimo.get('timestamp') or ultimo.get('data_hora') or '')
+                if ultimo_ts_str:
+                    try:
+                        if 'T' in ultimo_ts_str:
+                            ultimo_dt = datetime.fromisoformat(ultimo_ts_str.replace('Z', '+00:00'))
+                            if ultimo_dt.tzinfo is None:
+                                ultimo_dt = TZ_SP.localize(ultimo_dt)
+                        else:
+                            ultimo_dt = datetime.strptime(ultimo_ts_str[:19], '%Y-%m-%d %H:%M:%S')
                             ultimo_dt = TZ_SP.localize(ultimo_dt)
-                    else:
-                        ultimo_dt = datetime.strptime(ultimo_ts_str[:19], '%Y-%m-%d %H:%M:%S')
-                        ultimo_dt = TZ_SP.localize(ultimo_dt)
-                    diff_min = (agora - ultimo_dt).total_seconds() / 60
-                    if diff_min < 5:
-                        return jsonify({
-                            'success': False,
-                            'too_soon': True,
-                            'error': 'Você já registrou em menos de 5 minutos',
-                        }), 200
-                except Exception as e_ts:
-                    print(f"[FACIAL] Aviso ao verificar intervalo mínimo: {e_ts}")
+                        diff_min = (agora_servidor - ultimo_dt).total_seconds() / 60
+                        if diff_min < 5:
+                            return jsonify({
+                                'success': False,
+                                'too_soon': True,
+                                'error': 'Você já registrou em menos de 5 minutos',
+                            }), 200
+                    except Exception as e_ts:
+                        print(f"[FACIAL] Aviso ao verificar intervalo mínimo: {e_ts}")
 
         tipo_label = {'entrada': 'Entrada', 'saida': 'Saída', 'saída': 'Saída'}.get(tipo, tipo)
 
-        timestamp_iso = agora.isoformat()
-        date_time_str = agora.strftime('%Y-%m-%d %H:%M:%S')
+        timestamp_iso = agora_registro.isoformat()
+        date_time_str = agora_registro.strftime('%Y-%m-%d %H:%M:%S')
         composite_key = f"{funcionario_id}#{date_time_str}"
 
-        # 4) Arredondamento para cálculo (entrada dentro da tolerância).
+        # 5) Arredondamento para cálculo (entrada dentro da tolerância).
         data_hora_calculo = date_time_str
         if tipo == 'entrada':
             try:
                 tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
                 horario_entrada_esperado = funcionario.get('horario_entrada')
                 if horario_entrada_esperado:
-                    data_str = agora.strftime('%Y-%m-%d')
+                    data_str = agora_registro.strftime('%Y-%m-%d')
                     try:
                         entrada_esperada = datetime.strptime(
                             f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M'
@@ -421,7 +450,7 @@ def registrar_ponto_facial(payload):
                             f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S'
                         )
                     entrada_esperada = TZ_SP.localize(entrada_esperada)
-                    diff_min = int((agora - entrada_esperada).total_seconds() // 60)
+                    diff_min = int((agora_registro - entrada_esperada).total_seconds() // 60)
                     if diff_min <= tolerancia_atraso:
                         data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
                         print(
@@ -438,21 +467,27 @@ def registrar_ponto_facial(payload):
             'timestamp': timestamp_iso,
             'data_hora': date_time_str,
             'data_hora_calculo': data_hora_calculo,
-            'date': agora.strftime('%Y-%m-%d'),
-            'time': agora.strftime('%H:%M:%S'),
+            'date': agora_registro.strftime('%Y-%m-%d'),
+            'time': agora_registro.strftime('%H:%M:%S'),
             'type': tipo,
-            'method': 'CAMERA',
+            'method': 'CAMERA_OFFLINE' if is_offline else 'CAMERA',
             'funcionario_nome': nome_funcionario,
             'location': {
                 'latitude': location_lat,
                 'longitude': location_lon,
             },
             'distance_from_company': Decimal('0'),
+            'source': 'OFFLINE_SYNC' if is_offline else 'ONLINE',
+            'recorded_at': timestamp_iso,
         }
+
+        if is_offline:
+            registro['synced_at'] = agora_servidor.isoformat()
 
         tabela_registros.put_item(Item=registro)
         print(
-            f"[FACIAL] Ponto gravado: company_id={token_company_id} key={composite_key} tipo={tipo}"
+            f"[FACIAL] Ponto gravado: company_id={token_company_id} key={composite_key} "
+            f"tipo={tipo} source={'OFFLINE_SYNC' if is_offline else 'ONLINE'}"
         )
 
         return jsonify({
@@ -464,9 +499,9 @@ def registrar_ponto_facial(payload):
             'registro': {
                 'tipo': tipo,
                 'tipo_label': tipo_label,
-                'horario': agora.strftime('%H:%M:%S'),
-                'data': agora.strftime('%d/%m/%Y'),
-                'metodo': 'reconhecimento_facial',
+                'horario': agora_registro.strftime('%H:%M:%S'),
+                'data': agora_registro.strftime('%d/%m/%Y'),
+                'metodo': 'offline_sync' if is_offline else 'reconhecimento_facial',
             },
         }), 200
 

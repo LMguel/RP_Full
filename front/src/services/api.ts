@@ -10,7 +10,8 @@ class ApiService {
   constructor() {
     this.api = axios.create({
       baseURL: API_BASE_URL,
-      timeout: 30000, // 30 segundos
+      timeout: 30000,
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -20,7 +21,8 @@ class ApiService {
   }
 
   private setupInterceptors() {
-    // Request interceptor to add auth token
+    // Injeta o token JWT no header Authorization (Bearer)
+    // O cookie httpOnly session_token é uma camada adicional enviada automaticamente via withCredentials
     this.api.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('token');
@@ -29,9 +31,7 @@ class ApiService {
         }
         return config;
       },
-      (error) => {
-        return Promise.reject(error);
-      }
+      (error) => Promise.reject(error)
     );
 
     // Response interceptor to handle errors
@@ -288,14 +288,28 @@ class ApiService {
 
   // Company settings
   async getCompanySettings() {
+    const response = await this.api.get('/api/configuracoes');
+    return response.data;
+  }
+
+  async me() {
+    const response = await this.api.get('/api/me');
+    return response.data as {
+      tipo: string;
+      usuario_id: string;
+      company_id: string;
+      empresa_nome: string;
+      role: string;
+      permissions: string[];
+      user_name: string;
+    };
+  }
+
+  async logout() {
     try {
-      console.log('Making request to /api/configuracoes');
-      const response = await this.api.get('/api/configuracoes');
-      console.log('Company settings response:', response.data);
-      return response.data;
-    } catch (error: any) {
-      console.error('Error in getCompanySettings:', error.response?.data || error.message);
-      throw error;
+      await this.api.post('/api/logout', {});
+    } catch {
+      // Best-effort
     }
   }
 
@@ -387,14 +401,16 @@ class ApiService {
     date_from?: string;
     date_to?: string;
     limit?: number;
+    employee_id?: string;
   }) {
     const params = new URLSearchParams();
-    if (filters?.user_id)    params.set('user_id', filters.user_id);
-    if (filters?.action)     params.set('action', filters.action);
-    if (filters?.entity)     params.set('entity', filters.entity);
-    if (filters?.date_from)  params.set('date_from', filters.date_from);
-    if (filters?.date_to)    params.set('date_to', filters.date_to);
-    if (filters?.limit)      params.set('limit', String(filters.limit));
+    if (filters?.user_id)      params.set('user_id', filters.user_id);
+    if (filters?.action)       params.set('action', filters.action);
+    if (filters?.entity)       params.set('entity', filters.entity);
+    if (filters?.date_from)    params.set('date_from', filters.date_from);
+    if (filters?.date_to)      params.set('date_to', filters.date_to);
+    if (filters?.limit)        params.set('limit', String(filters.limit));
+    if (filters?.employee_id)  params.set('employee_id', filters.employee_id);
     const response = await this.api.get(`/api/audit?${params.toString()}`);
     return response.data as { logs: import('../types').AuditLog[]; count: number };
   }

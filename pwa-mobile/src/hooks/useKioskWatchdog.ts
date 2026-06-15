@@ -88,7 +88,7 @@ export function useKioskWatchdog({ isProcessing }: { isProcessing: boolean }) {
       workerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
       worker    = new Worker(workerUrl);
 
-      worker.onmessage = () => attemptReload();
+      worker.onmessage = (e) => { if (e.data === 'reload') attemptReload(); };
 
       const lastReload = parseInt(localStorage.getItem(STORAGE_KEY) ?? '0', 10);
       worker.postMessage({ type: 'init', lastReload });

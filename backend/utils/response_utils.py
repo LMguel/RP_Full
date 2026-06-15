@@ -20,16 +20,16 @@ def sanitize_employee(employee: dict, generate_foto_url: bool = False) -> dict:
         return employee
     result = {k: v for k, v in employee.items() if k not in _BLOCKED_EMPLOYEE_FIELDS}
 
-    if generate_foto_url and result.get('foto_url'):
+    if generate_foto_url:
         try:
             from utils.aws import extract_s3_key_from_url, generate_presigned_url
-            key = extract_s3_key_from_url(result['foto_url'])
-            if key:
-                presigned = generate_presigned_url(key, expiration_seconds=3600)
+            s3_key = result.get('foto_s3_key') or extract_s3_key_from_url(result.get('foto_url') or '')
+            if s3_key:
+                presigned = generate_presigned_url(s3_key, expiration_seconds=300)
                 if presigned:
                     result['foto_url'] = presigned
         except Exception:
-            pass  # Manter URL original como fallback
+            pass
 
     return result
 

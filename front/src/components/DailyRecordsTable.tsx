@@ -149,16 +149,11 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       if (dateRange.start_date) filters.start_date = dateRange.start_date;
       if (dateRange.end_date) filters.end_date = dateRange.end_date;
       const response = await getDailySummaries(filters, 1, 500);
-      console.log('[DailyRecordsTable] Response completa:', response);
-      
+
       if (!response || !response.summaries) {
-        console.log('[DailyRecordsTable] Response ou summaries é null/undefined');
         setSummaries([]);
         return;
       }
-
-      console.log('[DailyRecordsTable] summaries recebidos:', response.summaries.length);
-      console.log('[DailyRecordsTable] Primeiro item:', response.summaries[0]);
 
       const normalized = response.summaries.map((s: any) => {
         const extrasMin = Number(s.horas_extras_min ?? s.horas_extras ?? 0);
@@ -187,7 +182,6 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
         };
       });
 
-      console.log('[DailyRecordsTable] Normalized:', normalized.length, normalized[0]);
       setSummaries(normalized);
     } catch (err: any) {
       console.error('Erro ao carregar summaries', err);

@@ -18,6 +18,7 @@ if (!API_URL) {
 
 const api = axios.create({
   baseURL: API_URL,
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -72,6 +73,14 @@ async function loginEmpresa(usuario: string, senha: string) {
     company_id: string;
     tipo: string;
   };
+}
+
+async function logoutSession() {
+  try {
+    await api.post('/api/logout', {});
+  } catch {
+    // Best-effort — não bloqueia logout local mesmo se offline
+  }
 }
 
 // ─── Facial / Kiosk ───────────────────────────────────────────────────────────
@@ -268,6 +277,7 @@ const apiService = {
   // auth
   loginFuncionario,
   loginEmpresa,
+  logout: logoutSession,
   // kiosk
   recognizeFace,
   registerPointByFace,

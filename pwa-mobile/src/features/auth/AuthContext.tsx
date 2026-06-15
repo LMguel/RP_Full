@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const companyId = (user as EmpresaUser)?.company_id;
+    await apiService.logout(); // invalida token no backend (blacklist + limpa cookie)
     await cleanupOnLogout(companyId);
     apiService.setAuthToken(null);
     setUser(null);
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOutKiosk = useCallback(async () => {
     const companyId = (user as EmpresaUser)?.company_id;
+    await apiService.logout();
     // preserveCache: true — mantém employees_cache (IndexedDB) e credenciais salvas
     // para que registros offline pendentes possam sincronizar e o tablet reconecte sozinho
     await cleanupOnLogout(companyId, { preserveCache: true });

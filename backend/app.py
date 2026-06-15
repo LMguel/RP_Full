@@ -67,17 +67,18 @@ CORS(
     resources={r"/*": {"origins": allowed_origins}},
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
-    supports_credentials=False,
+    supports_credentials=True,
 )
 
 # ─── Rate limiting (token bucket in-memory) ───────────────────────────────────
 _rate_store: dict[str, list[float]] = defaultdict(list)
 _RATE_CONFIG: dict[str, tuple[int, int]] = {
-    '/api/login':                  (5, 60),
-    '/api/funcionario/login':      (5, 60),
-    '/api/auth/admin-login':       (5, 60),
-    '/api/reconhecer_rosto':       (30, 60),
-    '/api/registrar_ponto_facial': (30, 60),
+    '/api/login':                       (5, 60),
+    '/api/funcionario/login':           (5, 60),
+    '/api/auth/admin-login':            (5, 60),
+    '/api/reconhecer_rosto':            (30, 60),
+    '/api/registrar_ponto_facial':      (30, 60),
+    '/api/cadastrar_usuario_empresa':   (3, 3600),  # máx 3 cadastros/hora por IP
 }
 
 # ─── Blueprints ───────────────────────────────────────────────────────────────
@@ -128,9 +129,11 @@ def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     response.headers['Permissions-Policy'] = 'camera=(self), microphone=()'
-    if os.getenv('ENABLE_HSTS', '0') == '1':
+    # CSP para API JSON: sem scripts/estilos/frames — apenas conexões explícitas
+    response.headers['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none';"
+    # HSTS: ativado por padrão em produção; desativar com ENABLE_HSTS=0
+    if os.getenv('ENABLE_HSTS', '1') != '0':
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    # Propagar Request-ID na resposta para facilitar debug
     if hasattr(g, 'request_id'):
         response.headers['X-Request-ID'] = g.request_id
     return response

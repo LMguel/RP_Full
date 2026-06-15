@@ -27,12 +27,13 @@ def get_audit_logs(payload):
     if not company_id:
         return jsonify({'error': 'company_id ausente no token'}), 400
 
-    date_from      = (request.args.get('date_from') or '').strip()
-    date_to        = (request.args.get('date_to') or '').strip()
-    filter_user    = (request.args.get('user_id') or '').strip()
-    filter_action  = (request.args.get('action') or '').strip()
-    filter_entity  = (request.args.get('entity') or '').strip()
-    limit          = min(int(request.args.get('limit', 100)), 500)
+    date_from         = (request.args.get('date_from') or '').strip()
+    date_to           = (request.args.get('date_to') or '').strip()
+    filter_user       = (request.args.get('user_id') or '').strip()
+    filter_action     = (request.args.get('action') or '').strip()
+    filter_entity     = (request.args.get('entity') or '').strip()
+    filter_employee   = (request.args.get('employee_id') or '').strip()
+    limit             = min(int(request.args.get('limit', 100)), 500)
 
     key_cond = Key('company_id').eq(company_id)
     if date_from and date_to:
@@ -48,6 +49,9 @@ def get_audit_logs(payload):
         filter_expr = cond if filter_expr is None else (filter_expr & cond)
     if filter_entity:
         cond = Attr('entity').eq(filter_entity)
+        filter_expr = cond if filter_expr is None else (filter_expr & cond)
+    if filter_employee:
+        cond = Attr('employee_id').eq(filter_employee)
         filter_expr = cond if filter_expr is None else (filter_expr & cond)
 
     kwargs: dict = {

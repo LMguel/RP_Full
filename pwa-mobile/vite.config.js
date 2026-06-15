@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     // basicSsl removed for local dev to avoid self-signed SSL issues in the browser
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon-192x192.png', 'icon-512x512.png'],
       manifest: {
         name: 'Registro de Ponto',
@@ -53,6 +53,8 @@ export default defineConfig({
         ]
       },
       workbox: {
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {

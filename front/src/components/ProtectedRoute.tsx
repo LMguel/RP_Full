@@ -11,13 +11,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { isAuthenticated, isLoading, isFirstAccess } = useAuth();
   const location = useLocation();
 
-  console.log('ProtectedRoute render:', {
-    isAuthenticated,
-    isLoading, 
-    isFirstAccess,
-    pathname: location.pathname
-  });
-
   if (isLoading) {
     return (
       <Box
@@ -76,7 +69,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   // Se for primeiro acesso e não estiver na página de configurações, redirecionar
   if (isFirstAccess && location.pathname !== '/settings') {
-    console.log('Redirecting to settings due to first access');
     return <Navigate to="/settings" replace />;
   }
 

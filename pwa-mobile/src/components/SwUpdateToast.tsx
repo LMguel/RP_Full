@@ -1,67 +1,95 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { kioskLog } from '../services/kioskLogger';
+import { kioskUpdateCoordinator } from '../services/kioskUpdateCoordinator';
+
+const ANTI_LOOP_KEY = '@kiosk:last_update_attempt';
+const UPDATE_PENDING_KEY = '@kiosk:update_pending';
+const ANTI_LOOP_MS = 120_000; // mínimo 2min entre tentativas — evita loop de reload
 
 function applyUpdate(reg: ServiceWorkerRegistration) {
-  if (!reg.waiting) {
-    window.location.reload();
-    return;
+  let reloaded = false;
+  const doReload = () => {
+    if (!reloaded) { reloaded = true; window.location.reload(); }
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', doReload, { once: true });
+  if (reg.waiting) {
+    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    // Fallback: se controllerchange não disparar em 10s, força reload
+    setTimeout(doReload, 10_000);
+  } else {
+    doReload();
   }
-  // Garante que o flag de kiosk sobreviva ao reload
-  if (localStorage.getItem('@kiosk:active') === 'true') {
-    localStorage.setItem('@kiosk:active', 'true');
-  }
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    window.location.reload();
-  }, { once: true });
-  reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+}
+
+function isAntiLoopOk(): boolean {
+  const last = parseInt(localStorage.getItem(ANTI_LOOP_KEY) ?? '0', 10);
+  return Date.now() - last >= ANTI_LOOP_MS;
 }
 
 /**
- * Detecta nova versão do Service Worker e aplica a atualização.
+ * Gerencia atualizações do Service Worker.
  *
- * Kiosk (tablet de ponto): atualização silenciosa e automática após 5s.
- * Outros dispositivos: toast manual "Atualizar agora".
+ * Kiosk:     tela fullscreen "ATUALIZANDO SISTEMA" → coordena parada da câmera → reload.
+ * Não-kiosk: modal central bloqueante — usuário deve confirmar antes de continuar.
  *
- * O recarregamento preserva @kiosk:active, então o tablet retorna à câmera
- * via KioskAutoReturn em App.tsx.
+ * Anti-loop: mínimo 120s entre tentativas (evita reload em cascata).
  */
 export default function SwUpdateToast() {
-  const [showUpdate, setShowUpdate] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [showKioskUpdate, setShowKioskUpdate] = useState(false);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
-    const handleNewWorker = (reg: ServiceWorkerRegistration, newWorker: ServiceWorker) => {
-      newWorker.addEventListener('statechange', () => {
-        if (newWorker.state !== 'installed' || !navigator.serviceWorker.controller) return;
+    const startKioskUpdate = (reg: ServiceWorkerRegistration) => {
+      if (!isAntiLoopOk()) {
+        console.log('[SwUpdate] Anti-loop: skipping — última tentativa < 120s atrás');
+        return;
+      }
+      localStorage.setItem(ANTI_LOOP_KEY, String(Date.now()));
+      localStorage.setItem(UPDATE_PENDING_KEY, 'true');
+      kioskLog('UPDATE_START', 'SW waiting detectado');
+      setShowKioskUpdate(true);
 
-        const isKiosk = localStorage.getItem('@kiosk:active') === 'true';
-        if (isKiosk) {
-          // Aplica automaticamente após 5s — tempo suficiente para terminar
-          // qualquer captura facial em andamento antes de recarregar
-          setTimeout(() => applyUpdate(reg), 5_000);
+      kioskUpdateCoordinator.setUpdateReady(() => {
+        try {
+          applyUpdate(reg);
+          kioskLog('UPDATE_SUCCESS');
+        } catch (e) {
+          kioskLog('UPDATE_FAIL', String(e));
+          localStorage.removeItem(UPDATE_PENDING_KEY);
+          setShowKioskUpdate(false);
+        }
+      });
+    };
+
+    const onNewWorker = (reg: ServiceWorkerRegistration, worker: ServiceWorker) => {
+      worker.addEventListener('statechange', () => {
+        if (worker.state !== 'installed' || !navigator.serviceWorker.controller) return;
+        if (localStorage.getItem('@kiosk:active') === 'true') {
+          startKioskUpdate(reg);
         } else {
           setRegistration(reg);
-          setShowUpdate(true);
+          setShowModal(true);
         }
       });
     };
 
     navigator.serviceWorker.ready.then(reg => {
       reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        if (newWorker) handleNewWorker(reg, newWorker);
+        const w = reg.installing;
+        if (w) onNewWorker(reg, w);
       });
 
-      // SW já aguardando quando a página carregou (ex: após reload com update pendente)
+      // SW já aguardando quando a página carregou (tab reaberta com update pendente)
       if (reg.waiting && navigator.serviceWorker.controller) {
-        const isKiosk = localStorage.getItem('@kiosk:active') === 'true';
-        if (isKiosk) {
-          setTimeout(() => applyUpdate(reg), 2_000);
+        if (localStorage.getItem('@kiosk:active') === 'true') {
+          startKioskUpdate(reg);
         } else {
           setRegistration(reg);
-          setShowUpdate(true);
+          setShowModal(true);
         }
       }
     }).catch(() => {});
@@ -70,38 +98,108 @@ export default function SwUpdateToast() {
   const handleUpdate = () => {
     if (registration) applyUpdate(registration);
     else window.location.reload();
-    setShowUpdate(false);
   };
 
   return (
-    <AnimatePresence>
-      {showUpdate && (
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ duration: 0.25 }}
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 bg-slate-800 border border-slate-600 rounded-2xl px-4 py-3 shadow-2xl text-sm"
-        >
-          <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse flex-shrink-0" />
-          <span className="text-slate-200 font-medium">Nova atualização disponível</span>
-          <button
-            onClick={handleUpdate}
-            className="ml-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors"
+    <>
+      {/* Não-kiosk: modal central bloqueante */}
+      <AnimatePresence>
+        {showModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/95 backdrop-blur-md"
+            onPointerDown={(e) => e.stopPropagation()}
           >
-            Atualizar agora
-          </button>
-          <button
-            onClick={() => setShowUpdate(false)}
-            className="text-slate-500 hover:text-slate-300 transition-colors"
-            aria-label="Fechar"
+            <motion.div
+              initial={{ scale: 0.88, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col items-center gap-8 px-8 py-10 w-full max-w-[340px] mx-4 bg-slate-900 rounded-3xl border border-slate-700/40 shadow-2xl"
+            >
+              <div className="w-20 h-20 rounded-full bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
+                <svg
+                  className="w-9 h-9 text-blue-400 animate-spin"
+                  style={{ animationDuration: '2s' }}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </div>
+              <div className="text-center space-y-2">
+                <h2 className="text-xl font-bold text-white tracking-tight">
+                  Atualização disponível
+                </h2>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Uma nova versão do REGISTRA.PONTO precisa ser aplicada.
+                </p>
+              </div>
+              <button
+                onClick={handleUpdate}
+                className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white font-bold py-4 rounded-2xl text-sm tracking-widest uppercase transition-all shadow-lg shadow-blue-900/30"
+              >
+                ATUALIZAR AGORA
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Kiosk: fullscreen "ATUALIZANDO SISTEMA" — sem botão de fechar */}
+      <AnimatePresence>
+        {showKioskUpdate && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </motion.div>
-      )}
-    </AnimatePresence>
+            <div className="flex flex-col items-center gap-8 text-center px-8">
+              {/* Spinner duplo */}
+              <div className="relative w-24 h-24">
+                <div className="absolute inset-0 rounded-full border-4 border-blue-600/20" />
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-500 animate-spin" />
+                <div className="absolute inset-3 rounded-full bg-blue-600/10 flex items-center justify-center">
+                  <svg
+                    className="w-8 h-8 text-blue-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h2 className="text-2xl font-black text-white tracking-tight uppercase">
+                  Atualizando sistema
+                </h2>
+                <p className="text-slate-400 text-base">Aguarde alguns segundos</p>
+              </div>
+
+              {/* Dots animados */}
+              <div className="flex gap-2 items-center">
+                {[0, 1, 2].map(i => (
+                  <motion.div
+                    key={i}
+                    className="w-2 h-2 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                  />
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

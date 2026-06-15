@@ -90,8 +90,6 @@ const EmployeesPage: React.FC = () => {
       } else if (Array.isArray(response.data)) {
         employeesList = response.data;
       }
-      // Não filtrar, exibir todos para mostrar status
-      console.log('[EmployeesPage] Funcionários carregados:', employeesList);
       setEmployees(employeesList);
     } catch (err: any) {
       console.error('Error loading employees:', err);
@@ -393,20 +391,6 @@ const EmployeesPage: React.FC = () => {
                 <TableBody>
                   {filteredEmployees.length > 0 ? (
                     filteredEmployees.map((employee) => {
-                      // Log para depuração: mostra se todos os dados esperados estão presentes
-                      console.log('[EmployeesPage] Renderizando funcionário:', {
-                        id: employee.id,
-                        nome: employee.nome,
-                        foto_url: employee.foto_url,
-                        cargo: employee.cargo,
-                        horario_entrada: employee.horario_entrada,
-                        horario_saida: employee.horario_saida,
-                        data_cadastro: employee.data_cadastro,
-                        ativo: employee.ativo,
-                        login: employee.login,
-                        empresa_nome: employee.empresa_nome,
-                        face_id: employee.face_id
-                      });
                       return (
                         <TableRow key={employee.id} hover>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>

@@ -60,11 +60,7 @@ def enviar_s3(caminho, nome_arquivo, company_id):
         key,
         ExtraArgs={'ContentType': 'image/jpeg'},
     )
-    print(f"[S3] Upload concluído. Bucket={BUCKET}, Key={key[:40]}…")
-    # Retornar a URL pública por compatibilidade com dados legados.
-    # Novos clientes devem usar generate_presigned_url() para URLs temporárias.
-    url = f"https://{BUCKET}.s3.{REGIAO}.amazonaws.com/{key}"
-    return url
+    return key
 
 
 def generate_presigned_url(key: str, expiration_seconds: int = 3600) -> str | None:

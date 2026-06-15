@@ -43,6 +43,9 @@ export interface AuditLog {
   device?: string;
   motivo?: string;
   justificativa?: string;
+  employee_id?: string;
+  employee_name?: string;
+  reason?: string;
   created_at: string;
 }
 

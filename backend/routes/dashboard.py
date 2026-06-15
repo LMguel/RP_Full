@@ -639,10 +639,10 @@ def get_hours_month():
     current_month = f"{now.year}-{now.month:02d}"
     
     try:
-        month_filter = Attr('company_id').eq(company_id) & Attr('month').eq(current_month)
-        monthly_items = _paginate_scan(
+        monthly_items = _paginate_query(
             table_monthly_summary,
-            FilterExpression=month_filter
+            KeyConditionExpression=Key('company_id').eq(company_id),
+            FilterExpression=Attr('month').eq(current_month),
         )
 
         total_worked_hours = Decimal('0')
@@ -656,10 +656,10 @@ def get_hours_month():
             total_worked_hours += _to_decimal(worked_value)
 
         if not monthly_items or total_worked_hours == 0:
-            daily_items = _paginate_scan(
+            daily_items = _paginate_query(
                 table_daily_summary,
-                FilterExpression=Attr('company_id').eq(company_id) &
-                                   Attr('date').begins_with(current_month)
+                KeyConditionExpression=Key('company_id').eq(company_id),
+                FilterExpression=Attr('date').begins_with(current_month),
             )
             for summary in daily_items:
                 worked_value = summary.get('worked_hours') or summary.get('total_worked_hours') or 0
@@ -995,9 +995,9 @@ def get_hours_week():
             date_str = current_date.isoformat()
             
             # Buscar resumos diários
-            daily_response = table_daily_summary.scan(
-                FilterExpression=Attr('company_id').eq(company_id) & 
-                               Attr('date').eq(date_str)
+            daily_response = table_daily_summary.query(
+                KeyConditionExpression=Key('company_id').eq(company_id),
+                FilterExpression=Attr('date').eq(date_str),
             )
             
             total_hours = 0

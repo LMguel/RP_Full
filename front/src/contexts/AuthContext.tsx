@@ -68,7 +68,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    // Check for existing token and user data on app start
     const initAuth = async () => {
       const storedToken = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
@@ -84,7 +83,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
           await checkFirstAccess();
         } catch (error) {
-          console.error('Error parsing stored user data:', error);
           localStorage.removeItem('token');
           localStorage.removeItem('user');
         }
@@ -176,6 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = () => {
+    apiService.logout(); // invalida cookie + blacklist token no backend (best-effort)
     setUser(null);
     setToken(null);
     setRole(null);

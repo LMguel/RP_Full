@@ -328,18 +328,16 @@ def get_daily_summaries():
             
             print(f"[DEBUG] Config empresa - tolerancia_atraso: {tolerancia_atraso}min, intervalo_automatico: {intervalo_automatico}")
             
-            # Buscar registros com scan (necessário pois não temos índice por data)
-            filter_expr = Attr('company_id').eq(company_id)
-            
+            # Query por company_id (partition key) — O(n_empresa) em vez de O(tabela_total)
             all_records = []
-            scan_kwargs = {'FilterExpression': filter_expr, 'Select': 'ALL_ATTRIBUTES'}
+            query_kwargs = {'KeyConditionExpression': Key('company_id').eq(company_id)}
             while True:
-                response = table_records.scan(**scan_kwargs)
+                response = table_records.query(**query_kwargs)
                 all_records.extend(response.get('Items', []))
                 last_key = response.get('LastEvaluatedKey')
                 if not last_key:
                     break
-                scan_kwargs['ExclusiveStartKey'] = last_key
+                query_kwargs['ExclusiveStartKey'] = last_key
             
             print(f"[DEBUG] Registros encontrados (bruto): {len(all_records)}")
 
@@ -411,10 +409,10 @@ def get_daily_summaries():
             try:
                 print(f"[DEBUG] Buscando dados de funcionários para {len(items)} items")
 
-                emp_kwargs = {'FilterExpression': Attr('company_id').eq(company_id)}
                 all_emps = []
+                emp_kwargs = {'KeyConditionExpression': Key('company_id').eq(company_id)}
                 while True:
-                    emp_response = table_employees.scan(**emp_kwargs)
+                    emp_response = table_employees.query(**emp_kwargs)
                     all_emps.extend(emp_response.get('Items', []))
                     emp_last = emp_response.get('LastEvaluatedKey')
                     if not emp_last:
@@ -836,6 +834,14 @@ def get_day_details(employee_id, date):
 
         day_records = [conv(r) for r in day_records]
 
+        # Normalizar registro_id para o formato composto esperado por /ajustar e /invalidar:
+        # "{company_id}_{employee_id#date_time}"
+        # O campo bruto do DynamoDB é o UUID — substituímos pelo composto para compatibilidade.
+        for rec in day_records:
+            composite = rec.get('employee_id#date_time', '')
+            if composite:
+                rec['registro_id'] = f"{company_id}_{composite}"
+
         # Mapear summary para retornar apenas campos objetivos
         mapped_summary = None
         if summary:
@@ -868,13 +874,18 @@ def recalculate_day_summary(employee_id, date):
         
         if not company_id:
             return jsonify({'error': 'company_id não encontrado no token'}), 400
-        
-        # Buscar registros do dia usando table_records
-        response = table_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id) & 
-                           Attr('funcionario_id').eq(employee_id)
+
+        # Validar que employee_id pertence ao tenant autenticado (HIGH-4)
+        emp_check = table_employees.get_item(Key={'company_id': company_id, 'id': employee_id})
+        if not emp_check.get('Item'):
+            return jsonify({'error': 'Funcionário não encontrado nesta empresa'}), 403
+
+        # Query por chave composta — evita leitura cross-tenant
+        response = table_records.query(
+            KeyConditionExpression=Key('company_id').eq(company_id) &
+                                   Key('employee_id#date_time').begins_with(f"{employee_id}#{date}")
         )
-        
+
         records = response.get('Items', [])
         # Filtrar por data e ignorar registros INVALIDADOS/AJUSTADOS
         day_records = [

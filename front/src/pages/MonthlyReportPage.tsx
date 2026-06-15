@@ -63,16 +63,11 @@ const MonthlyReportPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      console.log('📊 Carregando resumo por período:', { employeeId, dateRange });
-      
-      // Usar endpoint de registros com filtro por data
       const data = await apiService.getTimeRecords({
         employee_id: employeeId,
         inicio: dateRange.start_date,
         fim: dateRange.end_date
       });
-      
-      console.log('✅ Dados do período recebidos:', data);
       setSummary(data);
 
     } catch (err: any) {

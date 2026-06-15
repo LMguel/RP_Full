@@ -13,6 +13,10 @@ import { getSaoPauloTimeString } from '../../utils/time';
 import KioskClock from './components/KioskClock';
 import KioskOfflineMode from './components/KioskOfflineMode';
 import type { RecognitionResult, RegisterPointResult } from '../../types';
+import { kioskLog } from '../../services/kioskLogger';
+import { kioskUpdateCoordinator } from '../../services/kioskUpdateCoordinator';
+
+const CAMERA_STREAM_MAX_MS = 30 * 60 * 1000; // reinicia stream após 30min
 
 type ConfirmData = {
   id: string;
@@ -38,6 +42,9 @@ export default function KioskPage() {
   // Ref tracks the actual MediaStream so stopCamera always sees the current stream
   // regardless of React's async state updates (fixes stale closure bug in cleanup).
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraStartTimeRef = useRef(0);           // Unix ms — quando o stream foi iniciado
+  const errorCountRef = useRef(0);                // Erros consecutivos — guia a recuperação automática
+  const isProcessingRef = useRef(false);          // Stale-closure guard para o coordinator
 
   const navigate = useNavigate();
   const { user, userType, clearKioskRestore } = useAuth();
@@ -64,9 +71,10 @@ export default function KioskPage() {
 
   const stopCamera = useCallback(() => {
     if (cameraStreamRef.current) {
-      console.log('[Kiosk] camera unmounted');
       cameraStreamRef.current.getTracks().forEach(t => t.stop());
       cameraStreamRef.current = null;
+      cameraStartTimeRef.current = 0;
+      kioskLog('CAMERA_STOP');
     }
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraStream(null);
@@ -80,9 +88,12 @@ export default function KioskPage() {
         audio: false,
       });
       cameraStreamRef.current = stream;
+      cameraStartTimeRef.current = Date.now();
+      errorCountRef.current = 0;
       setCameraStream(stream);
       if (videoRef.current) videoRef.current.srcObject = stream;
       setError('');
+      kioskLog('CAMERA_START');
     } catch {
       setError('Não foi possível acessar a câmera. Verifique as permissões.');
     }
@@ -102,8 +113,11 @@ export default function KioskPage() {
   // Kiosk persistence flag — usado para auto-retorno após reload/update
   useEffect(() => {
     localStorage.setItem('@kiosk:active', 'true');
-    // Não limpar no unmount: queremos que o flag sobreviva a reloads.
-    // O flag é limpo apenas quando o usuário clicar em "Voltar" explicitamente.
+    // Limpa flag de update pendente de sessão anterior (proteção contra travamento)
+    localStorage.removeItem('@kiosk:update_pending');
+    kioskLog('KIOSK_BOOT');
+    // Não limpar @kiosk:active no unmount: sobrevive a reloads.
+    // Limpo apenas quando o usuário clicar em "Voltar" explicitamente.
   }, []);
 
   // Renova a sessão da empresa a cada 6h para evitar logout automático em tablets 24/7
@@ -117,10 +131,9 @@ export default function KioskPage() {
     return () => clearInterval(id);
   }, []);
 
-  // Keep backendAvailableRef in sync with current state (stale-closure guard)
-  useEffect(() => {
-    backendAvailableRef.current = backendAvailable;
-  }, [backendAvailable]);
+  // Keep stale-closure refs in sync with current state
+  useEffect(() => { backendAvailableRef.current = backendAvailable; }, [backendAvailable]);
+  useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
 
   // Camera lifecycle: start/stop based on online mode.
   // stopCamera uses cameraStreamRef so cleanup is never stale.
@@ -153,6 +166,45 @@ export default function KioskPage() {
     return () => clearTimeout(t);
   }, [pontoCompleto]);
 
+  // Watchdog de câmera: reinicia o stream após 30min para evitar freeze e vazamento de memória
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (
+        !cameraStreamRef.current ||
+        !cameraStartTimeRef.current ||
+        isProcessingRef.current ||
+        localStorage.getItem('@kiosk:update_pending') === 'true'
+      ) return;
+
+      if (Date.now() - cameraStartTimeRef.current >= CAMERA_STREAM_MAX_MS) {
+        kioskLog('CAMERA_RESTART', '30min stream refresh');
+        stopCamera();
+        setTimeout(() => startCamera(), 500);
+      }
+    }, 5 * 60 * 1000); // verifica a cada 5min
+
+    return () => clearInterval(id);
+  }, [stopCamera, startCamera]);
+
+  // Coordenação com SW update: para câmera antes de aplicar o update
+  useEffect(() => {
+    const onUpdateReady = async () => {
+      // Aguarda reconhecimento em andamento terminar (máx 5s)
+      const deadline = Date.now() + 5_000;
+      while (isProcessingRef.current && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+      // Para câmera limpa antes do reload
+      stopCamera();
+      await new Promise(r => setTimeout(r, 500));
+      // Sinaliza ao coordinator: câmera parada, pode aplicar o update
+      kioskUpdateCoordinator.confirmReady();
+    };
+
+    window.addEventListener('kiosk:update-ready', onUpdateReady as EventListener);
+    return () => window.removeEventListener('kiosk:update-ready', onUpdateReady as EventListener);
+  }, [stopCamera]);
+
   // ── Torch ────────────────────────────────────────────────────────────────────
 
   const enableTorch = async (enable = true) => {
@@ -171,6 +223,8 @@ export default function KioskPage() {
   // ── Capture / Recognize ──────────────────────────────────────────────────────
 
   const handleCapture = async () => {
+    // Guard: update pendente — não iniciar nova captura
+    if (localStorage.getItem('@kiosk:update_pending') === 'true') return;
     // Guard: never call recognizeFace when backend is unavailable
     if (!backendAvailableRef.current) {
       console.log('[Kiosk] recognizeFace blocked: offline mode');
@@ -201,6 +255,8 @@ export default function KioskPage() {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
       const blob: Blob | null = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      // Libera memória do canvas imediatamente após o blob ser criado
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (!blob) { setError('Erro ao capturar imagem. Tente novamente.'); return; }
 
       const result: RecognitionResult = await apiService.recognizeFace(blob);
@@ -209,6 +265,7 @@ export default function KioskPage() {
       setIsFlashing(false);
 
       if (result.reconhecido) {
+        errorCountRef.current = 0; // reconhecimento bem-sucedido — reseta contador
         if (!result.funcionario?.funcionario_id) { setError('Erro: ID do funcionário não encontrado.'); return; }
 
         const matchedCompany = result.funcionario?.company_id;
@@ -260,6 +317,20 @@ export default function KioskPage() {
       } else {
         setError('Não foi possível reconhecer o rosto. Tente novamente.');
         setTimeout(() => setError(''), 3000);
+      }
+
+      // Recuperação automática por erros consecutivos (kiosk only)
+      if (localStorage.getItem('@kiosk:active') === 'true') {
+        const n = ++errorCountRef.current;
+        if (n >= 3) {
+          kioskLog('RECOVERY_RELOAD', `${n} erros consecutivos`);
+          setTimeout(() => window.location.reload(), 2_000);
+        } else if (n >= 2) {
+          kioskLog('FACIAL_RESTART', `${n} erros consecutivos`);
+          setTimeout(() => { stopCamera(); setTimeout(() => startCamera(), 500); }, 1_500);
+        } else {
+          kioskLog('RECOVERY_CAMERA', `${n} erro consecutivo`);
+        }
       }
     } finally {
       setIsProcessing(false);

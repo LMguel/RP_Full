@@ -9,7 +9,7 @@ import boto3
 from utils.aws import (
     tabela_funcionarios, tabela_registros, enviar_s3, reconhecer_funcionario,
     rekognition, BUCKET, COLLECTION, REGIAO, tabela_usuarioempresa, tabela_configuracoes,
-    _resize_for_rekognition,
+    _resize_for_rekognition, generate_presigned_url,
 )
 from functools import wraps
 from utils.auth import verify_token
@@ -276,9 +276,12 @@ def invalidar_registro(registro_id):
                 user_id=payload.get('usuario_id', payload.get('email', '')),
                 user_name=payload.get('user_name', payload.get('usuario_id', '')),
                 entity='RECORD', entity_id=registro_id, action='INVALIDATE',
-                before={'status': status_atual, 'data_hora': registro_atual.get('data_hora')},
+                before={'status': status_atual, 'data_hora': registro_atual.get('data_hora'), 'type': registro_atual.get('type', registro_atual.get('tipo', ''))},
                 after={'status': 'INVALIDADO', 'justificativa': justificativa},
                 request=request,
+                employee_id=registro_atual.get('employee_id', ''),
+                employee_name=registro_atual.get('funcionario_nome', ''),
+                reason=justificativa,
             )
             return jsonify({'success': True, 'message': 'Registro invalidado com sucesso'}), 200
         except Exception:
@@ -410,10 +413,8 @@ def atualizar_funcionario(payload, funcionario_id):
             temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uuid.uuid4().hex}.jpg")
             foto.save(temp_path)
             # Upload into company folder
-            foto_url = enviar_s3(temp_path, f"funcionarios/{funcionario_id}.jpg", empresa_id)
-            # Timestamp no URL garante que o browser não use versão cacheada
-            foto_url = f"{foto_url}?v={int(datetime.now().timestamp())}"
-            print(f"[PUT FOTO] Foto salva. URL: {foto_url[:60]}...")
+            foto_s3_key = enviar_s3(temp_path, f"funcionarios/{funcionario_id}.jpg", empresa_id)
+            foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
             if 'face_id' in funcionario and rekognition:
                 try:
                     rekognition.delete_faces(
@@ -441,10 +442,11 @@ def atualizar_funcionario(payload, funcionario_id):
                 except Exception as rek_err:
                     print(f"[PUT] Rekognition indexing falhou (não crítico): {rek_err}")
             os.remove(temp_path)
-            funcionario['foto_url'] = foto_url
+            funcionario['foto_s3_key'] = foto_s3_key
+            funcionario.pop('foto_url', None)
             if face_id:
                 funcionario['face_id'] = face_id
-            
+
         funcionario['nome'] = nome
         funcionario['cargo'] = cargo
         
@@ -576,8 +578,8 @@ def atualizar_foto_funcionario(payload, funcionario_id):
                     print(f"[PUT FOTO] Aviso: falha ao deletar face anterior: {e}")
 
         foto_nome = f"funcionarios/{funcionario_id}.jpg"
-        foto_url_base = enviar_s3(temp_path, foto_nome, empresa_id)
-        foto_url = f"{foto_url_base}?v={int(datetime.now().timestamp())}"
+        foto_s3_key = enviar_s3(temp_path, foto_nome, empresa_id)
+        foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
         if rekognition:
             try:
                 with open(temp_path, 'rb') as _f:
@@ -594,8 +596,8 @@ def atualizar_foto_funcionario(payload, funcionario_id):
 
         tabela_funcionarios.update_item(
             Key={'company_id': empresa_id, 'id': funcionario_id},
-            UpdateExpression='SET foto_url = :url',
-            ExpressionAttributeValues={':url': foto_url}
+            UpdateExpression='SET foto_s3_key = :key REMOVE foto_url',
+            ExpressionAttributeValues={':key': foto_s3_key}
         )
         return jsonify({"success": True, "foto_url": foto_url})
     except Exception as e:
@@ -797,16 +799,16 @@ def cadastrar_funcionario(payload):
         empresa_nome = payload.get('empresa_nome')
         empresa_id = payload.get('company_id')
         
-        foto_url = None
+        foto_s3_key = None
         face_id = None
         temp_path = None
-        
+
         # Processar foto se fornecida
         if foto:
             foto_nome = f"funcionarios/{funcionario_id}.jpg"
             temp_path = os.path.join(tempfile.gettempdir(), foto_nome.split('/')[-1])
             foto.save(temp_path)
-            foto_url = enviar_s3(temp_path, foto_nome, empresa_id)
+            foto_s3_key = enviar_s3(temp_path, foto_nome, empresa_id)
 
             # Indexar no Rekognition
             with open(temp_path, 'rb') as image:
@@ -851,9 +853,8 @@ def cadastrar_funcionario(payload):
         }
         
         # Adicionar campos opcionais
-        if foto_url:
-            funcionario_item['foto_url'] = foto_url
-            print(f'[CADASTRO] foto_url salva no DynamoDB: {foto_url}')
+        if foto_s3_key:
+            funcionario_item['foto_s3_key'] = foto_s3_key
         if face_id:
             funcionario_item['face_id'] = face_id
         if cpf:
@@ -1003,7 +1004,7 @@ def cadastrar_funcionario(payload):
             "id": funcionario_id,
             "nome": nome,
             "cargo": cargo,
-            "foto_url": foto_url,
+            "foto_url": generate_presigned_url(foto_s3_key, expiration_seconds=300) if foto_s3_key else None,
             "horario_entrada": horario_entrada,
             "horario_saida": horario_saida,
             "data_cadastro": data_hoje,
@@ -1877,8 +1878,9 @@ def buscar_nomes(payload):
     nome_parcial = request.args.get('nome', '')
     try:
         empresa_id = payload.get('company_id')
-        response = tabela_funcionarios.scan(
-            FilterExpression=Attr('company_id').eq(empresa_id) & Attr('nome').contains(nome_parcial)
+        response = tabela_funcionarios.query(
+            KeyConditionExpression=Key('company_id').eq(empresa_id),
+            FilterExpression=Attr('nome').contains(nome_parcial),
         )
         nomes = [funcionario['nome'] for funcionario in response['Items']]
         return jsonify(nomes)
@@ -1984,6 +1986,7 @@ def ajustar_registro(payload, registro_id):
     if _v: return _v
 
     data = request.get_json()
+    logger.info(f"[AJUSTAR] registro_id={registro_id!r} payload={data}")
     if not data:
         return jsonify({'error': 'JSON inválido ou ausente'}), 400
 
@@ -1993,10 +1996,10 @@ def ajustar_registro(payload, registro_id):
 
     nova_data_hora = data.get('data_hora')  # Nova data/hora corrigida
     novo_tipo = data.get('tipo')  # Tipo pode mudar (entrada/saída)
-    
+
     if not nova_data_hora:
         return jsonify({'error': 'Nova data/hora é obrigatória'}), 400
-    
+
     company_id = payload.get('company_id')
     if not company_id:
         return jsonify({'error': 'Company ID não encontrado no token'}), 400
@@ -2100,6 +2103,9 @@ def ajustar_registro(payload, registro_id):
             before={'data_hora': registro_original.get('data_hora'), 'type': registro_original.get('type', registro_original.get('tipo')), 'status': 'ATIVO'},
             after={'data_hora': nova_data_hora, 'type': tipo_final, 'status': 'ATIVO', 'justificativa': justificativa},
             request=request,
+            employee_id=employee_id or '',
+            employee_name=registro_original.get('funcionario_nome', ''),
+            reason=justificativa,
         )
 
         print(f"[AJUSTE REGISTRO] OK: original {composite_key} -> INVALIDADO. Novo: {novo_sort_key}")
@@ -2462,7 +2468,9 @@ def registrar_atestado(payload):
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
             tmp = tmp_file.name
             arquivo.save(tmp)
-        atestado_url = enviar_s3(tmp, s3_key, empresa_id)
+        atestado_s3_key = enviar_s3(tmp, s3_key, empresa_id)
+        # Atestados não são dados biométricos; gera presigned URL (300s) para resposta imediata
+        atestado_url = generate_presigned_url(atestado_s3_key, expiration_seconds=300) or ''
     except Exception as e:
         return jsonify({'mensagem': f'Erro ao fazer upload do atestado: {str(e)}'}), 500
     finally:
@@ -2564,12 +2572,15 @@ def login():
             return jsonify({'error': 'Conta desativada. Entre em contato com o administrador.'}), 403
 
         # Verificar senha (prioriza hash bcrypt)
+        _plaintext_migration = False
         if usuario.get('senha_hash'):
             if not verify_password(senha, usuario['senha_hash']):
                 return jsonify({'error': 'Login ou senha incorretos'}), 401
         elif usuario.get('senha'):
-            if senha != usuario['senha']:
+            import hmac as _hmac
+            if not _hmac.compare_digest(senha.encode('utf-8'), usuario['senha'].encode('utf-8')):
                 return jsonify({'error': 'Login ou senha incorretos'}), 401
+            _plaintext_migration = True
         else:
             return jsonify({'error': 'Login ou senha incorretos'}), 401
 
@@ -2580,6 +2591,18 @@ def login():
         empresa_nome = usuario.get('empresa_nome', '')
         overrides    = usuario.get('permissions', {'add': [], 'remove': []})
         permissions  = calculate_permissions(role, overrides)
+
+        # Migrar senha plaintext para bcrypt (best-effort, fire-and-forget)
+        if _plaintext_migration:
+            try:
+                from utils.auth import hash_password as _hp
+                tabela_usuarioempresa.update_item(
+                    Key={'company_id': company_id, 'user_id': user_id},
+                    UpdateExpression='SET senha_hash = :h REMOVE senha',
+                    ExpressionAttributeValues={':h': _hp(senha)},
+                )
+            except Exception:
+                pass
 
         # Atualizar last_login (fire-and-forget)
         try:
@@ -2592,7 +2615,9 @@ def login():
         except Exception:
             pass
 
+        from utils.auth import cookie_kwargs
         secret_key = get_secret_key()
+        jti_empresa = str(uuid.uuid4())
         token = jwt.encode({
             'usuario_id':   user_id,
             'user_id':      user_id,
@@ -2602,6 +2627,7 @@ def login():
             'permissions':  permissions,
             'user_name':    user_name,
             'tipo':         'empresa',
+            'jti':          jti_empresa,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=12)
         }, secret_key, algorithm="HS256")
 
@@ -2611,7 +2637,7 @@ def login():
             before=None, after=None, request=request,
         )
 
-        return jsonify({
+        resp = jsonify({
             'token':        token,
             'tipo':         'empresa',
             'usuario_id':   user_id,
@@ -2622,10 +2648,77 @@ def login():
             'permissions':  permissions,
             'user_name':    user_name,
         })
+        resp.set_cookie('session_token', value=token, **cookie_kwargs(max_age=12 * 3600))
+        return resp
 
     except Exception as e:
         logger.error(f"Erro no login empresa: {type(e).__name__}")
         return jsonify({'error': 'Erro interno ao processar login'}), 500
+
+# ========== AUTH UTILITÁRIOS ==========
+
+@routes.route('/me', methods=['GET', 'OPTIONS'])
+def me():
+    """Retorna payload do usuário autenticado (cookie ou Bearer). Usado na inicialização do SPA."""
+    from utils.auth import token_required as _tr
+    if request.method == 'OPTIONS':
+        return '', 200
+    token = request.cookies.get('session_token')
+    if not token:
+        auth_h = request.headers.get('Authorization', '')
+        if auth_h.startswith('Bearer '):
+            token = auth_h.split(' ', 1)[1]
+    if not token:
+        return jsonify({'error': 'Token ausente'}), 401
+    from utils.auth import verify_token, is_token_blacklisted
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido'}), 401
+    jti = payload.get('jti')
+    if jti and is_token_blacklisted(jti):
+        return jsonify({'error': 'Token revogado'}), 401
+    tipo = payload.get('tipo', 'empresa')
+    if tipo == 'funcionario':
+        return jsonify({
+            'tipo': 'funcionario',
+            'funcionario_id': payload.get('funcionario_id'),
+            'company_id': payload.get('company_id'),
+            'nome': payload.get('nome'),
+        })
+    return jsonify({
+        'tipo': tipo,
+        'usuario_id': payload.get('user_id') or payload.get('usuario_id'),
+        'company_id': payload.get('company_id'),
+        'empresa_nome': payload.get('empresa_nome'),
+        'role': payload.get('role'),
+        'permissions': payload.get('permissions', []),
+        'user_name': payload.get('user_name'),
+    })
+
+
+@routes.route('/logout', methods=['POST', 'OPTIONS'])
+def logout():
+    """Invalida o token atual (blacklist) e limpa o cookie de sessão."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    from utils.auth import cookie_kwargs, verify_token, blacklist_token, is_token_blacklisted
+    token = request.cookies.get('session_token')
+    if not token:
+        auth_h = request.headers.get('Authorization', '')
+        if auth_h.startswith('Bearer '):
+            token = auth_h.split(' ', 1)[1]
+    if token:
+        payload = verify_token(token)
+        if payload:
+            jti = payload.get('jti')
+            exp = payload.get('exp', 0)
+            if jti:
+                blacklist_token(jti, float(exp))
+    resp = jsonify({'message': 'Logout realizado com sucesso'})
+    kw = cookie_kwargs(max_age=0)
+    resp.set_cookie('session_token', value='', **kw)
+    return resp
+
 
 # ========== DADOS DA EMPRESA (nome e CNPJ) ==========
 @routes.route('/empresa/dados', methods=['GET', 'PUT', 'OPTIONS'])
@@ -2715,44 +2808,14 @@ def cadastrar_usuario_empresa():
         empresa_id = str(uuid.uuid4())
         senha_hash = hash_password(senha)
         
-        # Debug: Log table info and AWS config
-        import boto3
-        from aws_utils import DYNAMODB_TABLE_USERS
-        print(f"[DEBUG] Tentando scan na tabela: {tabela_usuarioempresa.name}")
-        print(f"[DEBUG] DYNAMODB_TABLE_USERS env var: {DYNAMODB_TABLE_USERS}")
-        print(f"[DEBUG] FilterExpression: Attr('email').eq('{email}')")
-        
-        # Check AWS credentials
-        session = boto3.Session()
-        credentials = session.get_credentials()
-        print(f"[DEBUG] AWS Credentials available: {credentials is not None}")
-        if credentials:
-            print(f"[DEBUG] Access Key ID: {credentials.access_key[:10]}...")
-        
-        # Check region
-        print(f"[DEBUG] DynamoDB Region: {tabela_usuarioempresa.meta.client.meta.region_name}")
-        
-        # Try to list tables
-        try:
-            dynamodb_client = boto3.client('dynamodb', region_name='us-east-1')
-            tables = dynamodb_client.list_tables()
-            print(f"[DEBUG] Available tables: {tables['TableNames']}")
-        except Exception as e:
-            print(f"[DEBUG] Error listing tables: {e}")
-        
         # Verifica se email já existe (verificar unicidade)
         try:
             response = tabela_usuarioempresa.scan(
                 FilterExpression=Attr('email').eq(email)
             )
-            print(f"[DEBUG] Scan successful, items found: {len(response.get('Items', []))}")
             if response.get('Items'):
                 return jsonify({'error': 'Email já cadastrado'}), 400
-        except Exception as scan_error:
-            print(f"[ERROR] Scan failed: {str(scan_error)}")
-            print(f"[ERROR] Exception type: {type(scan_error).__name__}")
-            import traceback
-            print(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+        except Exception:
             raise
         
         # Inserir na tabela UserCompany (usa company_id + user_id como chaves)
@@ -2794,59 +2857,50 @@ def login_funcionario():
         senha = data.get('senha') or ''
         company_id_login = (data.get('company_id') or '').strip()
 
-        if not funcionario_id or not senha:
-            return jsonify({'error': 'ID do funcionário e senha são obrigatórios'}), 400
-
-        print(f"[LOGIN FUNC] Buscando funcionário com ID: {funcionario_id}")
+        if not funcionario_id or not senha or not company_id_login:
+            return jsonify({'error': 'ID do funcionário, company_id e senha são obrigatórios'}), 400
 
         try:
-            login_filter = Attr('id').eq(funcionario_id)
-            if company_id_login:
-                login_filter = login_filter & Attr('company_id').eq(company_id_login)
-            response = tabela_funcionarios.scan(FilterExpression=login_filter)
-            items = response.get('Items', [])
-            funcionario = items[0] if items else None
+            resp = tabela_funcionarios.get_item(
+                Key={'company_id': company_id_login, 'id': funcionario_id}
+            )
+            funcionario = resp.get('Item')
         except Exception as e:
-            print(f"[LOGIN FUNC] Erro ao buscar funcionário: {e}")
+            logger.error(f"[LOGIN FUNC] Erro ao buscar funcionário: {type(e).__name__}")
             funcionario = None
-        
+
         if not funcionario:
-            print(f"[LOGIN FUNC] Nenhum funcionário encontrado com ID: {funcionario_id}")
             return jsonify({'error': 'ID ou senha inválidos'}), 401
-        
-        print(f"[LOGIN FUNC] Funcionário encontrado: {funcionario.get('nome')}")
-        
+
         # Verificar se funcionário está ativo (exclusão lógica)
         is_active = funcionario.get('is_active', funcionario.get('ativo', True))
         if not is_active:
-            print(f"[LOGIN FUNC] Funcionário inativo (excluído em {funcionario.get('deleted_at')})")
             return jsonify({'error': 'Acesso negado. Funcionário inativo. Contate o RH.'}), 403
-        
+
         # Verificar se tem senha cadastrada
         if not funcionario.get('senha_hash'):
-            print(f"[LOGIN FUNC] Funcionário não tem senha cadastrada")
             return jsonify({'error': 'Funcionário não tem acesso configurado. Contate o RH.'}), 403
-        
+
         # Verificar senha
         if not verify_password(senha, funcionario['senha_hash']):
-            print(f"[LOGIN FUNC] Senha inválida")
             return jsonify({'error': 'ID ou senha inválidos'}), 401
         
         # Gerar token JWT
+        from utils.auth import cookie_kwargs
         secret_key = get_secret_key()
+        jti_func = str(uuid.uuid4())
         token = jwt.encode({
             'funcionario_id': funcionario['id'],
             'nome': funcionario['nome'],
             'empresa_nome': funcionario.get('empresa_nome', ''),
             'company_id': funcionario['company_id'],
             'cargo': funcionario.get('cargo', ''),
-            'tipo': 'funcionario',  # Identificar que é login de funcionário
+            'tipo': 'funcionario',
+            'jti': jti_func,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
         }, secret_key, algorithm="HS256")
-        
-        print(f"[LOGIN FUNC] Login bem-sucedido para: {funcionario.get('nome')}")
-        
-        return jsonify({
+
+        resp = jsonify({
             'token': token,
             'funcionario': {
                 'id': funcionario['id'],
@@ -2856,13 +2910,13 @@ def login_funcionario():
                 'horario_entrada': funcionario.get('horario_entrada', ''),
                 'horario_saida': funcionario.get('horario_saida', '')
             }
-        }), 200
+        })
+        resp.set_cookie('session_token', value=token, **cookie_kwargs(max_age=24 * 3600))
+        return resp, 200
         
     except Exception as e:
-        print(f"[LOGIN FUNC] Erro no login: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"[LOGIN FUNC] Erro no login: {type(e).__name__}")
+        return jsonify({'error': 'Erro interno ao processar login'}), 500
 
 @routes.route('/funcionario/registros', methods=['GET'])
 @token_required
@@ -3838,8 +3892,8 @@ def registrar_ponto_localizacao(payload):
         # Determinar tipo correto baseado nos registros do dia
         # Simples toggle: entrada → saída → entrada → saída ...
         try:
-            response_registros_loc = tabela_registros.scan(
-                FilterExpression=Attr('company_id').eq(company_id) & Attr('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje_str}")
+            response_registros_loc = tabela_registros.query(
+                KeyConditionExpression=Key('company_id').eq(company_id) & Key('employee_id#date_time').begins_with(f"{funcionario_id}#{hoje_str}")
             )
             registros_dia_loc = sorted(response_registros_loc.get('Items', []), key=lambda x: x.get('employee_id#date_time', ''))
             # Filtrar registros INVALIDADOS/AJUSTADOS

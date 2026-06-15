@@ -27,6 +27,9 @@ def log_event(
     before: dict | None,
     after: dict | None,
     request=None,
+    employee_id: str = '',
+    employee_name: str = '',
+    reason: str = '',
 ) -> None:
     """Registra evento na tabela AuditLogs. Fire-and-forget — nunca propaga exceção."""
     try:
@@ -43,6 +46,12 @@ def log_event(
             'action': action,
             'created_at': now,
         }
+        if employee_id:
+            item['employee_id'] = employee_id
+        if employee_name:
+            item['employee_name'] = employee_name
+        if reason:
+            item['reason'] = reason
         if before is not None:
             item['before'] = before
         if after is not None:

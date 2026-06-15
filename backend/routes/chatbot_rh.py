@@ -274,14 +274,14 @@ def faltas_do_mes(company_id: str, employee_name: Optional[str], month: int, yea
 
     # Buscar todos os TimeRecords do mês para a empresa
     try:
-        resp = table_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id),
+        resp = table_records.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
             ProjectionExpression='employee_id, data_hora',
         )
         todos_registros = resp.get('Items', [])
         while 'LastEvaluatedKey' in resp:
-            resp = table_records.scan(
-                FilterExpression=Attr('company_id').eq(company_id),
+            resp = table_records.query(
+                KeyConditionExpression=Key('company_id').eq(company_id),
                 ExclusiveStartKey=resp['LastEvaluatedKey'],
                 ProjectionExpression='employee_id, data_hora',
             )
@@ -367,13 +367,13 @@ def atrasos_hoje(company_id: str, employee_name: Optional[str]) -> dict:
 
     # Buscar todos os registros da empresa de hoje
     try:
-        resp = table_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id),
+        resp = table_records.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
         )
         todos_registros = resp.get('Items', [])
         while 'LastEvaluatedKey' in resp:
-            resp = table_records.scan(
-                FilterExpression=Attr('company_id').eq(company_id),
+            resp = table_records.query(
+                KeyConditionExpression=Key('company_id').eq(company_id),
                 ExclusiveStartKey=resp['LastEvaluatedKey'],
             )
             todos_registros.extend(resp.get('Items', []))
@@ -695,14 +695,14 @@ def ausentes_hoje(company_id: str, employee_name: Optional[str]) -> dict:
 
     # Buscar todos os registros de hoje na tabela TimeRecords
     try:
-        resp = table_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id),
+        resp = table_records.query(
+            KeyConditionExpression=Key('company_id').eq(company_id),
             ProjectionExpression='employee_id, data_hora',
         )
         todos_registros = resp.get('Items', [])
         while 'LastEvaluatedKey' in resp:
-            resp = table_records.scan(
-                FilterExpression=Attr('company_id').eq(company_id),
+            resp = table_records.query(
+                KeyConditionExpression=Key('company_id').eq(company_id),
                 ExclusiveStartKey=resp['LastEvaluatedKey'],
                 ProjectionExpression='employee_id, data_hora',
             )
