@@ -193,9 +193,19 @@ class ApiService {
     return response.data;
   }
 
-  async registerAtestado(formData: FormData) {
+  async registerAtestado(
+    formData: FormData,
+    onUploadProgress?: (percent: number) => void,
+  ) {
     const response = await this.api.post('/api/registrar_atestado', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+      onUploadProgress: onUploadProgress
+        ? (e) => {
+            const pct = Math.round((e.loaded * 100) / (e.total ?? e.loaded));
+            onUploadProgress(Math.min(pct, 99));
+          }
+        : undefined,
     });
     return response.data;
   }

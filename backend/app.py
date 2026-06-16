@@ -45,7 +45,7 @@ if not secret_key:
     raise ValueError("SECRET_KEY não encontrada! Configure a variável de ambiente SECRET_KEY.")
 app.config['SECRET_KEY'] = secret_key
 # Limite de upload: 10 MB — protege contra ataques de esgotamento de disco/memória
-app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_MB', '10')) * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_MB', '16')) * 1024 * 1024
 
 # ─── CORS — Whitelist de origens permitidas ───────────────────────────────────
 _raw_origins = os.getenv('ALLOWED_ORIGINS', '')

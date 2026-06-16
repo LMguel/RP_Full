@@ -10,6 +10,7 @@ import {
   Typography,
   IconButton,
   CircularProgress,
+  LinearProgress,
   Autocomplete,
   Chip,
 } from '@mui/material';
@@ -89,6 +90,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   const [atestadoData, setAtestadoData] = useState('');
   const [atestadoDias, setAtestadoDias] = useState('1');
   const [atestadoFile, setAtestadoFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -122,6 +124,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     setJustificativa('');
     setAtestadoDias('1');
     setAtestadoFile(null);
+    setUploadProgress(null);
     setErrors({});
   }, [open]);
 
@@ -181,8 +184,31 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         fd.append('dias', atestadoDias);
         fd.append('justificativa', justificativa.trim());
         fd.append('arquivo', atestadoFile!);
-        await apiService.registerAtestado(fd);
-        onClose();
+        setUploadProgress(0);
+        try {
+          await apiService.registerAtestado(fd, setUploadProgress);
+          setUploadProgress(100);
+          onClose();
+        } catch (err: unknown) {
+          setUploadProgress(null);
+          const e = err as { response?: { status?: number; data?: { mensagem?: string } }; code?: string; message?: string };
+          const status   = e?.response?.status;
+          const backend  = e?.response?.data?.mensagem;
+          let msg: string;
+          if (status === 413) {
+            msg = 'Arquivo excede o limite de 15 MB. Comprima o documento e tente novamente.';
+          } else if (status === 400 && backend) {
+            msg = backend;
+          } else if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
+            msg = 'Upload demorou mais que o esperado. Tente novamente com um arquivo menor.';
+          } else if (!e?.response) {
+            msg = 'Sem conexão. Verifique a internet e tente novamente.';
+          } else {
+            msg = 'Não foi possível enviar o atestado. Tente novamente em alguns minutos.';
+          }
+          setErrors(prev => ({ ...prev, submit: msg }));
+          return;
+        }
       }
     } catch {
       setErrors(prev => ({ ...prev, submit: 'Erro ao salvar. Tente novamente.' }));
@@ -372,6 +398,16 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                       />
                     </Box>
 
+                    {/* Formatos e limite */}
+                    <Box sx={{ mb: 1.5, px: 1.5, py: 1, borderRadius: 1.5, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
+                        Formatos aceitos: <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>PDF • PNG • JPG</span>
+                      </Typography>
+                      <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
+                        Máx: <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>15 MB</span>
+                      </Typography>
+                    </Box>
+
                     {/* File upload */}
                     <input
                       ref={fileInputRef}
@@ -380,18 +416,37 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                       style={{ display: 'none' }}
                       onChange={e => {
                         const f = e.target.files?.[0] || null;
+                        if (f) {
+                          if (f.size > 15 * 1024 * 1024) {
+                            setErrors(p => ({ ...p, arquivo: 'Arquivo excede o limite de 15 MB. Comprima o documento e tente novamente.' }));
+                            e.target.value = '';
+                            return;
+                          }
+                          const allowed = ['application/pdf', 'image/png', 'image/jpeg'];
+                          if (!allowed.includes(f.type)) {
+                            setErrors(p => ({ ...p, arquivo: 'Formato não suportado. Envie PDF, PNG ou JPG.' }));
+                            e.target.value = '';
+                            return;
+                          }
+                          if (f.size === 0) {
+                            setErrors(p => ({ ...p, arquivo: 'O arquivo está vazio. Selecione outro documento.' }));
+                            e.target.value = '';
+                            return;
+                          }
+                        }
                         setAtestadoFile(f);
                         setErrors(p => ({ ...p, arquivo: '' }));
                       }}
                     />
                     <Box
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => !isLoading && fileInputRef.current?.click()}
                       sx={{
                         border: `2px dashed ${errors.arquivo ? '#ef4444' : atestadoFile ? '#14b8a6' : 'rgba(255,255,255,0.2)'}`,
-                        borderRadius: 2, p: 2.5, textAlign: 'center', cursor: 'pointer',
+                        borderRadius: 2, p: 2.5, textAlign: 'center',
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
                         background: atestadoFile ? 'rgba(20,184,166,0.06)' : 'rgba(255,255,255,0.02)',
                         transition: 'all 0.2s ease',
-                        '&:hover': { borderColor: '#14b8a6', background: 'rgba(20,184,166,0.06)' },
+                        '&:hover': isLoading ? {} : { borderColor: '#14b8a6', background: 'rgba(20,184,166,0.06)' },
                       }}
                     >
                       {atestadoFile ? (
@@ -399,22 +454,46 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                           <FileIcon sx={{ color: '#14b8a6', fontSize: 20 }} />
                           <Typography sx={{ color: '#14b8a6', fontSize: 13, fontWeight: 600 }}>{atestadoFile.name}</Typography>
                           <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>
-                            ({(atestadoFile.size / 1024).toFixed(0)} KB)
+                            ({atestadoFile.size < 1024 * 1024
+                              ? `${(atestadoFile.size / 1024).toFixed(0)} KB`
+                              : `${(atestadoFile.size / (1024 * 1024)).toFixed(1)} MB`})
                           </Typography>
                         </Box>
                       ) : (
                         <Box>
                           <UploadIcon sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 28, mb: 0.5 }} />
                           <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600 }}>Clique para selecionar o atestado</Typography>
-                          <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, mt: 0.3 }}>PDF, JPG ou PNG</Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, mt: 0.3 }}>PDF, JPG ou PNG — até 15 MB</Typography>
                         </Box>
                       )}
                     </Box>
-                    {errors.arquivo && <Typography sx={{ color: '#ef4444', fontSize: 11, mt: 0.5 }}>{errors.arquivo}</Typography>}
+                    {errors.arquivo && (
+                      <Typography sx={{ color: '#ef4444', fontSize: 11, mt: 0.5 }}>{errors.arquivo}</Typography>
+                    )}
+
+                    {/* Progress bar durante upload */}
+                    {uploadProgress !== null && (
+                      <Box sx={{ mt: 1.5 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Enviando arquivo...</Typography>
+                          <Typography sx={{ fontSize: 11, color: '#14b8a6', fontWeight: 700 }}>{uploadProgress}%</Typography>
+                        </Box>
+                        <LinearProgress
+                          variant="determinate"
+                          value={uploadProgress}
+                          sx={{
+                            borderRadius: 4,
+                            height: 6,
+                            background: 'rgba(255,255,255,0.08)',
+                            '& .MuiLinearProgress-bar': { background: 'linear-gradient(90deg, #14b8a6, #06b6d4)', borderRadius: 4 },
+                          }}
+                        />
+                      </Box>
+                    )}
 
                     <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.2)' }}>
                       <Typography sx={{ fontSize: 12, color: 'rgba(148,163,184,0.9)' }}>
-                        🩺 Os dias de atestado contam como horas trabalhadas no espelho de ponto.
+                        Os dias de atestado contam como horas trabalhadas no espelho de ponto.
                         O arquivo fica salvo e pode ser visualizado a qualquer momento.
                       </Typography>
                     </Box>
@@ -440,7 +519,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
               />
 
               {errors.submit && (
-                <Typography sx={{ color: '#ef4444', fontSize: 12, textAlign: 'center' }}>{errors.submit}</Typography>
+                <Box sx={{ p: 1.5, borderRadius: 2, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                  <Typography sx={{ color: '#f87171', fontSize: 12, textAlign: 'center', lineHeight: 1.5 }}>{errors.submit}</Typography>
+                </Box>
               )}
             </Box>
           )}
@@ -460,7 +541,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
               '&:hover': { background: modeColor, boxShadow: `0 6px 20px ${modeColor}60` },
               '&:disabled': { background: 'rgba(255,255,255,0.1)', boxShadow: 'none' },
             }}>
-            {isLoading ? 'Salvando...'
+            {isLoading && mode === 'atestado'
+              ? uploadProgress !== null ? `Enviando... ${uploadProgress}%` : 'Enviando...'
+              : isLoading ? 'Salvando...'
               : mode === 'ponto' ? 'Registrar Ponto'
               : mode === 'ferias' ? 'Registrar Férias/Folga'
               : 'Enviar Atestado'}

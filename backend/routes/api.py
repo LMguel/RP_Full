@@ -2440,6 +2440,20 @@ def registrar_atestado(payload):
     if not arquivo:
         return jsonify({'mensagem': 'Arquivo do atestado é obrigatório'}), 400
 
+    _ALLOWED_EXTS   = {'.pdf', '.png', '.jpg', '.jpeg'}
+    _MAX_ATESTADO_B = 15 * 1024 * 1024  # 15 MB
+
+    ext = os.path.splitext(arquivo.filename or '')[1].lower()
+    if ext not in _ALLOWED_EXTS:
+        return jsonify({'mensagem': 'Formato inválido. Envie PDF, PNG, JPG ou JPEG'}), 400
+
+    arquivo.seek(0, 2)
+    file_size = arquivo.tell()
+    arquivo.seek(0)
+    if file_size > _MAX_ATESTADO_B:
+        mb = file_size // (1024 * 1024)
+        return jsonify({'mensagem': f'Arquivo excede 15 MB ({mb} MB recebido). Comprima o documento e tente novamente.'}), 400
+
     try:
         dias = max(1, int(dias_str))
     except ValueError:
@@ -2461,7 +2475,7 @@ def registrar_atestado(payload):
         return jsonify({'mensagem': 'Formato de data inválido. Use YYYY-MM-DD'}), 400
 
     # Upload do atestado para S3
-    ext = os.path.splitext(arquivo.filename or 'atestado.pdf')[1] or '.pdf'
+    ext = ext or '.pdf'
     s3_key = f"atestados/{empresa_id}/{employee_id}/{uuid.uuid4().hex}{ext}"
     tmp = None
     try:
