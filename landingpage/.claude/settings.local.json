@@ -11,7 +11,12 @@
       "Bash(python3 -c \"from playwright.sync_api import sync_playwright; print\\('pw ok'\\)\")",
       "Bash(curl -s http://localhost:5174)",
       "Bash(node -e \"const { Linkedin, Github } = require\\('./node_modules/lucide-react/dist/cjs/lucide-react.js'\\); console.log\\('Linkedin:', typeof Linkedin, 'Github:', typeof Github\\)\")",
-      "Bash(Get-ChildItem *)"
+      "Bash(Get-ChildItem *)",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules\\\\vite\\\\bin\\\\vite.js build *)"
     ]
   }
 }

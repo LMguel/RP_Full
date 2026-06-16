@@ -11,8 +11,8 @@ const links = [
 ]
 
 export default function Navbar() {
-  const [scrolled,    setScrolled]    = useState(false)
-  const [mobileOpen,  setMobileOpen]  = useState(false)
+  const [scrolled,   setScrolled]   = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20)
@@ -32,14 +32,14 @@ export default function Navbar() {
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
         style={{
-          background: scrolled ? 'rgba(5,12,24,0.96)' : 'rgba(5,12,24,0.82)',
+          background: scrolled ? 'rgba(255,255,255,0.97)' : 'rgba(255,255,255,0.88)',
           backdropFilter: 'blur(28px) saturate(160%)',
           WebkitBackdropFilter: 'blur(28px) saturate(160%)',
           borderBottom: scrolled
-            ? '1px solid rgba(255,255,255,0.09)'
-            : '1px solid rgba(255,255,255,0.05)',
+            ? '1px solid rgba(24,71,214,0.12)'
+            : '1px solid rgba(24,71,214,0.06)',
           boxShadow: scrolled
-            ? '0 4px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)'
+            ? '0 4px 32px rgba(24,71,214,0.08), inset 0 -1px 0 rgba(24,71,214,0.06)'
             : 'none',
         }}
         className="fixed top-0 left-0 right-0 z-50 transition-[background,box-shadow,border-color] duration-300"
@@ -49,19 +49,22 @@ export default function Navbar() {
 
             {/* Logo */}
             <a href="#" className="flex items-center gap-3 select-none group">
-              <div className="flex-shrink-0">
+              <div
+                className="flex-shrink-0 flex items-center justify-center rounded-xl p-1.5"
+                style={{ background: '#1847D6' }}
+              >
                 <img
                   src="/image/logo.png"
                   alt="REGISTRA.PONTO"
-                  className="h-14 w-auto object-contain block"
+                  className="h-10 w-auto object-contain block"
                   draggable={false}
                 />
               </div>
               <span
-                className="font-bold tracking-tight text-[15px] sm:text-base leading-none text-slate-100"
+                className="font-bold tracking-tight text-[15px] sm:text-base leading-none text-[#0C1A38]"
                 style={{ fontFamily: 'Outfit, sans-serif' }}
               >
-                REGISTRA<span style={{ color: '#00E87A' }}>.</span>PONTO
+                REGISTRA<span style={{ color: '#1847D6' }}>.</span>PONTO
               </span>
             </a>
 
@@ -71,12 +74,12 @@ export default function Navbar() {
                 <a
                   key={l.href}
                   href={l.href}
-                  className="relative text-sm font-medium text-slate-400 hover:text-white transition-colors duration-150 group py-1"
+                  className="relative text-sm font-medium text-[#4D5E7A] hover:text-[#0C1A38] transition-colors duration-150 group py-1"
                 >
                   {l.label}
                   <span
                     className="absolute bottom-0 left-0 w-0 h-px group-hover:w-full transition-all duration-250 ease-out"
-                    style={{ background: 'linear-gradient(90deg, #00E87A, #22D3EE)' }}
+                    style={{ background: 'linear-gradient(90deg, #1847D6, #38BDF8)' }}
                   />
                 </a>
               ))}
@@ -96,7 +99,7 @@ export default function Navbar() {
 
             {/* Mobile hamburger */}
             <button
-              className="md:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+              className="md:hidden p-2 rounded-lg text-[#4D5E7A] hover:text-[#0C1A38] hover:bg-[rgba(24,71,214,0.05)] transition-colors"
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-label="Menu"
             >
@@ -115,14 +118,14 @@ export default function Navbar() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-x-0 top-[68px] z-40 backdrop-blur-xl border-b md:hidden"
-            style={{ background: 'rgba(5,12,24,0.98)', borderColor: 'rgba(255,255,255,0.06)' }}
+            style={{ background: 'rgba(255,255,255,0.98)', borderColor: 'rgba(24,71,214,0.10)' }}
           >
             <div className="px-4 py-4 flex flex-col gap-1">
               {links.map((l) => (
                 <button
                   key={l.href}
                   onClick={() => handleMobileLink(l.href)}
-                  className="text-left py-3 px-3 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                  className="text-left py-3 px-3 text-sm font-medium text-[#4D5E7A] hover:text-[#0C1A38] hover:bg-[rgba(24,71,214,0.05)] rounded-lg transition-colors"
                 >
                   {l.label}
                 </button>
