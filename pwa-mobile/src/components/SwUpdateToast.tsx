@@ -6,7 +6,7 @@ import { kioskUpdateCoordinator } from '../services/kioskUpdateCoordinator';
 const ANTI_LOOP_KEY = '@kiosk:last_update_attempt';
 const UPDATE_PENDING_KEY = '@kiosk:update_pending';
 const ANTI_LOOP_MS = 120_000; // mínimo 2min entre tentativas
-const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // verifica a cada 30min
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // verifica a cada 5min
 
 function applyUpdate(reg: ServiceWorkerRegistration) {
   let reloaded = false;
