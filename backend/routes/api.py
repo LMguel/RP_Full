@@ -2776,7 +2776,7 @@ def refresh_token():
         'user_name':    payload.get('user_name', ''),
         'tipo':         'empresa',
         'jti':          new_jti,
-        'exp':          datetime.datetime.utcnow() + datetime.timedelta(hours=12),
+        'exp':          datetime.utcnow() + timedelta(hours=12),
     }, secret_key, algorithm="HS256")
 
     resp = jsonify({'token': new_token})
