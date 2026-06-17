@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Activity, RefreshCw, Tablet, Wifi, WifiOff,
+  Activity, RefreshCw, Tablet,
   Battery, BatteryLow, Clock, Filter, ChevronDown,
-  AlertCircle, CheckCircle2, Info, AlertTriangle, Circle,
+  AlertCircle, CheckCircle2, Info, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -280,7 +280,7 @@ export function KioskLogsPage() {
         <>
           {/* Severity summary */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {(["error", "warning", "success", "info"] as Severity[]).map((s) => {
+            {(["error", "warning", "success", "info"] as const).map((s) => {
               const styles = SEVERITY_STYLES[s];
               const icons = { error: AlertCircle, warning: AlertTriangle, success: CheckCircle2, info: Info };
               const Icon = icons[s];
