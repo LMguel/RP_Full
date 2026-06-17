@@ -324,44 +324,32 @@ def admin_list_heartbeats():
 # O tablet receberá o flag e chamará registration.update() no SW — sem recarregar
 # a página, apenas verifica se há nova versão do Service Worker disponível.
 
-@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['POST', 'OPTIONS'])
+@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['GET', 'POST', 'DELETE'])
 @_admin_required
 def admin_force_update():
-    if request.method == 'OPTIONS':
-        return ('', 200)
     global _force_update_cache
-    try:
-        _get_table().put_item(Item={
-            'pk': 'CONTROL#update',
-            'sk': 'flag',
-            'active': True,
-            'set_at': datetime.now(timezone.utc).isoformat(),
-            'ttl': int(time.time()) + 2 * 3600,  # auto-expira em 2h
-        })
-        # Invalida cache imediatamente em todos os workers que já o carregaram
-        _force_update_cache = {'value': True, 'expires': time.time() + 60}
-    except ClientError as e:
-        return jsonify({'error': str(e)}), 500
 
-    return jsonify({'ok': True, 'message': 'Flag force_update ativado — tablets receberão na próxima batida de heartbeat (≤5 min)'}), 200
+    if request.method == 'GET':
+        return jsonify({'active': _check_force_update()}), 200
 
+    if request.method == 'POST':
+        try:
+            _get_table().put_item(Item={
+                'pk': 'CONTROL#update',
+                'sk': 'flag',
+                'active': True,
+                'set_at': datetime.now(timezone.utc).isoformat(),
+                'ttl': int(time.time()) + 2 * 3600,
+            })
+            _force_update_cache = {'value': True, 'expires': time.time() + 60}
+        except ClientError as e:
+            return jsonify({'error': str(e)}), 500
+        return jsonify({'ok': True, 'message': 'Flag ativado — tablets atualizam no próximo heartbeat (≤5 min)'}), 200
 
-@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['DELETE', 'OPTIONS'])
-@_admin_required
-def admin_cancel_force_update():
-    if request.method == 'OPTIONS':
-        return ('', 200)
-    global _force_update_cache
+    # DELETE
     try:
         _get_table().delete_item(Key={'pk': 'CONTROL#update', 'sk': 'flag'})
         _force_update_cache = {'value': False, 'expires': time.time() + 60}
     except ClientError:
         pass
     return jsonify({'ok': True}), 200
-
-
-@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['GET'])
-@_admin_required
-def admin_get_force_update():
-    active = _check_force_update()
-    return jsonify({'active': active}), 200
