@@ -2,8 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import basicSsl from '@vitejs/plugin-basic-ssl';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { version } = require('./package.json');
 
 export default defineConfig({
+  define: {
+    // Versão do package.json injetada em build-time — usada pelo badge de versão no kiosk
+    __APP_VERSION__: JSON.stringify(process.env.VITE_APP_VERSION || version),
+  },
   plugins: [
     react(),
     // basicSsl removed for local dev to avoid self-signed SSL issues in the browser
@@ -69,7 +76,15 @@ export default defineConfig({
             }
           },
           {
-            urlPattern: /^https?:\/\/[^/]+\/api\/.*/,
+            // POST /api/* — nunca usar cache: POST não é cacheável pelo Cache API do browser.
+            // networkTimeoutSeconds no NetworkFirst derrubava requests POST lentos (cold start)
+            // sem fallback possível, resultando em NetworkError silencioso.
+            urlPattern: ({ request }) => request.method === 'POST' && /\/api\//.test(request.url),
+            handler: 'NetworkOnly',
+          },
+          {
+            // GET /api/* — NetworkFirst com cache de 5min para resiliência offline.
+            urlPattern: ({ request }) => request.method === 'GET' && /\/api\//.test(request.url),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

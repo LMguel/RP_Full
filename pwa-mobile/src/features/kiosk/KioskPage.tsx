@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import apiService from '../../services/api';
+import apiService, { refreshEmpresaToken } from '../../services/api';
 import { useAuth } from '../auth/AuthContext';
 import { useFullscreen } from '../../hooks/useFullscreen';
 import { useWakeLock } from '../../hooks/useWakeLock';
-import { useKioskWatchdog } from '../../hooks/useKioskWatchdog';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
+import { useKioskHealth } from '../../hooks/useKioskHealth';
 import { pingBackend } from '../../hooks/useBackendStatus';
 import { renewSession } from '../../hooks/useSessionTimeout';
 import { getSaoPauloTimeString } from '../../utils/time';
@@ -15,6 +15,7 @@ import KioskOfflineMode from './components/KioskOfflineMode';
 import type { RecognitionResult, RegisterPointResult } from '../../types';
 import { kioskLog } from '../../services/kioskLogger';
 import { kioskUpdateCoordinator } from '../../services/kioskUpdateCoordinator';
+import { kioskTelemetry } from '../../services/kioskTelemetry';
 
 const CAMERA_STREAM_MAX_MS = 30 * 60 * 1000; // reinicia stream após 30min
 
@@ -50,8 +51,9 @@ export default function KioskPage() {
   const { user, userType, clearKioskRestore } = useAuth();
   const { isOnline, backendAvailable, pendingCount, syncStatus, refreshPendingCount } = useOfflineSync();
 
-  // Ref for stale-closure guard in handleCapture
+  // Refs para getters estáveis passados a serviços externos
   const backendAvailableRef = useRef(backendAvailable);
+  const pendingCountRef = useRef(pendingCount);
 
   const showOfflineMode = !isOnline || !backendAvailable;
 
@@ -63,6 +65,7 @@ export default function KioskPage() {
   const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
   const [pontoCompleto, setPontoCompleto] = useState<{ nome: string; cargo?: string } | null>(null);
   const [showSuccess, setShowSuccess] = useState<SuccessData | false>(false);
+  const [showSoftReload, setShowSoftReload] = useState(false);
   const [error, setError] = useState('');
   const [isFlashing, setIsFlashing] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(true);
@@ -101,14 +104,63 @@ export default function KioskPage() {
 
   // ── Effects ──────────────────────────────────────────────────────────────────
 
+  // ── Health monitor — auto-recuperação inteligente ────────────────────────────
+  // Substitui o useKioskWatchdog (reload cego a cada 4h) por health-checks a cada
+  // 5 min que só atuam quando o kiosk está genuinamente idle e seguro.
+  const { markFrameReceived, markActivity, setCameraRecovering } = useKioskHealth({
+    isProcessing: () => isProcessingRef.current,
+    isSyncing: () => syncStatus === 'syncing',
+    getPendingCount: () => pendingCount,
+    getCameraStream: () => cameraStreamRef.current,
+    getVideoElement: () => videoRef.current,
+
+    onCameraRecovery: useCallback((reason: string) => {
+      kioskLog('KIOSK_CAMERA_RECOVERY', reason);
+      setCameraRecovering(true);
+      setError('Câmera sendo restaurada…');
+      stopCamera();
+      setTimeout(async () => {
+        await startCamera();
+        setCameraRecovering(false);
+        setError('');
+      }, 1200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stopCamera, startCamera]),
+
+    onMemoryPressure: useCallback((level) => {
+      if (level === 'medium' || level === 'severe') {
+        // Reiniciar câmera libera buffers WebGL/decoder sem precisar de page reload
+        if (!isProcessingRef.current && cameraStreamRef.current) {
+          kioskLog('KIOSK_MEMORY_PRESSURE', `reiniciando câmera: ${level}`);
+          stopCamera();
+          setTimeout(() => startCamera(), 800);
+        }
+      }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stopCamera, startCamera]),
+
+    onSoftReload: useCallback((reason: string) => {
+      kioskLog('KIOSK_SOFT_RELOAD', reason);
+      setShowSoftReload(true);
+      stopCamera();
+      // Persiste estado para restaurar kiosk após reload
+      localStorage.setItem('@kiosk:active', 'true');
+      setTimeout(() => window.location.reload(), 1500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stopCamera]),
+
+    onHardReload: useCallback((reason: string) => {
+      kioskLog('KIOSK_HARD_RELOAD', reason);
+      localStorage.setItem('@kiosk:active', 'true');
+      window.location.reload();
+    }, []),
+  });
+
   // Fullscreen persistente: re-entra automaticamente se o usuário sair
   useFullscreen({ persistent: true });
 
   // Impede o display de dormir enquanto o kiosk estiver ativo
   useWakeLock();
-
-  // Reload periódico (4h) para liberar memória e evitar travamentos de tela longa
-  useKioskWatchdog({ isProcessing });
 
   // Kiosk persistence flag — usado para auto-retorno após reload/update
   useEffect(() => {
@@ -120,20 +172,33 @@ export default function KioskPage() {
     // Limpo apenas quando o usuário clicar em "Voltar" explicitamente.
   }, []);
 
-  // Renova a sessão da empresa a cada 6h para evitar logout automático em tablets 24/7
+  // Telemetria remota — logs + heartbeat a cada 5 min (fire-and-forget)
   useEffect(() => {
-    renewSession('empresa');
-    const id = setInterval(() => {
-      if (localStorage.getItem('@kiosk:active') === 'true') {
-        renewSession('empresa');
-      }
-    }, 6 * 60 * 60 * 1000);
+    kioskTelemetry.start(() => pendingCountRef.current);
+    return () => kioskTelemetry.stop();
+  // pendingCount muda frequentemente mas o getter já acessa o valor atual via closure
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Renova o JWT real da empresa a cada 6h para evitar expiração em tablets 24/7.
+  // refreshEmpresaToken() chama POST /api/auth/refresh → novo JWT 12h.
+  // renewSession() atualiza apenas o timer local como fallback.
+  useEffect(() => {
+    const doRefresh = () => {
+      if (localStorage.getItem('@kiosk:active') !== 'true') return;
+      refreshEmpresaToken().then(ok => {
+        if (!ok) renewSession('empresa'); // fallback: pelo menos estende o timer local
+      });
+    };
+    doRefresh(); // refresh imediato ao montar (caso o tablet ficou offline e voltou)
+    const id = setInterval(doRefresh, 6 * 60 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 
   // Keep stale-closure refs in sync with current state
   useEffect(() => { backendAvailableRef.current = backendAvailable; }, [backendAvailable]);
   useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
+  useEffect(() => { pendingCountRef.current = pendingCount; }, [pendingCount]);
 
   // Camera lifecycle: start/stop based on online mode.
   // stopCamera uses cameraStreamRef so cleanup is never stale.
@@ -231,6 +296,12 @@ export default function KioskPage() {
       return;
     }
     if (!videoRef.current || isProcessing) return;
+    // Guard: câmera ainda inicializando — videoWidth=0 geraria canvas 0×0 e NO_FACE no Rekognition
+    if (!videoRef.current.videoWidth || !videoRef.current.videoHeight) {
+      setError('Câmera inicializando. Aguarde um momento.');
+      setTimeout(() => setError(''), 2000);
+      return;
+    }
     setIsProcessing(true);
     setError('');
 
@@ -258,6 +329,7 @@ export default function KioskPage() {
       // Libera memória do canvas imediatamente após o blob ser criado
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (!blob) { setError('Erro ao capturar imagem. Tente novamente.'); return; }
+      markFrameReceived();
 
       const result: RecognitionResult = await apiService.recognizeFace(blob);
 
@@ -265,12 +337,17 @@ export default function KioskPage() {
       setIsFlashing(false);
 
       if (result.reconhecido) {
-        errorCountRef.current = 0; // reconhecimento bem-sucedido — reseta contador
+        errorCountRef.current = 0;
+        markActivity();
+        kioskLog('FACE_MATCH', result.funcionario?.funcionario_id?.slice(0, 8));
         if (!result.funcionario?.funcionario_id) { setError('Erro: ID do funcionário não encontrado.'); return; }
 
         const matchedCompany = result.funcionario?.company_id;
         if (!sessionCompanyId) { setError('Sessão inválida. Faça login novamente.'); return; }
-        if (matchedCompany && matchedCompany !== sessionCompanyId) { setError('Funcionário não pertence a esta empresa.'); return; }
+        if (matchedCompany && matchedCompany !== sessionCompanyId) {
+          kioskLog('TENANT_MISMATCH', `expected=${sessionCompanyId?.slice(0, 8)} got=${matchedCompany?.slice(0, 8)}`);
+          setError('Funcionário não pertence a esta empresa.'); return;
+        }
 
         const blobUrl = URL.createObjectURL(blob);
         setCapturedUrl(blobUrl);
@@ -288,9 +365,11 @@ export default function KioskPage() {
           });
         }
       } else if (result.nenhumRostoDetectado) {
+        kioskLog('NO_FACE');
         setError('Nenhum rosto detectado');
         setTimeout(() => setError(''), 1500);
       } else {
+        kioskLog('FACE_NO_MATCH');
         setError('Rosto não reconhecido — tente novamente');
         setTimeout(() => setError(''), 3000);
       }
@@ -310,7 +389,14 @@ export default function KioskPage() {
       }
 
       if (err?.response?.status === 403) {
-        setError(`Acesso negado: ${err.response.data?.error || ''}`);
+        setError(`Acesso negado. Contate o administrador do sistema.`);
+        setTimeout(() => setError(''), 5000);
+      } else if (err?.response?.status === 429) {
+        setError('Muitas tentativas. Aguarde 1 minuto e tente novamente.');
+        setTimeout(() => setError(''), 5000);
+      } else if (err?.response?.status >= 500) {
+        setError('Erro no servidor de reconhecimento. Se persistir, contate o administrador do sistema.');
+        setTimeout(() => setError(''), 6000);
       } else if (err?.message?.includes('no faces')) {
         setError('Nenhum rosto detectado');
         setTimeout(() => setError(''), 1500);
@@ -368,7 +454,9 @@ export default function KioskPage() {
         return;
       }
       if (res.success) {
-        renewSession('empresa');
+        renewSession('empresa'); // timer local — o refresh real acontece no interval de 6h
+        markActivity();
+        kioskLog('REGISTER_SUCCESS', `${confirmData.tipo}:${confirmData.id?.slice(0, 8)}`);
         if (capturedUrl) URL.revokeObjectURL(capturedUrl);
         setCapturedUrl(null);
         setConfirmData(null);
@@ -385,9 +473,22 @@ export default function KioskPage() {
       } else {
         throw new Error(res.error || 'Erro ao registrar ponto');
       }
-    } catch {
-      setError('Erro ao registrar ponto. Tente novamente.');
-      setTimeout(() => setError(''), 3000);
+    } catch (err: any) {
+      let msg = 'Erro ao registrar ponto. Se persistir, contate o administrador do sistema.';
+      if (!err?.response) {
+        msg = 'Sem conexão com o servidor. Verifique a internet e tente novamente.';
+      } else if (err.response?.status === 429) {
+        msg = 'Muitas tentativas simultâneas. Aguarde 1 minuto e tente novamente.';
+      } else if (err.response?.status === 401 || err.response?.status === 403) {
+        msg = 'Sessão expirada ou acesso negado. Volte ao menu e faça login novamente.';
+      } else if (err.response?.status >= 500) {
+        msg = 'Erro interno do servidor. Contate o administrador do sistema.';
+      } else if (err?.message) {
+        msg = `${err.message} — Contate o administrador se persistir.`;
+      }
+      kioskLog('REGISTER_FAILED', msg.slice(0, 80));
+      setError(msg);
+      setTimeout(() => setError(''), 6000);
     } finally {
       setIsProcessing(false);
     }
@@ -586,6 +687,11 @@ export default function KioskPage() {
         </button>
       </div>
 
+      {/* Version badge — bottom left, apenas para identificação da build no tablet */}
+      <div className="absolute bottom-5 left-5 z-50 text-white/20 text-xs font-mono select-none pointer-events-none">
+        v{__APP_VERSION__}
+      </div>
+
       {/* Flash overlay */}
       {isFlashing && <div className="absolute inset-0 bg-white z-40" />}
 
@@ -668,6 +774,22 @@ export default function KioskPage() {
       <AnimatePresence>
         {isProcessing && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 z-20" />
+        )}
+      </AnimatePresence>
+
+      {/* Soft reload overlay — mostra brevemente antes do reload por otimização de memória */}
+      <AnimatePresence>
+        {showSoftReload && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="absolute inset-0 z-50 bg-black/85 flex flex-col items-center justify-center"
+          >
+            <svg className="animate-spin w-12 h-12 text-white/60 mb-5" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <p className="text-white/60 text-xl font-medium">Otimizando sistema...</p>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

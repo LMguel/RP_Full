@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { kioskLog } from '../services/kioskLogger';
 import { kioskUpdateCoordinator } from '../services/kioskUpdateCoordinator';
 
 const ANTI_LOOP_KEY = '@kiosk:last_update_attempt';
 const UPDATE_PENDING_KEY = '@kiosk:update_pending';
-const ANTI_LOOP_MS = 120_000; // mínimo 2min entre tentativas — evita loop de reload
+const ANTI_LOOP_MS = 120_000; // mínimo 2min entre tentativas
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // verifica a cada 30min
 
 function applyUpdate(reg: ServiceWorkerRegistration) {
   let reloaded = false;
@@ -15,7 +16,7 @@ function applyUpdate(reg: ServiceWorkerRegistration) {
   navigator.serviceWorker.addEventListener('controllerchange', doReload, { once: true });
   if (reg.waiting) {
     reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-    // Fallback: se controllerchange não disparar em 10s, força reload
+    // Fallback: FKB pode não disparar controllerchange — força reload após 10s
     setTimeout(doReload, 10_000);
   } else {
     doReload();
@@ -30,15 +31,20 @@ function isAntiLoopOk(): boolean {
 /**
  * Gerencia atualizações do Service Worker.
  *
- * Kiosk:     tela fullscreen "ATUALIZANDO SISTEMA" → coordena parada da câmera → reload.
- * Não-kiosk: modal central bloqueante — usuário deve confirmar antes de continuar.
+ * Kiosk:     fullscreen "ATUALIZANDO SISTEMA" → para câmera → reload automático.
+ * Não-kiosk: modal central — usuário confirma antes de continuar.
  *
- * Anti-loop: mínimo 120s entre tentativas (evita reload em cascata).
+ * Polling: verifica update a cada 30min e ao retornar ao foco/visibilidade
+ * (garante que tablets 24/7 no Fully Kiosk Browser recebam updates sem reload manual).
+ *
+ * Anti-loop: mínimo 120s entre tentativas.
  */
 export default function SwUpdateToast() {
   const [showModal, setShowModal] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [showKioskUpdate, setShowKioskUpdate] = useState(false);
+  // Armazena cleanup das assinaturas criadas dentro do .then() assíncrono
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -92,7 +98,32 @@ export default function SwUpdateToast() {
           setShowModal(true);
         }
       }
+
+      // ── Polling de updates ────────────────────────────────────────────────────
+      // Tablets 24/7 no Fully Kiosk Browser nunca recarregam a página, então o SW
+      // nunca detecta novos builds automaticamente. Forçar reg.update() periodicamente
+      // faz o SW re-buscar seu script no S3 e acionar updatefound se houver mudança.
+
+      const doCheck = () => reg.update().catch(() => {});
+
+      // A cada 30 minutos
+      const checkInterval = setInterval(doCheck, UPDATE_CHECK_INTERVAL_MS);
+
+      // Ao retornar ao foco ou visibilidade (FKB traz app para primeiro plano)
+      const onVisibilityOrFocus = () => {
+        if (document.visibilityState === 'visible') doCheck();
+      };
+      document.addEventListener('visibilitychange', onVisibilityOrFocus);
+      window.addEventListener('focus', onVisibilityOrFocus);
+
+      cleanupRef.current = () => {
+        clearInterval(checkInterval);
+        document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+        window.removeEventListener('focus', onVisibilityOrFocus);
+      };
     }).catch(() => {});
+
+    return () => { cleanupRef.current?.(); };
   }, []);
 
   const handleUpdate = () => {
@@ -150,7 +181,7 @@ export default function SwUpdateToast() {
         )}
       </AnimatePresence>
 
-      {/* Kiosk: fullscreen "ATUALIZANDO SISTEMA" — sem botão de fechar */}
+      {/* Kiosk: fullscreen "ATUALIZANDO SISTEMA" — sem botão, automático */}
       <AnimatePresence>
         {showKioskUpdate && (
           <motion.div
@@ -160,7 +191,6 @@ export default function SwUpdateToast() {
             className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950"
           >
             <div className="flex flex-col items-center gap-8 text-center px-8">
-              {/* Spinner duplo */}
               <div className="relative w-24 h-24">
                 <div className="absolute inset-0 rounded-full border-4 border-blue-600/20" />
                 <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-500 animate-spin" />
@@ -185,7 +215,6 @@ export default function SwUpdateToast() {
                 <p className="text-slate-400 text-base">Aguarde alguns segundos</p>
               </div>
 
-              {/* Dots animados */}
               <div className="flex gap-2 items-center">
                 {[0, 1, 2].map(i => (
                   <motion.div

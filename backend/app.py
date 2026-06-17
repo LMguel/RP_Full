@@ -14,6 +14,7 @@ from routes import (
     payroll_routes,
     users_routes,
     audit_routes,
+    kiosk_telemetry_routes,
 )
 import os
 import json
@@ -79,10 +80,34 @@ _RATE_CONFIG: dict[str, tuple[int, int]] = {
     '/api/login':                       (5, 60),
     '/api/funcionario/login':           (5, 60),
     '/api/auth/admin-login':            (5, 60),
-    '/api/reconhecer_rosto':            (30, 60),
-    '/api/registrar_ponto_facial':      (30, 60),
+    '/api/reconhecer_rosto':            (90, 60),   # por company_id (vários tablets)
+    '/api/registrar_ponto_facial':      (90, 60),   # por company_id (vários tablets)
     '/api/cadastrar_usuario_empresa':   (3, 3600),  # máx 3 cadastros/hora por IP
 }
+# Endpoints cujo rate limit é contado por company_id (JWT) em vez de IP.
+# Evita que múltiplos tablets da mesma escola compartilhem um único bucket de IP.
+_COMPANY_SCOPED_ENDPOINTS = {'/api/reconhecer_rosto', '/api/registrar_ponto_facial'}
+
+
+def _facial_rate_key(path: str, ip: str) -> str:
+    """Para endpoints faciais, extrai company_id do JWT sem verificar assinatura
+    (a verificação completa acontece no decorator @token_required da rota).
+    Se não houver token ou company_id, cai back para IP."""
+    try:
+        import jwt as pyjwt
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            payload = pyjwt.decode(
+                auth[7:],
+                options={"verify_signature": False},
+                algorithms=["HS256"],
+            )
+            cid = payload.get('company_id') or ''
+            if cid:
+                return f"company:{cid}:{path}"
+    except Exception:
+        pass
+    return f"{ip}:{path}"
 
 # ─── Blueprints ───────────────────────────────────────────────────────────────
 app.register_blueprint(routes, url_prefix='/api')
@@ -98,6 +123,7 @@ app.register_blueprint(admin_aws_routes)
 app.register_blueprint(payroll_routes)
 app.register_blueprint(users_routes)
 app.register_blueprint(audit_routes)
+app.register_blueprint(kiosk_telemetry_routes)
 
 
 @app.before_request
@@ -116,7 +142,10 @@ def enforce_rate_limit():
         return None
     max_req, window = cfg
     ip = request.remote_addr or 'unknown'
-    key = f"{ip}:{request.path}"
+    if request.path in _COMPANY_SCOPED_ENDPOINTS:
+        key = _facial_rate_key(request.path, ip)
+    else:
+        key = f"{ip}:{request.path}"
     now = time.monotonic()
     _rate_store[key] = [t for t in _rate_store[key] if now - t < window]
     if len(_rate_store[key]) >= max_req:

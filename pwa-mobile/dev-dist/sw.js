@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-b6866b34'], (function (workbox) { 'use strict';
+define(['./workbox-98288b94'], (function (workbox) { 'use strict';
 
   self.addEventListener('message', event => {
     if (event.data && event.data.type === 'SKIP_WAITING') {
@@ -86,7 +86,7 @@ define(['./workbox-b6866b34'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "index.html",
-    "revision": "0.ti2dl0o2fs"
+    "revision": "0.j1s62fm7fj"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
@@ -99,7 +99,12 @@ define(['./workbox-b6866b34'], (function (workbox) { 'use strict';
       maxAgeSeconds: 2592000
     })]
   }), 'GET');
-  workbox.registerRoute(/^https?:\/\/[^/]+\/api\/.*/, new workbox.NetworkFirst({
+  workbox.registerRoute(({
+    request
+  }) => request.method === "POST" && /\/api\//.test(request.url), new workbox.NetworkOnly(), 'GET');
+  workbox.registerRoute(({
+    request
+  }) => request.method === "GET" && /\/api\//.test(request.url), new workbox.NetworkFirst({
     "cacheName": "api-cache",
     "networkTimeoutSeconds": 10,
     plugins: [new workbox.ExpirationPlugin({

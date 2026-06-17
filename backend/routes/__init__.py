@@ -14,6 +14,7 @@ from .admin_aws import admin_aws_routes
 from .payroll import payroll_routes
 from .users import users_routes
 from .audit import audit_routes
+from .kiosk_telemetry import kiosk_telemetry_routes
 
 __all__ = [
     'routes',
@@ -29,5 +30,6 @@ __all__ = [
     'payroll_routes',
     'users_routes',
     'audit_routes',
+    'kiosk_telemetry_routes',
 ]
 

@@ -39,11 +39,73 @@ function getStoredToken(): string | null {
 const stored = getStoredToken();
 if (stored) setAuthToken(stored);
 
-// 401 → clear session
+// ─── Token refresh ────────────────────────────────────────────────────────────
+
+// Mutex: evita múltiplos refresh simultâneos (ex: várias requests em paralelo recebendo 401)
+let _refreshPromise: Promise<string | null> | null = null;
+
+async function _doRefresh(): Promise<string | null> {
+  const token = getStoredToken();
+  if (!token) return null;
+  try {
+    const { data } = await api.post<{ token: string }>('/api/auth/refresh', {});
+    const newToken = data.token;
+    localStorage.setItem('@app:token', newToken);
+    setAuthToken(newToken);
+    // Renova o timer de sessão local também
+    const EMPRESA_SESSION_MS = 12 * 60 * 60 * 1000;
+    localStorage.setItem('@app:session_expires', String(Date.now() + EMPRESA_SESSION_MS));
+    return newToken;
+  } catch {
+    return null;
+  }
+}
+
+/** Renova o JWT de empresa chamando o backend. Fire-and-forget seguro. */
+export async function refreshEmpresaToken(): Promise<boolean> {
+  if (_refreshPromise) {
+    const result = await _refreshPromise;
+    return result !== null;
+  }
+  _refreshPromise = _doRefresh();
+  try {
+    const result = await _refreshPromise;
+    return result !== null;
+  } finally {
+    _refreshPromise = null;
+  }
+}
+
+// ─── 401 interceptor com auto-refresh ────────────────────────────────────────
+// Se a request falhar com 401 e for uma conta empresa (kiosk), tenta refresh uma
+// vez e repete a request original. Se o refresh falhar, limpa a sessão.
+
 api.interceptors.response.use(
   (r) => r,
-  (err) => {
-    if (err?.response?.status === 401) {
+  async (err) => {
+    const status = err?.response?.status;
+    const config = err?.config;
+
+    // Só tenta refresh para 401 de conta empresa, evita loop no próprio /auth/refresh
+    if (
+      status === 401 &&
+      config &&
+      !config._refreshRetry &&
+      localStorage.getItem('@app:userType') === 'empresa' &&
+      !config.url?.includes('/auth/refresh') &&
+      !config.url?.includes('/login')
+    ) {
+      config._refreshRetry = true;
+      const ok = await refreshEmpresaToken();
+      if (ok) {
+        // Atualiza o header da request original e repete
+        config.headers['Authorization'] = `Bearer ${getStoredToken()}`;
+        return api(config);
+      }
+    }
+
+    // Sem refresh ou refresh falhou — limpa sessão
+    if (status === 401) {
       localStorage.removeItem('@app:token');
       localStorage.removeItem('@app:userType');
       localStorage.removeItem('@app:user');

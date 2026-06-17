@@ -1,26 +1,26 @@
 import React from 'react';
 
 interface Props { children: React.ReactNode }
-interface State { hasError: boolean }
+interface State { hasError: boolean; errorId: string }
 
 export class KioskErrorBoundary extends React.Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, errorId: '' };
   }
 
   static getDerivedStateFromError(): State {
-    return { hasError: true };
+    const errorId = `ERR-${Date.now().toString(36).toUpperCase()}`;
+    return { hasError: true, errorId };
   }
 
   componentDidCatch(error: Error) {
-    // Log sem expor stacktrace ao usuário
-    console.error('[KioskErrorBoundary] Erro capturado:', error?.message ?? 'desconhecido');
+    const msg = error?.message ?? 'desconhecido';
+    console.error('[KioskErrorBoundary] Erro capturado:', msg);
   }
 
   handleRecover = () => {
-    this.setState({ hasError: false });
-    // Garantir que o kiosk flag está setado
+    this.setState({ hasError: false, errorId: '' });
     localStorage.setItem('@kiosk:active', 'true');
     window.location.replace('/kiosk');
   };
@@ -36,9 +36,18 @@ export class KioskErrorBoundary extends React.Component<Props, State> {
             </svg>
           </div>
           <h1 className="text-2xl font-black text-slate-100 mb-2">Tela indisponível</h1>
-          <p className="text-slate-400 text-base mb-8 max-w-xs">
-            Ocorreu um problema. Clique abaixo para retornar ao modo de registro.
+          <p className="text-slate-400 text-base mb-1 max-w-xs">
+            Ocorreu um erro inesperado no sistema de registro.
           </p>
+          <p className="text-slate-500 text-sm mb-6 max-w-xs">
+            Se o problema persistir após reabrir, entre em contato com o
+            <span className="text-slate-300 font-semibold"> administrador do sistema</span>.
+          </p>
+          {this.state.errorId && (
+            <p className="text-slate-600 text-xs mb-6 font-mono">
+              Código: {this.state.errorId}
+            </p>
+          )}
           <button
             onClick={this.handleRecover}
             className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xl font-bold px-10 py-5 rounded-3xl transition-all shadow-2xl"

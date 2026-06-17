@@ -7,3 +7,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Injetado pelo vite.config.js a partir do package.json
+declare const __APP_VERSION__: string;

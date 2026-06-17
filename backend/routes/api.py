@@ -2734,6 +2734,56 @@ def logout():
     return resp
 
 
+@routes.route('/auth/refresh', methods=['POST', 'OPTIONS'])
+def refresh_token():
+    """Renova o JWT de empresa sem exigir nova senha.
+
+    Usado pelo kiosk 24/7 — chamado a cada 6h para garantir que o JWT nunca
+    expire enquanto o tablet estiver em uso. Só funciona com tokens válidos
+    (não expirados) do tipo 'empresa'.
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    from utils.auth import verify_token, cookie_kwargs
+
+    auth_h = request.headers.get('Authorization', '')
+    token = None
+    if auth_h.startswith('Bearer '):
+        token = auth_h.split(' ', 1)[1]
+    if not token:
+        token = request.cookies.get('session_token')
+    if not token:
+        return jsonify({'error': 'Token ausente'}), 401
+
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'error': 'Token inválido ou expirado — faça login novamente'}), 401
+
+    if payload.get('tipo') != 'empresa':
+        return jsonify({'error': 'Refresh disponível apenas para contas de empresa'}), 403
+
+    # Emite novo JWT preservando todos os claims originais
+    secret_key = get_secret_key()
+    new_jti = str(uuid.uuid4())
+    new_token = jwt.encode({
+        'usuario_id':   payload.get('usuario_id', ''),
+        'user_id':      payload.get('user_id', ''),
+        'company_id':   payload['company_id'],
+        'empresa_nome': payload.get('empresa_nome', ''),
+        'role':         payload.get('role', ''),
+        'permissions':  payload.get('permissions', []),
+        'user_name':    payload.get('user_name', ''),
+        'tipo':         'empresa',
+        'jti':          new_jti,
+        'exp':          datetime.datetime.utcnow() + datetime.timedelta(hours=12),
+    }, secret_key, algorithm="HS256")
+
+    resp = jsonify({'token': new_token})
+    resp.set_cookie('session_token', value=new_token, **cookie_kwargs(max_age=12 * 3600))
+    return resp
+
+
 # ========== DADOS DA EMPRESA (nome e CNPJ) ==========
 @routes.route('/empresa/dados', methods=['GET', 'PUT', 'OPTIONS'])
 def empresa_dados():

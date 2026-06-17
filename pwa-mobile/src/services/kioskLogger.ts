@@ -13,7 +13,22 @@ export type KioskEvent =
   | 'OFFLINE_QUEUE_RESUME'
   | 'FACIAL_RESTART'
   | 'RECOVERY_CAMERA'
-  | 'RECOVERY_RELOAD';
+  | 'RECOVERY_RELOAD'
+  // health monitor
+  | 'KIOSK_HEALTH'
+  | 'KIOSK_CAMERA_RECOVERY'
+  | 'KIOSK_MEMORY_PRESSURE'
+  | 'KIOSK_SOFT_RELOAD'
+  | 'KIOSK_HARD_RELOAD'
+  // reconhecimento facial
+  | 'NO_FACE'
+  | 'FACE_MATCH'
+  | 'FACE_NO_MATCH'
+  | 'REGISTER_SUCCESS'
+  | 'REGISTER_FAILED'
+  | 'TENANT_MISMATCH'
+  | 'SYNC_FAILED'
+  | 'SW_UPDATED';
 
 export interface KioskLogEntry {
   ts: number;

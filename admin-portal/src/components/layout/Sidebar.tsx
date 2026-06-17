@@ -1,13 +1,14 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { Building2, LayoutDashboard, LogOut, X, Shield, Users, CloudCog } from "lucide-react";
+import { Building2, LayoutDashboard, LogOut, X, Shield, Users, CloudCog, Activity } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 
 const nav = [
-  { label: "Dashboard",  to: "/dashboard",  icon: LayoutDashboard, color: "#10b981" },
-  { label: "Clientes",   to: "/clients",    icon: Users,           color: "#a78bfa" },
-  { label: "Empresas",   to: "/companies",  icon: Building2,       color: "#3b82f6" },
-  { label: "Gastos AWS", to: "/aws-costs",  icon: CloudCog,        color: "#f59e0b" },
+  { label: "Dashboard",    to: "/dashboard",   icon: LayoutDashboard, color: "#10b981" },
+  { label: "Clientes",     to: "/clients",     icon: Users,           color: "#a78bfa" },
+  { label: "Empresas",     to: "/companies",   icon: Building2,       color: "#3b82f6" },
+  { label: "Logs Kiosk",   to: "/kiosk-logs",  icon: Activity,        color: "#f43f5e" },
+  { label: "Gastos AWS",   to: "/aws-costs",   icon: CloudCog,        color: "#f59e0b" },
 ];
 
 const sidebarStyle = {

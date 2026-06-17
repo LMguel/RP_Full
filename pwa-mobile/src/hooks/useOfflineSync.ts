@@ -43,6 +43,10 @@ export function useOfflineSync(): OfflineSyncState {
       setLastSyncResult(result);
       setSyncStatus(result.failed > 0 ? 'error' : 'synced');
       await refreshPendingCount();
+      // Marca timestamp da última sync para o heartbeat de telemetria
+      if (result.synced > 0) {
+        localStorage.setItem('@kiosk:last_sync', new Date().toISOString());
+      }
       setTimeout(() => setSyncStatus('idle'), 5000);
     } catch {
       setSyncStatus('error');

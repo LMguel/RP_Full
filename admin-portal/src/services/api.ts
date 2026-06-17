@@ -306,6 +306,56 @@ export async function updateCompanyPaymentStatus(
   });
 }
 
+// ── Kiosk Telemetry ──────────────────────────────────────────────────────────
+
+export interface KioskLogEntry {
+  ts: number;
+  event: string;
+  detail?: string;
+  company_id: string;
+  device_id: string;
+  version: string;
+  received_at: string;
+}
+
+export interface KioskHeartbeat {
+  company_id: string;
+  device_id: string;
+  version: string;
+  uptime: number;
+  battery?: number;
+  wifi: boolean;
+  queue_size: number;
+  last_seen: string;
+  last_sync?: string;
+}
+
+export interface KioskLogsFilter {
+  company_id?: string;
+  event?: string;
+  start_ts?: number;
+  end_ts?: number;
+  limit?: number;
+}
+
+export async function fetchAdminKioskLogs(filter: KioskLogsFilter = {}): Promise<{ logs: KioskLogEntry[]; warn?: string }> {
+  const params = new URLSearchParams();
+  if (filter.company_id) params.set("company_id", filter.company_id);
+  if (filter.event)      params.set("event", filter.event);
+  if (filter.start_ts)   params.set("start_ts", String(filter.start_ts));
+  if (filter.end_ts)     params.set("end_ts", String(filter.end_ts));
+  if (filter.limit)      params.set("limit", String(filter.limit));
+  const qs = params.toString();
+  const resp = await fetchFromBackend(`/api/admin/kiosk/logs${qs ? `?${qs}` : ""}`);
+  return { logs: resp.logs || [], warn: resp.warn };
+}
+
+export async function fetchAdminKioskHeartbeats(companyId?: string): Promise<{ heartbeats: KioskHeartbeat[]; warn?: string }> {
+  const qs = companyId ? `?company_id=${companyId}` : "";
+  const resp = await fetchFromBackend(`/api/admin/kiosk/heartbeats${qs}`);
+  return { heartbeats: resp.heartbeats || [], warn: resp.warn };
+}
+
 // ── AWS ──────────────────────────────────────────────────────────────────────
 
 export async function fetchAwsMetrics(): Promise<AwsMetrics | null> {
