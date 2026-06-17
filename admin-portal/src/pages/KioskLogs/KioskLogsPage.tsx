@@ -9,6 +9,7 @@ import {
   fetchAdminKioskLogs,
   fetchAdminKioskHeartbeats,
   fetchCompanies,
+  triggerKioskForceUpdate,
   type KioskLogEntry,
   type KioskHeartbeat,
   type CompanySummary,
@@ -102,6 +103,7 @@ export function KioskLogsPage() {
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [tableWarn, setTableWarn] = useState<string | null>(null);
+  const [forceUpdating, setForceUpdating] = useState(false);
 
   // Filters
   const [companyFilter, setCompanyFilter] = useState("");
@@ -166,6 +168,18 @@ export function KioskLogsPage() {
     else loadHeartbeats();
   };
 
+  const handleForceUpdate = async () => {
+    setForceUpdating(true);
+    try {
+      await triggerKioskForceUpdate();
+      toast.success("Atualização forçada ativada — tablets receberão na próxima batida de heartbeat (≤5 min)");
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao forçar atualização");
+    } finally {
+      setForceUpdating(false);
+    }
+  };
+
   // Filtered logs (client-side severity filter)
   const filteredLogs = severityFilter
     ? logs.filter((l) => getSeverity(l.event) === severityFilter)
@@ -206,15 +220,27 @@ export function KioskLogsPage() {
             <p className="text-[11px] text-white/38 mt-0.5">Monitoramento em tempo real de tablets e eventos</p>
           </div>
         </div>
-        <button
-          onClick={refresh}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-[10px] px-3.5 py-2 text-[12.5px] font-medium text-white/70 transition-all hover:text-white hover:bg-white/[0.06] disabled:opacity-40"
-          style={{ border: "1px solid rgba(255,255,255,0.08)" }}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleForceUpdate}
+            disabled={forceUpdating}
+            title="Força todos os tablets a verificar se há nova versão do PWA (≤5 min)"
+            className="flex items-center gap-2 rounded-[10px] px-3.5 py-2 text-[12.5px] font-medium transition-all disabled:opacity-40"
+            style={{ background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.25)", color: forceUpdating ? "rgba(244,63,94,0.5)" : "rgb(251,113,133)" }}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${forceUpdating ? "animate-spin" : ""}`} />
+            Forçar Update
+          </button>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-[10px] px-3.5 py-2 text-[12.5px] font-medium text-white/70 transition-all hover:text-white hover:bg-white/[0.06] disabled:opacity-40"
+            style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

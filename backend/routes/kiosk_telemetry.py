@@ -23,6 +23,9 @@ from utils.auth import verify_token
 _JWT_SECRET = os.getenv('JWT_SECRET_KEY', '')
 _JWT_ALGORITHM = 'HS256'
 
+# Cache em memória do flag force_update (evita GetItem no DynamoDB em cada heartbeat)
+_force_update_cache: dict = {'value': False, 'expires': 0}
+
 kiosk_telemetry_routes = Blueprint('kiosk_telemetry_routes', __name__)
 
 dynamodb = boto3.resource('dynamodb', region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
@@ -31,6 +34,21 @@ _table_name = os.getenv('DYNAMODB_TABLE_KIOSK_TELEMETRY', 'KioskTelemetry')
 
 def _get_table():
     return dynamodb.Table(_table_name)
+
+
+def _check_force_update() -> bool:
+    """Lê o flag force_update do DynamoDB com cache de 60s por worker."""
+    global _force_update_cache
+    if time.time() < _force_update_cache['expires']:
+        return _force_update_cache['value']
+    try:
+        resp = _get_table().get_item(Key={'pk': 'CONTROL#update', 'sk': 'flag'})
+        item = resp.get('Item', {})
+        active = bool(item.get('active', False))
+    except Exception:
+        active = False
+    _force_update_cache = {'value': active, 'expires': time.time() + 60}
+    return active
 
 
 def _table_missing(e: ClientError) -> bool:
@@ -175,7 +193,8 @@ def receive_heartbeat(payload):
         # Falha silenciosa — telemetria não deve derrubar o kiosk
         return jsonify({'ok': False, 'error': str(e)}), 200
 
-    return jsonify({'ok': True}), 200
+    force_update = _check_force_update()
+    return jsonify({'ok': True, 'force_update': force_update}), 200
 
 
 # ─── GET /api/kiosk/heartbeats ───────────────────────────────────────────────
@@ -298,3 +317,51 @@ def admin_list_heartbeats():
         return jsonify({'error': str(e)}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ─── ADMIN: POST /api/admin/kiosk/force-update ───────────────────────────────
+# Ativa o flag force_update que será retornado no próximo heartbeat de cada tablet.
+# O tablet receberá o flag e chamará registration.update() no SW — sem recarregar
+# a página, apenas verifica se há nova versão do Service Worker disponível.
+
+@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['POST', 'OPTIONS'])
+@_admin_required
+def admin_force_update():
+    if request.method == 'OPTIONS':
+        return ('', 200)
+    global _force_update_cache
+    try:
+        _get_table().put_item(Item={
+            'pk': 'CONTROL#update',
+            'sk': 'flag',
+            'active': True,
+            'set_at': datetime.now(timezone.utc).isoformat(),
+            'ttl': int(time.time()) + 2 * 3600,  # auto-expira em 2h
+        })
+        # Invalida cache imediatamente em todos os workers que já o carregaram
+        _force_update_cache = {'value': True, 'expires': time.time() + 60}
+    except ClientError as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'ok': True, 'message': 'Flag force_update ativado — tablets receberão na próxima batida de heartbeat (≤5 min)'}), 200
+
+
+@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['DELETE', 'OPTIONS'])
+@_admin_required
+def admin_cancel_force_update():
+    if request.method == 'OPTIONS':
+        return ('', 200)
+    global _force_update_cache
+    try:
+        _get_table().delete_item(Key={'pk': 'CONTROL#update', 'sk': 'flag'})
+        _force_update_cache = {'value': False, 'expires': time.time() + 60}
+    except ClientError:
+        pass
+    return jsonify({'ok': True}), 200
+
+
+@kiosk_telemetry_routes.route('/api/admin/kiosk/force-update', methods=['GET'])
+@_admin_required
+def admin_get_force_update():
+    active = _check_force_update()
+    return jsonify({'active': active}), 200

@@ -350,6 +350,10 @@ export async function fetchAdminKioskLogs(filter: KioskLogsFilter = {}): Promise
   return { logs: resp.logs || [], warn: resp.warn };
 }
 
+export async function triggerKioskForceUpdate(): Promise<void> {
+  await fetchFromBackend("/api/admin/kiosk/force-update", { method: "POST" });
+}
+
 export async function fetchAdminKioskHeartbeats(companyId?: string): Promise<{ heartbeats: KioskHeartbeat[]; warn?: string }> {
   const qs = companyId ? `?company_id=${companyId}` : "";
   const resp = await fetchFromBackend(`/api/admin/kiosk/heartbeats${qs}`);

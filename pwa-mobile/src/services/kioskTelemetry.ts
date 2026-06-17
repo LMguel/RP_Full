@@ -101,7 +101,7 @@ export class KioskTelemetryService {
     const battery = await getBatteryLevel();
 
     try {
-      await fetch(`${API_URL}/api/kiosk/heartbeat`, {
+      const resp = await fetch(`${API_URL}/api/kiosk/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: auth },
         body: JSON.stringify({
@@ -114,6 +114,13 @@ export class KioskTelemetryService {
           last_sync: localStorage.getItem('@kiosk:last_sync') || null,
         }),
       });
+      if (resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        if (data.force_update) {
+          // Admin pediu atualização forçada — verifica nova versão do SW silenciosamente
+          navigator.serviceWorker?.getRegistration().then(reg => { reg?.update(); });
+        }
+      }
     } catch { /* fire-and-forget */ }
   }
 }
