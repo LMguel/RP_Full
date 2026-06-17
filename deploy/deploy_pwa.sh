@@ -9,7 +9,7 @@ ENV_FILE="$SCRIPT_DIR/.env"
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 
 S3_BUCKET_PWA="${S3_BUCKET_PWA:-pwa-registra-ponto}"
-CLOUDFRONT_ID_PWA="${CLOUDFRONT_ID_PWA:-E2TE7LW6Z6QARR}"
+CLOUDFRONT_ID_PWA="${CLOUDFRONT_ID_PWA:-E34SUQ0BNKFXYE}"
 
 echo "━━━ Deploy PWA → s3://$S3_BUCKET_PWA ━━━"
 echo "    CloudFront: $CLOUDFRONT_ID_PWA"
