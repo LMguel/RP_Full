@@ -27,6 +27,11 @@ import {
   TableSortLabel,
   Collapse,
   LinearProgress,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  Divider as MenuDivider,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -50,6 +55,9 @@ import {
   Undo as UndoIcon,
   SwapHoriz as SwapHorizIcon,
   AttachFile as AttachFileIcon,
+  BeachAccess as BeachAccessIcon,
+  MedicalServices as MedicalIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 import { Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
@@ -154,6 +162,18 @@ const EmployeeRecordsPage: React.FC = () => {
     label: string;
   } | null>(null);
   const [undoSubmitting, setUndoSubmitting] = useState(false);
+
+  const [calendarMenuAnchor, setCalendarMenuAnchor] = useState<HTMLElement | null>(null);
+  const [calendarMenuDay, setCalendarMenuDay] = useState<RegistroDia | null>(null);
+  const [marcarFolgaSubmitting, setMarcarFolgaSubmitting] = useState(false);
+
+  const [novoAtestadoOpen, setNovoAtestadoOpen] = useState(false);
+  const [novoAtestadoDay, setNovoAtestadoDay] = useState('');
+  const [novoAtestadoDias, setNovoAtestadoDias] = useState(1);
+  const [novoAtestadoJust, setNovoAtestadoJust] = useState('');
+  const [novoAtestadoFile, setNovoAtestadoFile] = useState<File | null>(null);
+  const [novoAtestadoSubmitting, setNovoAtestadoSubmitting] = useState(false);
+  const [novoAtestadoProgress, setNovoAtestadoProgress] = useState(0);
 
   const [substituirOpen, setSubstituirOpen] = useState(false);
   const [substituirDayData, setSubstituirDayData] = useState('');
@@ -598,6 +618,84 @@ const EmployeeRecordsPage: React.FC = () => {
       showSnackbar(err?.response?.data?.error || 'Erro ao adicionar registro', 'error');
     } finally {
       setAddRecordSubmitting(false);
+    }
+  };
+
+  const handleCalendarDayClick = (day: RegistroDia, e: React.MouseEvent<HTMLElement>) => {
+    if (day.status === 'FERIADO' || day.status === 'EM_PROCESSAMENTO') return;
+    setCalendarMenuDay(day);
+    setCalendarMenuAnchor(e.currentTarget);
+  };
+
+  const handleMarcarFolga = async () => {
+    if (!calendarMenuDay || !employeeId) return;
+    setCalendarMenuAnchor(null);
+    setMarcarFolgaSubmitting(true);
+    try {
+      await apiService.registerFerias({
+        employee_id: employeeId,
+        data_inicio: calendarMenuDay.data,
+        data_fim: calendarMenuDay.data,
+        justificativa: 'Folga programada',
+      });
+      showSnackbar('Folga marcada com sucesso!', 'success');
+      buscarRegistrosFuncionario();
+    } catch (err: any) {
+      showSnackbar(err?.response?.data?.mensagem || 'Erro ao marcar folga', 'error');
+    } finally {
+      setMarcarFolgaSubmitting(false);
+      setCalendarMenuDay(null);
+    }
+  };
+
+  const handleCalendarDesfazer = () => {
+    if (!calendarMenuDay) return;
+    setCalendarMenuAnchor(null);
+    const tipo = calendarMenuDay.status === 'ATESTADO' ? 'atestado' : 'ferias_folga';
+    openUndoDialog(tipo, calendarMenuDay.data);
+    setCalendarMenuDay(null);
+  };
+
+  const handleCalendarVerRegistros = () => {
+    if (!calendarMenuDay) return;
+    setCalendarMenuAnchor(null);
+    scrollToDate(calendarMenuDay.data);
+    setCalendarMenuDay(null);
+  };
+
+  const handleCalendarRegistrarAtestado = () => {
+    if (!calendarMenuDay) return;
+    setCalendarMenuAnchor(null);
+    setNovoAtestadoDay(calendarMenuDay.data);
+    setNovoAtestadoDias(1);
+    setNovoAtestadoJust('');
+    setNovoAtestadoFile(null);
+    setNovoAtestadoProgress(0);
+    setNovoAtestadoOpen(true);
+    setCalendarMenuDay(null);
+  };
+
+  const handleNovoAtestadoConfirm = async () => {
+    if (!novoAtestadoFile || !novoAtestadoDay || !employeeId) return;
+    setNovoAtestadoSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('employee_id', employeeId);
+      fd.append('data_inicio', novoAtestadoDay);
+      fd.append('dias', String(novoAtestadoDias));
+      fd.append('justificativa', novoAtestadoJust.trim() || 'Atestado médico');
+      fd.append('arquivo', novoAtestadoFile);
+      await apiService.registerAtestado(fd, (pct) => setNovoAtestadoProgress(pct));
+      showSnackbar(`Atestado registrado para ${novoAtestadoDias} dia(s)!`, 'success');
+      setNovoAtestadoOpen(false);
+      setNovoAtestadoFile(null);
+      setNovoAtestadoJust('');
+      buscarRegistrosFuncionario();
+    } catch (err: any) {
+      showSnackbar(err?.response?.data?.mensagem || 'Erro ao registrar atestado', 'error');
+    } finally {
+      setNovoAtestadoSubmitting(false);
+      setNovoAtestadoProgress(0);
     }
   };
 
@@ -1093,14 +1191,14 @@ const EmployeeRecordsPage: React.FC = () => {
                     const temTrabalho = !isProcessing && (day.registros.length > 0 || day.status === 'PRESENTE' || day.status === 'ATRASO' || day.status === 'INCOMPLETO' || day.status === 'FERIAS' || day.status === 'ATESTADO');
                     return (
                       <Box
-                        onClick={() => (temTrabalho || isProcessing) && day.registros.length > 0 ? scrollToDate(day.data) : undefined}
+                        onClick={(e) => day.status !== 'FERIADO' && day.status !== 'EM_PROCESSAMENTO' ? handleCalendarDayClick(day, e) : undefined}
                         sx={{
                           py:1, px:0.5, borderRadius:1.5, textAlign:'center', minHeight:52,
-                          cursor: (temTrabalho || (isProcessing && day.registros.length > 0)) ? 'pointer' : 'default',
+                          cursor: day.status === 'FERIADO' || day.status === 'EM_PROCESSAMENTO' ? 'default' : 'pointer',
                           background: isProcessing ? 'rgba(100,116,139,0.08)' : day.status==='FERIADO' ? 'rgba(250,204,21,0.12)' : temTrabalho ? bg : day.status==='FALTA' ? 'rgba(239,68,68,0.08)' : 'transparent',
                           border: `1px solid ${isProcessing ? 'rgba(100,116,139,0.28)' : day.status==='FERIADO' ? 'rgba(250,204,21,0.65)' : temTrabalho ? border : day.status==='FALTA' ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.05)'}`,
                           display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', transition:'all 0.15s',
-                          '&:hover': (temTrabalho || isProcessing) ? { opacity:0.85, transform:'scale(1.04)' } : {},
+                          '&:hover': day.status !== 'FERIADO' && day.status !== 'EM_PROCESSAMENTO' ? { opacity:0.85, transform:'scale(1.04)', borderColor:'rgba(255,255,255,0.25)' } : {},
                         }}
                       >
                         <Typography sx={{ fontWeight:700, fontSize:13, color: isProcessing ? 'rgba(148,163,184,0.6)' : day.status==='FERIADO' ? '#facc15' : temTrabalho ? 'white' : day.status==='FALTA' ? 'rgba(239,68,68,0.7)' : 'rgba(255,255,255,0.3)' }}>{day.dia_numero}</Typography>
@@ -1611,6 +1709,149 @@ const EmployeeRecordsPage: React.FC = () => {
             startIcon={addRecordSubmitting ? <CircularProgress size={18} color="inherit" /> : <AddIcon />}
             sx={{ background:'#2563eb','&:hover':{ background:'#1d4ed8' } }}>
             {addRecordSubmitting ? 'Salvando...' : 'Adicionar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* MENU CONTEXTUAL DO CALENDÁRIO */}
+      <Menu
+        anchorEl={calendarMenuAnchor}
+        open={Boolean(calendarMenuAnchor)}
+        onClose={() => { setCalendarMenuAnchor(null); setCalendarMenuDay(null); }}
+        PaperProps={{
+          sx: {
+            background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 2, minWidth: 210, backdropFilter: 'blur(20px)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }
+        }}
+        transformOrigin={{ horizontal: 'center', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'center', vertical: 'bottom' }}
+      >
+        {calendarMenuDay && (
+          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>
+              {calendarMenuDay.data.split('-').reverse().join('/')} — {calendarMenuDay.dia_semana}
+            </Typography>
+            <Typography sx={{ fontSize: 12, color: 'white', fontWeight: 600, mt: 0.25 }}>
+              {calendarMenuDay.status === 'FALTA' ? '✗ Falta' :
+               calendarMenuDay.status === 'FERIAS' ? '🏖 Férias / Folga' :
+               calendarMenuDay.status === 'ATESTADO' ? '🩺 Atestado' :
+               calendarMenuDay.status === 'PRESENTE' ? '✓ Presente' :
+               calendarMenuDay.status === 'ATRASO' ? '! Atraso' :
+               calendarMenuDay.status === 'INCOMPLETO' ? '⚠ Incompleto' :
+               '○ Sem registro'}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Ver registros — para dias com trabalho */}
+        {calendarMenuDay && ['PRESENTE','ATRASO','INCOMPLETO'].includes(calendarMenuDay.status) && calendarMenuDay.registros.length > 0 && (
+          <MenuItem onClick={handleCalendarVerRegistros} sx={{ py: 1, gap: 1.5, '&:hover': { background: 'rgba(255,255,255,0.06)' } }}>
+            <ListItemIcon sx={{ minWidth: 0 }}><VisibilityIcon sx={{ fontSize: 16, color: '#60a5fa' }} /></ListItemIcon>
+            <ListItemText primary="Ver registros" primaryTypographyProps={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }} />
+          </MenuItem>
+        )}
+
+        {/* Marcar folga — para dias sem registro, falta, ou com trabalho */}
+        {calendarMenuDay && calendarMenuDay.status !== 'FERIAS' && calendarMenuDay.status !== 'ATESTADO' && (
+          <MenuItem onClick={handleMarcarFolga} disabled={marcarFolgaSubmitting}
+            sx={{ py: 1, gap: 1.5, '&:hover': { background: 'rgba(139,92,246,0.12)' } }}>
+            <ListItemIcon sx={{ minWidth: 0 }}>
+              {marcarFolgaSubmitting ? <CircularProgress size={14} sx={{ color: '#a78bfa' }} /> : <BeachAccessIcon sx={{ fontSize: 16, color: '#a78bfa' }} />}
+            </ListItemIcon>
+            <ListItemText primary="Marcar como Folga" primaryTypographyProps={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }} />
+          </MenuItem>
+        )}
+
+        {/* Registrar atestado — para dias sem registro ou falta */}
+        {calendarMenuDay && !['FERIAS','ATESTADO','PRESENTE','ATRASO'].includes(calendarMenuDay.status) && (
+          <MenuItem onClick={handleCalendarRegistrarAtestado}
+            sx={{ py: 1, gap: 1.5, '&:hover': { background: 'rgba(20,184,166,0.12)' } }}>
+            <ListItemIcon sx={{ minWidth: 0 }}><MedicalIcon sx={{ fontSize: 16, color: '#2dd4bf' }} /></ListItemIcon>
+            <ListItemText primary="Registrar Atestado" primaryTypographyProps={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }} />
+          </MenuItem>
+        )}
+
+        {/* Trocar arquivo — para atestado */}
+        {calendarMenuDay?.status === 'ATESTADO' && (
+          <MenuItem onClick={() => { setCalendarMenuAnchor(null); openSubstituir(calendarMenuDay!.data); setCalendarMenuDay(null); }}
+            sx={{ py: 1, gap: 1.5, '&:hover': { background: 'rgba(20,184,166,0.12)' } }}>
+            <ListItemIcon sx={{ minWidth: 0 }}><SwapHorizIcon sx={{ fontSize: 16, color: '#2dd4bf' }} /></ListItemIcon>
+            <ListItemText primary="Substituir documento" primaryTypographyProps={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }} />
+          </MenuItem>
+        )}
+
+        {/* Desfazer — para folga ou atestado */}
+        {calendarMenuDay && ['FERIAS','ATESTADO'].includes(calendarMenuDay.status) && (
+          <>
+            <MenuDivider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 0.5 }} />
+            <MenuItem onClick={handleCalendarDesfazer}
+              sx={{ py: 1, gap: 1.5, '&:hover': { background: 'rgba(239,68,68,0.1)' } }}>
+              <ListItemIcon sx={{ minWidth: 0 }}><UndoIcon sx={{ fontSize: 16, color: '#ef4444' }} /></ListItemIcon>
+              <ListItemText
+                primary={`Desfazer ${calendarMenuDay.status === 'ATESTADO' ? 'atestado' : 'folga'}`}
+                primaryTypographyProps={{ fontSize: 13, color: '#ef4444' }}
+              />
+            </MenuItem>
+          </>
+        )}
+      </Menu>
+
+      {/* DIALOG REGISTRAR NOVO ATESTADO */}
+      <Dialog open={novoAtestadoOpen} onClose={() => !novoAtestadoSubmitting && setNovoAtestadoOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { borderRadius: 2, background: 'rgba(15,23,42,0.97)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' } }}>
+        <DialogTitle sx={{ fontWeight: 700, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <MedicalIcon sx={{ color: '#2dd4bf', fontSize: 20 }} />
+          Registrar Atestado
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 400, ml: 'auto', fontSize: 11 }}>
+            {novoAtestadoDay.split('-').reverse().join('/')}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 0.5 }}>
+            <TextField
+              label="Quantidade de dias" type="number" value={novoAtestadoDias}
+              onChange={e => setNovoAtestadoDias(Math.max(1, parseInt(e.target.value) || 1))}
+              inputProps={{ min: 1 }} size="small"
+              helperText={`A partir de ${novoAtestadoDay.split('-').reverse().join('/')}`}
+              sx={dialogFieldSx}
+            />
+            <TextField
+              label="Justificativa" placeholder="Motivo do atestado"
+              value={novoAtestadoJust} onChange={e => setNovoAtestadoJust(e.target.value)}
+              multiline rows={2} sx={dialogFieldSx}
+            />
+            <Box component="label" sx={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 1, p: 2.5, border: '2px dashed rgba(45,212,191,0.3)', borderRadius: 2, cursor: 'pointer',
+              background: novoAtestadoFile ? 'rgba(20,184,166,0.06)' : 'rgba(255,255,255,0.02)',
+              transition: 'all 0.2s', '&:hover': { borderColor: 'rgba(45,212,191,0.6)', background: 'rgba(20,184,166,0.06)' },
+            }}>
+              <input type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display: 'none' }}
+                onChange={e => setNovoAtestadoFile(e.target.files?.[0] ?? null)} />
+              <AttachFileIcon sx={{ color: novoAtestadoFile ? '#2dd4bf' : 'rgba(255,255,255,0.3)', fontSize: 28 }} />
+              <Typography sx={{ fontSize: 12, color: novoAtestadoFile ? '#2dd4bf' : 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
+                {novoAtestadoFile ? novoAtestadoFile.name : 'Anexar documento (PDF, PNG, JPG — máx. 15 MB)'}
+              </Typography>
+            </Box>
+            {novoAtestadoSubmitting && (
+              <Box>
+                <LinearProgress variant="determinate" value={novoAtestadoProgress}
+                  sx={{ borderRadius: 4, '& .MuiLinearProgress-bar': { background: '#2dd4bf' }, background: 'rgba(255,255,255,0.08)' }} />
+                <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', mt: 0.5, textAlign: 'center' }}>{novoAtestadoProgress}%</Typography>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setNovoAtestadoOpen(false); setNovoAtestadoFile(null); }} disabled={novoAtestadoSubmitting}
+            sx={{ color: 'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleNovoAtestadoConfirm} variant="contained"
+            disabled={novoAtestadoSubmitting || !novoAtestadoFile}
+            startIcon={novoAtestadoSubmitting ? <CircularProgress size={18} color="inherit" /> : <MedicalIcon />}
+            sx={{ background: '#0d9488', '&:hover': { background: '#0f766e' } }}>
+            {novoAtestadoSubmitting ? 'Enviando...' : 'Registrar'}
           </Button>
         </DialogActions>
       </Dialog>

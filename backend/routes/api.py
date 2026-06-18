@@ -2421,6 +2421,21 @@ def registrar_ferias(payload):
         criados.append(date_str)
         current += timedelta(days=1)
 
+    if criados:
+        _log_audit(
+            company_id=empresa_id,
+            user_id=payload.get('usuario_id', payload.get('email', '')),
+            user_name=payload.get('user_name', payload.get('usuario_id', '')),
+            entity='RECORD', entity_id=f"{employee_id}#{criados[0]}",
+            action='CREATE',
+            before=None,
+            after={'type': 'ferias_folga', 'dias': criados, 'justificativa': justificativa},
+            request=request,
+            employee_id=employee_id,
+            employee_name=funcionario.get('nome', ''),
+            reason=justificativa,
+        )
+
     return jsonify({'mensagem': f'Férias/Folga registradas para {len(criados)} dia(s)', 'dias': criados}), 200
 
 
@@ -2517,6 +2532,21 @@ def registrar_atestado(payload):
         tabela_registros.put_item(Item=registro)
         criados.append(date_str)
 
+    if criados:
+        _log_audit(
+            company_id=empresa_id,
+            user_id=payload.get('usuario_id', payload.get('email', '')),
+            user_name=payload.get('user_name', payload.get('usuario_id', '')),
+            entity='RECORD', entity_id=f"{employee_id}#{criados[0]}",
+            action='CREATE',
+            before=None,
+            after={'type': 'atestado', 'dias': criados, 'justificativa': justificativa, 'atestado_s3_key': atestado_s3_key},
+            request=request,
+            employee_id=employee_id,
+            employee_name=funcionario.get('nome', ''),
+            reason=justificativa,
+        )
+
     return jsonify({
         'mensagem':    f'Atestado registrado para {len(criados)} dia(s)',
         'dias':        criados,
@@ -2550,6 +2580,9 @@ def remover_especial(payload):
 
     tipos_alvo = {'ferias_folga', 'atestado'} if tipo == 'ambos' else {tipo}
 
+    func_resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'employee_id': employee_id})
+    func_nome = func_resp.get('Item', {}).get('nome', '') if func_resp.get('Item') else ''
+
     removidos = []
     current = dt_inicio
     while current <= dt_fim:
@@ -2574,6 +2607,21 @@ def remover_especial(payload):
             print(f"[remover_especial] Erro em {date_str}: {e}")
 
         current += timedelta(days=1)
+
+    if removidos:
+        _log_audit(
+            company_id=empresa_id,
+            user_id=payload.get('usuario_id', payload.get('email', '')),
+            user_name=payload.get('user_name', payload.get('usuario_id', '')),
+            entity='RECORD', entity_id=f"{employee_id}#{removidos[0]}",
+            action='INVALIDATE',
+            before={'type': tipo, 'dias': removidos, 'status': 'ATIVO'},
+            after={'status': 'INVALIDADO', 'dias': removidos},
+            request=request,
+            employee_id=employee_id,
+            employee_name=func_nome,
+            reason=f'Remoção de {tipo} via gestor ({len(removidos)} dia(s))',
+        )
 
     return jsonify({
         'mensagem': f'{len(removidos)} dia(s) removido(s)',
@@ -2612,12 +2660,19 @@ def substituir_atestado(payload):
     data_hora  = f"{data_str} 00:00:00"
     sort_key   = f"{employee_id}#{data_hora}"
 
+    func_resp_sub = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'employee_id': employee_id})
+    func_nome_sub = func_resp_sub.get('Item', {}).get('nome', '') if func_resp_sub.get('Item') else ''
+
     resp = tabela_registros.get_item(
         Key={'company_id': empresa_id, 'employee_id#date_time': sort_key}
     )
     item = resp.get('Item')
     if not item or item.get('type') != 'atestado':
         return jsonify({'mensagem': 'Atestado não encontrado para esta data'}), 404
+
+    # Identificador do lote: todos os dias do mesmo atestado compartilham a mesma key
+    old_s3_key  = item.get('atestado_s3_key') or item.get('atestado_url') or ''
+    atestado_dias = max(1, int(item.get('atestado_dias', 1)))
 
     new_s3_key = f"atestados/{empresa_id}/{employee_id}/{uuid.uuid4().hex}{ext}"
     tmp = None
@@ -2633,13 +2688,54 @@ def substituir_atestado(payload):
         if tmp and os.path.exists(tmp):
             os.remove(tmp)
 
-    tabela_registros.update_item(
-        Key={'company_id': empresa_id, 'employee_id#date_time': sort_key},
-        UpdateExpression='SET atestado_s3_key = :k REMOVE atestado_url',
-        ExpressionAttributeValues={':k': new_s3_key},
-    )
+    # Atualizar todos os dias do lote: varre janela de atestado_dias dias antes e depois
+    # e substitui qualquer registro do mesmo employee que referencie a mesma key antiga.
+    dt_ref = datetime.strptime(data_str, '%Y-%m-%d').date()
+    atualizados = []
+    for delta in range(-(atestado_dias - 1), atestado_dias):
+        candidate = dt_ref + timedelta(days=delta)
+        c_str  = candidate.strftime('%Y-%m-%d')
+        c_hora = f"{c_str} 00:00:00"
+        c_key  = f"{employee_id}#{c_hora}"
+        try:
+            c_resp = tabela_registros.get_item(
+                Key={'company_id': empresa_id, 'employee_id#date_time': c_key}
+            )
+            c_item = c_resp.get('Item')
+            if not c_item or c_item.get('type') != 'atestado':
+                continue
+            c_old = c_item.get('atestado_s3_key') or c_item.get('atestado_url') or ''
+            if c_old != old_s3_key:
+                continue
+            tabela_registros.update_item(
+                Key={'company_id': empresa_id, 'employee_id#date_time': c_key},
+                UpdateExpression='SET atestado_s3_key = :k REMOVE atestado_url',
+                ExpressionAttributeValues={':k': new_s3_key},
+            )
+            atualizados.append(c_str)
+        except Exception:
+            pass
 
-    return jsonify({'mensagem': 'Arquivo substituído com sucesso', 'atestado_url': new_url}), 200
+    if atualizados:
+        _log_audit(
+            company_id=empresa_id,
+            user_id=payload.get('usuario_id', payload.get('email', '')),
+            user_name=payload.get('user_name', payload.get('usuario_id', '')),
+            entity='RECORD', entity_id=f"{employee_id}#{data_str}",
+            action='EDIT',
+            before={'atestado_s3_key': old_s3_key, 'dias': atualizados},
+            after={'atestado_s3_key': new_s3_key, 'dias': atualizados},
+            request=request,
+            employee_id=employee_id,
+            employee_name=func_nome_sub,
+            reason='Substituição de documento de atestado',
+        )
+
+    return jsonify({
+        'mensagem': f'Arquivo substituído em {len(atualizados)} dia(s)',
+        'dias': sorted(atualizados),
+        'atestado_url': new_url,
+    }), 200
 
 
 @routes.route('/registros_protegido', methods=['GET'])

@@ -76,17 +76,32 @@ function getSummaryText(log: AuditLog): string {
   const who = log.user_name || log.user_id || 'Sistema';
   const emp = log.employee_name;
 
+  const afterType = (log.after as Record<string, unknown>)?.type as string | undefined;
+  const beforeType = (log.before as Record<string, unknown>)?.type as string | undefined;
+  const reason = log.reason || '';
+
   switch (log.action) {
     case 'ADJUST':
       return emp ? `${who} ajustou um registro de ${emp}` : `${who} ajustou um registro`;
     case 'INVALIDATE':
+      if (log.entity === 'RECORD') {
+        const rtype = beforeType || '';
+        if (rtype === 'ferias_folga') return emp ? `${who} desfez folga de ${emp}` : `${who} desfez folga`;
+        if (rtype === 'atestado')     return emp ? `${who} desfez atestado de ${emp}` : `${who} desfez atestado`;
+      }
       return emp ? `${who} invalidou um registro de ${emp}` : `${who} invalidou um registro`;
     case 'CREATE':
       if (log.entity === 'EMPLOYEE') return emp ? `${who} cadastrou ${emp}` : `${who} cadastrou funcionário`;
-      if (log.entity === 'RECORD')   return emp ? `${who} adicionou registro manual de ${emp}` : `${who} adicionou registro manual`;
+      if (log.entity === 'RECORD') {
+        if (afterType === 'ferias_folga') return emp ? `${who} marcou folga/férias de ${emp}` : `${who} marcou folga/férias`;
+        if (afterType === 'atestado')     return emp ? `${who} registrou atestado de ${emp}` : `${who} registrou atestado`;
+        return emp ? `${who} adicionou registro manual de ${emp}` : `${who} adicionou registro manual`;
+      }
       return `${who} criou ${ENTITY_LABELS[log.entity] || log.entity}`;
     case 'EDIT':
       if (log.entity === 'EMPLOYEE') return emp ? `${who} editou cadastro de ${emp}` : `${who} editou funcionário`;
+      if (log.entity === 'RECORD' && reason.toLowerCase().includes('atestado'))
+        return emp ? `${who} substituiu documento de atestado de ${emp}` : `${who} substituiu documento de atestado`;
       return `${who} editou ${ENTITY_LABELS[log.entity] || log.entity}`;
     case 'DELETE':
       return emp ? `${who} excluiu ${emp}` : `${who} excluiu ${ENTITY_LABELS[log.entity] || log.entity}`;
