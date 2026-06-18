@@ -210,6 +210,33 @@ class ApiService {
     return response.data;
   }
 
+  async removerEspecial(data: {
+    employee_id: string;
+    data_inicio: string;
+    data_fim: string;
+    tipo: 'ferias_folga' | 'atestado' | 'ambos';
+  }) {
+    const response = await this.api.delete('/api/remover_especial', { data });
+    return response.data;
+  }
+
+  async substituirAtestado(
+    formData: FormData,
+    onUploadProgress?: (percent: number) => void,
+  ) {
+    const response = await this.api.put('/api/atestado/substituir', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+      onUploadProgress: onUploadProgress
+        ? (e) => {
+            const pct = Math.round((e.loaded * 100) / (e.total ?? e.loaded));
+            onUploadProgress(Math.min(pct, 99));
+          }
+        : undefined,
+    });
+    return response.data;
+  }
+
   async invalidateTimeRecord(registroId: string, justificativa: string) {
     const safeId = encodeURIComponent(registroId);
     const response = await this.api.put(`/api/registros/${safeId}/invalidar`, { justificativa });

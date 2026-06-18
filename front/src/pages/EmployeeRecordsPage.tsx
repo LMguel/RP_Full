@@ -26,6 +26,7 @@ import {
   Alert,
   TableSortLabel,
   Collapse,
+  LinearProgress,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -46,6 +47,9 @@ import {
   CameraAlt as CameraIcon,
   EditNote as EditNoteIcon,
   InfoOutlined as InfoIcon,
+  Undo as UndoIcon,
+  SwapHoriz as SwapHorizIcon,
+  AttachFile as AttachFileIcon,
 } from '@mui/icons-material';
 import { Tooltip, Popover } from '@mui/material';
 import { motion } from 'framer-motion';
@@ -141,6 +145,21 @@ const EmployeeRecordsPage: React.FC = () => {
   const [addRecordOpen, setAddRecordOpen] = useState(false);
   const [addRecordData, setAddRecordData] = useState({ date: '', time: '', justificativa: '' });
   const [addRecordSubmitting, setAddRecordSubmitting] = useState(false);
+
+  const [undoDialogOpen, setUndoDialogOpen] = useState(false);
+  const [undoConfig, setUndoConfig] = useState<{
+    tipo: 'ferias_folga' | 'atestado';
+    dataInicio: string;
+    dataFim: string;
+    label: string;
+  } | null>(null);
+  const [undoSubmitting, setUndoSubmitting] = useState(false);
+
+  const [substituirOpen, setSubstituirOpen] = useState(false);
+  const [substituirDayData, setSubstituirDayData] = useState('');
+  const [substituirFile, setSubstituirFile] = useState<File | null>(null);
+  const [substituirSubmitting, setSubstituirSubmitting] = useState(false);
+  const [substituirProgress, setSubstituirProgress] = useState(0);
 
   // Horário do funcionário (buscado da API)
   const [funcionarioSchedule, setFuncionarioSchedule] = useState<{
@@ -579,6 +598,65 @@ const EmployeeRecordsPage: React.FC = () => {
       showSnackbar(err?.response?.data?.error || 'Erro ao adicionar registro', 'error');
     } finally {
       setAddRecordSubmitting(false);
+    }
+  };
+
+  const openUndoDialog = (tipo: 'ferias_folga' | 'atestado', data: string) => {
+    setUndoConfig({
+      tipo,
+      dataInicio: data,
+      dataFim: data,
+      label: tipo === 'ferias_folga' ? 'Férias / Folga' : 'Atestado Médico',
+    });
+    setUndoDialogOpen(true);
+  };
+
+  const handleUndoConfirm = async () => {
+    if (!undoConfig || !employeeId) return;
+    setUndoSubmitting(true);
+    try {
+      await apiService.removerEspecial({
+        employee_id: employeeId,
+        data_inicio: undoConfig.dataInicio,
+        data_fim: undoConfig.dataFim,
+        tipo: undoConfig.tipo,
+      });
+      showSnackbar(`${undoConfig.label} removido(s) com sucesso!`, 'success');
+      setUndoDialogOpen(false);
+      setUndoConfig(null);
+      buscarRegistrosFuncionario();
+    } catch (err: any) {
+      showSnackbar(err?.response?.data?.mensagem || 'Erro ao remover período', 'error');
+    } finally {
+      setUndoSubmitting(false);
+    }
+  };
+
+  const openSubstituir = (data: string) => {
+    setSubstituirDayData(data);
+    setSubstituirFile(null);
+    setSubstituirProgress(0);
+    setSubstituirOpen(true);
+  };
+
+  const handleSubstituirConfirm = async () => {
+    if (!substituirFile || !substituirDayData || !employeeId) return;
+    setSubstituirSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('employee_id', employeeId);
+      fd.append('data', substituirDayData);
+      fd.append('arquivo', substituirFile);
+      await apiService.substituirAtestado(fd, (pct) => setSubstituirProgress(pct));
+      showSnackbar('Documento substituído com sucesso!', 'success');
+      setSubstituirOpen(false);
+      setSubstituirFile(null);
+      buscarRegistrosFuncionario();
+    } catch (err: any) {
+      showSnackbar(err?.response?.data?.mensagem || 'Erro ao substituir documento', 'error');
+    } finally {
+      setSubstituirSubmitting(false);
+      setSubstituirProgress(0);
     }
   };
 
@@ -1202,7 +1280,14 @@ const EmployeeRecordsPage: React.FC = () => {
                           <TableCell align="center"><Typography sx={{ fontWeight:700, fontSize:12, fontFamily:'monospace', color:'#a78bfa' }}>{s.horas_trabalhadas_str || day.horas_previstas || '—'}</Typography></TableCell>
                           <TableCell align="center"><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.5)' }}>{s.horas_previstas_str || day.horas_previstas || '—'}</Typography></TableCell>
                           <TableCell align="center"><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.4)' }}>00:00</Typography></TableCell>
-                          <TableCell />
+                          <TableCell align="center" sx={{ px: 0.5 }}>
+                            <Tooltip title="Desfazer férias/folga nesta data">
+                              <IconButton size="small" onClick={() => openUndoDialog('ferias_folga', day.data)}
+                                sx={{ color:'rgba(239,68,68,0.55)', '&:hover':{ color:'#ef4444', background:'rgba(239,68,68,0.1)' } }}>
+                                <UndoIcon sx={{ fontSize:15 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
                         </TableRow>
                       </React.Fragment>
                     );
@@ -1243,7 +1328,22 @@ const EmployeeRecordsPage: React.FC = () => {
                           <TableCell align="center"><Typography sx={{ fontWeight:700, fontSize:12, fontFamily:'monospace', color:'#2dd4bf' }}>{s.horas_trabalhadas_str || day.horas_previstas || '—'}</Typography></TableCell>
                           <TableCell align="center"><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.5)' }}>{s.horas_previstas_str || day.horas_previstas || '—'}</Typography></TableCell>
                           <TableCell align="center"><Typography sx={{ fontSize:12, fontFamily:'monospace', color:'rgba(255,255,255,0.4)' }}>00:00</Typography></TableCell>
-                          <TableCell />
+                          <TableCell align="center" sx={{ px: 0.5 }}>
+                            <Box sx={{ display:'flex', gap:0.25, justifyContent:'center' }}>
+                              <Tooltip title="Substituir documento">
+                                <IconButton size="small" onClick={() => openSubstituir(day.data)}
+                                  sx={{ color:'rgba(45,212,191,0.55)', '&:hover':{ color:'#2dd4bf', background:'rgba(20,184,166,0.1)' } }}>
+                                  <SwapHorizIcon sx={{ fontSize:15 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Desfazer atestado nesta data">
+                                <IconButton size="small" onClick={() => openUndoDialog('atestado', day.data)}
+                                  sx={{ color:'rgba(239,68,68,0.55)', '&:hover':{ color:'#ef4444', background:'rgba(239,68,68,0.1)' } }}>
+                                  <UndoIcon sx={{ fontSize:15 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          </TableCell>
                         </TableRow>
                       </React.Fragment>
                     );
@@ -1511,6 +1611,97 @@ const EmployeeRecordsPage: React.FC = () => {
             startIcon={addRecordSubmitting ? <CircularProgress size={18} color="inherit" /> : <AddIcon />}
             sx={{ background:'#2563eb','&:hover':{ background:'#1d4ed8' } }}>
             {addRecordSubmitting ? 'Salvando...' : 'Adicionar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DIALOG DESFAZER FÉRIAS / ATESTADO */}
+      <Dialog open={undoDialogOpen} onClose={() => !undoSubmitting && setUndoDialogOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:1 }}>
+          <UndoIcon sx={{ color:'#ef4444', fontSize:20 }} />
+          Desfazer {undoConfig?.label}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mb:2 }}>
+            O(s) registro(s) no intervalo abaixo serão marcados como <strong style={{ color:'#ef4444' }}>INVALIDADOS</strong>.
+            Você pode ajustar o período se mais de um dia foi lançado incorretamente.
+          </Typography>
+          <Box sx={{ display:'flex', gap:2, mt:1 }}>
+            <TextField label="Data início" type="date" value={undoConfig?.dataInicio || ''}
+              onChange={e => setUndoConfig(p => p ? { ...p, dataInicio: e.target.value } : p)}
+              InputLabelProps={{ shrink:true }} sx={{ flex:1, ...dialogFieldSx }} />
+            <TextField label="Data fim" type="date" value={undoConfig?.dataFim || ''}
+              onChange={e => setUndoConfig(p => p ? { ...p, dataFim: e.target.value } : p)}
+              InputLabelProps={{ shrink:true }} sx={{ flex:1, ...dialogFieldSx }} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setUndoDialogOpen(false); setUndoConfig(null); }} disabled={undoSubmitting}
+            sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleUndoConfirm} color="error" variant="contained"
+            disabled={undoSubmitting || !undoConfig?.dataInicio || !undoConfig?.dataFim}
+            startIcon={undoSubmitting ? <CircularProgress size={18} color="inherit" /> : <UndoIcon />}>
+            {undoSubmitting ? 'Removendo...' : 'Desfazer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DIALOG SUBSTITUIR ARQUIVO DO ATESTADO */}
+      <Dialog open={substituirOpen} onClose={() => !substituirSubmitting && setSubstituirOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:1 }}>
+          <SwapHorizIcon sx={{ color:'#2dd4bf', fontSize:20 }} />
+          Substituir Documento
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.4)', fontWeight:400, ml:'auto', fontSize:11 }}>
+            {substituirDayData.split('-').reverse().join('/')}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mb:2 }}>
+            Selecione o novo arquivo (PDF, PNG, JPG — máx. 15 MB). O documento anterior será substituído.
+          </Typography>
+          <Box
+            component="label"
+            sx={{
+              display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+              gap:1, p:3, border:'2px dashed rgba(45,212,191,0.3)', borderRadius:2, cursor:'pointer',
+              background: substituirFile ? 'rgba(20,184,166,0.06)' : 'rgba(255,255,255,0.02)',
+              transition:'all 0.2s',
+              '&:hover':{ borderColor:'rgba(45,212,191,0.6)', background:'rgba(20,184,166,0.06)' },
+            }}>
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display:'none' }}
+              onChange={e => setSubstituirFile(e.target.files?.[0] ?? null)} />
+            <AttachFileIcon sx={{ color: substituirFile ? '#2dd4bf' : 'rgba(255,255,255,0.3)', fontSize:32 }} />
+            <Typography sx={{ fontSize:13, color: substituirFile ? '#2dd4bf' : 'rgba(255,255,255,0.5)', textAlign:'center' }}>
+              {substituirFile
+                ? substituirFile.name
+                : 'Clique para selecionar o arquivo'}
+            </Typography>
+            {substituirFile && (
+              <Typography sx={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>
+                {(substituirFile.size / 1024 / 1024).toFixed(2)} MB
+              </Typography>
+            )}
+          </Box>
+          {substituirSubmitting && (
+            <Box sx={{ mt:2 }}>
+              <LinearProgress variant="determinate" value={substituirProgress}
+                sx={{ borderRadius:4, '& .MuiLinearProgress-bar':{ background:'#2dd4bf' }, background:'rgba(255,255,255,0.08)' }} />
+              <Typography sx={{ fontSize:11, color:'rgba(255,255,255,0.4)', mt:0.5, textAlign:'center' }}>
+                {substituirProgress}%
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setSubstituirOpen(false); setSubstituirFile(null); }} disabled={substituirSubmitting}
+            sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleSubstituirConfirm} variant="contained"
+            disabled={substituirSubmitting || !substituirFile}
+            startIcon={substituirSubmitting ? <CircularProgress size={18} color="inherit" /> : <SwapHorizIcon />}
+            sx={{ background:'#0d9488', '&:hover':{ background:'#0f766e' } }}>
+            {substituirSubmitting ? 'Enviando...' : 'Substituir'}
           </Button>
         </DialogActions>
       </Dialog>

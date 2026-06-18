@@ -99,7 +99,9 @@ def extract_s3_key_from_url(url: str) -> str | None:
         idx = url.find(marker)
         if idx < 0:
             return None
-        return url[idx + len(marker):]
+        raw = url[idx + len(marker):]
+        # Pre-signed URLs contêm query params (X-Amz-*) — remover para obter só a key
+        return raw.split('?')[0]
     except Exception:
         return None
 

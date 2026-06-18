@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from boto3.dynamodb.conditions import Key, Attr
 from utils.auth import verify_token
 from functools import wraps
-from utils.aws import dynamodb
+from utils.aws import dynamodb, generate_presigned_url, extract_s3_key_from_url
 from utils.schedule import get_schedule_for_date
 from utils.registro_normalizer import (
     filtrar_registros, agrupar_por_employee_data,
@@ -528,9 +528,20 @@ def get_daily_summaries():
                     break_duration=break_duration,
                 ) if (scheduled_start and scheduled_end) else 0
                 _exp = _exp or 0
-                _atestado_url = next(
-                    (r.get('atestado_url') for r in records if r.get('atestado_url')), None
-                ) if _special_type == 'atestado' else None
+                if _special_type == 'atestado':
+                    _atestado_rec = next(
+                        (r for r in records if r.get('atestado_s3_key') or r.get('atestado_url')), None
+                    )
+                    if _atestado_rec:
+                        _s3_key = _atestado_rec.get('atestado_s3_key')
+                        # Fallback: extrair key de registros antigos que só têm a URL
+                        if not _s3_key:
+                            _s3_key = extract_s3_key_from_url(_atestado_rec.get('atestado_url', ''))
+                        _atestado_url = generate_presigned_url(_s3_key, expiration_seconds=3600) if _s3_key else None
+                    else:
+                        _atestado_url = None
+                else:
+                    _atestado_url = None
 
                 try:
                     wd = datetime.strptime(date_str, '%Y-%m-%d').weekday()

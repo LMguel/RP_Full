@@ -2483,8 +2483,8 @@ def registrar_atestado(payload):
             tmp = tmp_file.name
             arquivo.save(tmp)
         atestado_s3_key = enviar_s3(tmp, s3_key, empresa_id)
-        # Atestados não são dados biométricos; gera presigned URL (300s) para resposta imediata
-        atestado_url = generate_presigned_url(atestado_s3_key, expiration_seconds=300) or ''
+        # Gera URL para resposta imediata (1h); a key persiste no DynamoDB para renovação futura
+        atestado_url = generate_presigned_url(atestado_s3_key, expiration_seconds=3600) or ''
     except Exception as e:
         return jsonify({'mensagem': f'Erro ao fazer upload do atestado: {str(e)}'}), 500
     finally:
@@ -2508,7 +2508,7 @@ def registrar_atestado(payload):
             'method':                'MANUAL',
             'status':                'ATIVO',
             'justificativa':         justificativa,
-            'atestado_url':          atestado_url,
+            'atestado_s3_key':       atestado_s3_key,
             'atestado_dias':         dias,
             'criado_por':            criado_por,
             'funcionario_nome':      funcionario.get('nome', ''),
@@ -2522,6 +2522,124 @@ def registrar_atestado(payload):
         'dias':        criados,
         'atestado_url': atestado_url,
     }), 200
+
+
+@routes.route('/remover_especial', methods=['DELETE'])
+@token_required
+def remover_especial(payload):
+    """Remove (invalida) registros de férias/folga ou atestado de um funcionário num intervalo."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'mensagem': 'JSON inválido ou ausente'}), 400
+
+    employee_id = (data.get('employee_id') or '').strip()
+    data_inicio = (data.get('data_inicio') or '').strip()
+    data_fim    = (data.get('data_fim')    or data_inicio).strip()
+    tipo        = (data.get('tipo')        or 'ambos').strip()  # ferias_folga | atestado | ambos
+
+    if not employee_id or not data_inicio:
+        return jsonify({'mensagem': 'employee_id e data_inicio são obrigatórios'}), 400
+
+    empresa_id = payload.get('company_id')
+
+    try:
+        dt_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
+        dt_fim    = datetime.strptime(data_fim,    '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'mensagem': 'Formato de data inválido. Use YYYY-MM-DD'}), 400
+
+    tipos_alvo = {'ferias_folga', 'atestado'} if tipo == 'ambos' else {tipo}
+
+    removidos = []
+    current = dt_inicio
+    while current <= dt_fim:
+        date_str  = current.strftime('%Y-%m-%d')
+        data_hora = f"{date_str} 00:00:00"
+        sort_key  = f"{employee_id}#{data_hora}"
+
+        try:
+            resp = tabela_registros.get_item(
+                Key={'company_id': empresa_id, 'employee_id#date_time': sort_key}
+            )
+            item = resp.get('Item')
+            if item and item.get('type') in tipos_alvo and item.get('status') != 'INVALIDADO':
+                tabela_registros.update_item(
+                    Key={'company_id': empresa_id, 'employee_id#date_time': sort_key},
+                    UpdateExpression='SET #st = :v',
+                    ExpressionAttributeNames={'#st': 'status'},
+                    ExpressionAttributeValues={':v': 'INVALIDADO'},
+                )
+                removidos.append(date_str)
+        except Exception as e:
+            print(f"[remover_especial] Erro em {date_str}: {e}")
+
+        current += timedelta(days=1)
+
+    return jsonify({
+        'mensagem': f'{len(removidos)} dia(s) removido(s)',
+        'dias': removidos,
+    }), 200
+
+
+@routes.route('/atestado/substituir', methods=['PUT'])
+@token_required
+def substituir_atestado(payload):
+    """Substitui o arquivo de um atestado já registrado."""
+    employee_id = (request.form.get('employee_id') or '').strip()
+    data_str    = (request.form.get('data')        or '').strip()  # YYYY-MM-DD
+    arquivo     = request.files.get('arquivo')
+
+    if not employee_id or not data_str:
+        return jsonify({'mensagem': 'employee_id e data são obrigatórios'}), 400
+    if not arquivo:
+        return jsonify({'mensagem': 'Arquivo é obrigatório'}), 400
+
+    _ALLOWED_EXTS   = {'.pdf', '.png', '.jpg', '.jpeg'}
+    _MAX_ATESTADO_B = 15 * 1024 * 1024
+
+    ext = os.path.splitext(arquivo.filename or '')[1].lower()
+    if ext not in _ALLOWED_EXTS:
+        return jsonify({'mensagem': 'Formato inválido. Envie PDF, PNG, JPG ou JPEG'}), 400
+
+    arquivo.seek(0, 2)
+    file_size = arquivo.tell()
+    arquivo.seek(0)
+    if file_size > _MAX_ATESTADO_B:
+        mb = file_size // (1024 * 1024)
+        return jsonify({'mensagem': f'Arquivo excede 15 MB ({mb} MB)'}), 400
+
+    empresa_id = payload.get('company_id')
+    data_hora  = f"{data_str} 00:00:00"
+    sort_key   = f"{employee_id}#{data_hora}"
+
+    resp = tabela_registros.get_item(
+        Key={'company_id': empresa_id, 'employee_id#date_time': sort_key}
+    )
+    item = resp.get('Item')
+    if not item or item.get('type') != 'atestado':
+        return jsonify({'mensagem': 'Atestado não encontrado para esta data'}), 404
+
+    new_s3_key = f"atestados/{empresa_id}/{employee_id}/{uuid.uuid4().hex}{ext}"
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+            tmp = tmp_file.name
+            arquivo.save(tmp)
+        new_s3_key = enviar_s3(tmp, new_s3_key, empresa_id)
+        new_url    = generate_presigned_url(new_s3_key, expiration_seconds=3600) or ''
+    except Exception as e:
+        return jsonify({'mensagem': f'Erro ao fazer upload: {str(e)}'}), 500
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+    tabela_registros.update_item(
+        Key={'company_id': empresa_id, 'employee_id#date_time': sort_key},
+        UpdateExpression='SET atestado_s3_key = :k REMOVE atestado_url',
+        ExpressionAttributeValues={':k': new_s3_key},
+    )
+
+    return jsonify({'mensagem': 'Arquivo substituído com sucesso', 'atestado_url': new_url}), 200
 
 
 @routes.route('/registros_protegido', methods=['GET'])
