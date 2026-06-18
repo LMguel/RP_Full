@@ -8,8 +8,8 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="$SCRIPT_DIR/.env"
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 
-S3_BUCKET_FRONT="${S3_BUCKET_FRONT:-app-registra-ponto}"
-CLOUDFRONT_ID_FRONT="${CLOUDFRONT_ID_FRONT:-E2TE7LW6Z6QARR}"
+S3_BUCKET_FRONT="${S3_BUCKET_FRONT:?S3_BUCKET_FRONT must be set in deploy/.env}"
+CLOUDFRONT_ID_FRONT="${CLOUDFRONT_ID_FRONT:?CLOUDFRONT_ID_FRONT must be set in deploy/.env}"
 
 echo "━━━ Deploy Frontend → s3://$S3_BUCKET_FRONT ━━━"
 echo "    CloudFront: $CLOUDFRONT_ID_FRONT"

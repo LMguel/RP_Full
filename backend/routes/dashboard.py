@@ -19,11 +19,12 @@ from services.overtime import calculate_overtime
 dashboard_routes = Blueprint('dashboard_routes', __name__)
 
 # Configuração AWS
-dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
-table_employees = dynamodb.Table('Employees')
-table_records = dynamodb.Table('TimeRecords')
-table_daily_summary = dynamodb.Table('DailySummary')
-table_monthly_summary = dynamodb.Table('MonthlySummary')
+import os as _os
+dynamodb = boto3.resource('dynamodb', region_name=_os.getenv('AWS_REGION', 'us-east-1'))
+table_employees       = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_EMPLOYEES',      'Employees'))
+table_records         = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_RECORDS',        'TimeRecords'))
+table_daily_summary   = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_DAILY_SUMMARY',  'DailySummary'))
+table_monthly_summary = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_MONTHLY_SUMMARY','MonthlySummary'))
 DEFAULT_TOLERANCE_MINUTES = 10
 ENTRY_TYPES = {'entrada', 'in', 'retorno', 'return'}
 EXIT_TYPES = {'saida', 'saída', 'out'}

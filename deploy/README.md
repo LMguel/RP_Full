@@ -6,10 +6,10 @@ Deployment scripts for all REGISTRA.PONTO components.
 
 | Component | Target | Distribution |
 |---|---|---|
-| `front/` | S3 `app-registra-ponto` | CloudFront `E2TE7LW6Z6QARR` |
-| `pwa-mobile/` | S3 `pwa-registra-ponto` | CloudFront `E34SUQ0BNKFXYE` |
-| `admin-portal/` | S3 (see `deploy/.env`) | CloudFront (see `deploy/.env`) |
-| `backend/` | EC2 via SSH + rsync | Nginx → Gunicorn `127.0.0.1:8000` |
+| `front/` | S3 (`$S3_BUCKET_FRONT`) | CloudFront (`$CLOUDFRONT_ID_FRONT`) |
+| `pwa-mobile/` | S3 (`$S3_BUCKET_PWA`) | CloudFront (`$CLOUDFRONT_ID_PWA`) |
+| `admin-portal/` | S3 (`$S3_BUCKET_ADMIN`) | CloudFront (`$CLOUDFRONT_ID_ADMIN`) |
+| `backend/` | EC2 (`$EC2_HOST`) via SSH + rsync | Nginx → Gunicorn `127.0.0.1:8000` |
 
 All AWS resources are in `us-east-1`.
 
@@ -49,7 +49,8 @@ bash deploy/deploy_backend.sh    # Flask API on EC2
 Gunicorn supports SIGHUP for a rolling worker restart — no requests are dropped:
 
 ```bash
-ssh ubuntu@registra-ponto.duckdns.org 'kill -HUP $(cat ~/RP_Full/backend/gunicorn.pid)'
+# EC2_HOST is set in deploy/.env
+ssh ubuntu@$EC2_HOST 'kill -HUP $(cat ~/RP_Full/backend/gunicorn.pid)'
 ```
 
 Use full restart only if the pidfile is stale or Gunicorn is unresponsive:

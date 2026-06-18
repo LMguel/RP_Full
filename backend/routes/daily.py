@@ -50,11 +50,11 @@ from services.calculation_engine import (
 )
 import boto3
 
-# Tabelas DynamoDB
-table_daily_summary = dynamodb.Table('DailySummary')
-table_records = dynamodb.Table('TimeRecords')
-table_employees = dynamodb.Table('Employees')
-table_config = dynamodb.Table('ConfigCompany')
+import os as _os
+table_daily_summary = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_DAILY_SUMMARY', 'DailySummary'))
+table_records       = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_RECORDS',       'TimeRecords'))
+table_employees     = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_EMPLOYEES',     'Employees'))
+table_config        = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_CONFIG',        'ConfigCompany'))
 
 daily_routes = Blueprint('daily_routes', __name__)
 

@@ -52,18 +52,13 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_MB', '16')) * 1024 
 _raw_origins = os.getenv('ALLOWED_ORIGINS', '')
 if _raw_origins.strip():
     # rstrip('/') evita que trailing slashes em ALLOWED_ORIGINS quebrem o match CORS
-    # (browser envia Origin sem barra final; ex: "http://localhost:3002/" → "http://localhost:3002")
     allowed_origins = [o.strip().rstrip('/') for o in _raw_origins.split(',') if o.strip()]
 else:
+    # Development-only fallback — production must set ALLOWED_ORIGINS env var
     allowed_origins = [
         'http://localhost:5173',
         'http://localhost:3000',
         'http://localhost:4173',
-        'https://registra-ponto.duckdns.org',
-        'https://pwa.registra-ponto.duckdns.org',
-        'https://app.registraponto.app.br',
-        'https://painel.registraponto.app.br',
-        'https://pwa.registraponto.app.br',
     ]
 
 CORS(

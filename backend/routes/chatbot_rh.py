@@ -24,12 +24,12 @@ import re
 
 chatbot_rh_routes = Blueprint('chatbot_rh_routes', __name__)
 
-# Tabelas DynamoDB
-table_daily = dynamodb.Table('DailySummary')
-table_monthly = dynamodb.Table('MonthlySummary')
-table_employees = dynamodb.Table('Employees')
-table_records = dynamodb.Table('TimeRecords')
-table_config = dynamodb.Table('ConfigCompany')
+import os as _os
+table_daily     = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_DAILY_SUMMARY',  'DailySummary'))
+table_monthly   = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_MONTHLY_SUMMARY','MonthlySummary'))
+table_employees = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_EMPLOYEES',      'Employees'))
+table_records   = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_RECORDS',        'TimeRecords'))
+table_config    = dynamodb.Table(_os.getenv('DYNAMODB_TABLE_CONFIG',         'ConfigCompany'))
 
 # ---------------------------------------------------------------------------
 # Decorator de autenticação

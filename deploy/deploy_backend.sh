@@ -8,9 +8,9 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="$SCRIPT_DIR/.env"
 [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
 
-EC2_HOST="${EC2_HOST:-registra-ponto.duckdns.org}"
+EC2_HOST="${EC2_HOST:?EC2_HOST must be set in deploy/.env}"
 EC2_USER="${EC2_USER:-ubuntu}"
-EC2_SSH_KEY="${EC2_SSH_KEY:-~/.ssh/registraponto.pem}"
+EC2_SSH_KEY="${EC2_SSH_KEY:?EC2_SSH_KEY must be set in deploy/.env}"
 EC2_APP_DIR="${EC2_APP_DIR:-/home/ubuntu/RP_Full/backend}"
 SKIP_INSTALL="${1:-}"
 SSH_OPTS="-i $EC2_SSH_KEY -o StrictHostKeyChecking=yes -o ConnectTimeout=15"
@@ -68,4 +68,4 @@ else
 fi
 
 echo ""
-echo "✅ Backend em produção: https://registra-ponto.duckdns.org"
+echo "✅ Backend em produção: $EC2_HOST"
