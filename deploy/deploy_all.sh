@@ -18,8 +18,8 @@ EC2_SSH_KEY="${EC2_SSH_KEY:-~/.ssh/registraponto.pem}"
 EC2_APP_DIR="${EC2_APP_DIR:-/home/ubuntu/RP_Full/backend}"
 S3_FRONT="${S3_BUCKET_FRONT:-app-registra-ponto}"
 S3_PWA="${S3_BUCKET_PWA:-pwa-registra-ponto}"
-CF_FRONT="${CLOUDFRONT_ID_FRONT:-E34SUQ0BNKFXYE}"
-CF_PWA="${CLOUDFRONT_ID_PWA:-E2TE7LW6Z6QARR}"
+CF_FRONT="${CLOUDFRONT_ID_FRONT:-E2TE7LW6Z6QARR}"
+CF_PWA="${CLOUDFRONT_ID_PWA:-E34SUQ0BNKFXYE}"
 SSH_OPTS="-i $EC2_SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=20"
 
 STEP=0

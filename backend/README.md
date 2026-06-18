@@ -1,173 +1,119 @@
-# Backend - Sistema de Registro de Ponto
+# Backend — Flask REST API
 
-## 📁 Estrutura de Pastas
+Python 3.11 · Flask 3.0 · Gunicorn · AWS DynamoDB · S3 · Rekognition
+
+Production API for the REGISTRA.PONTO multi-tenant time-tracking SaaS. Handles biometric clock-in, payroll pre-calculation, attendance records, facial recognition enrollment, and a natural-language HR chatbot.
+
+---
+
+## Architecture
 
 ```
 backend/
-├── app.py                 # Aplicação Flask principal
-├── wsgi.py                # Entry point para produção (Gunicorn)
-├── models.py              # Modelos de dados (DailySummary, MonthlySummary, etc)
-├── requirements.txt       # Dependências Python
-├── env.example            # Exemplo de variáveis de ambiente
-│
-├── routes/                # Rotas da API organizadas por funcionalidade
-│   ├── __init__.py
-│   ├── api.py             # Rotas principais da API (v1)
-│   ├── v2.py              # Rotas da API v2 (nova arquitetura)
-│   ├── daily.py            # Rotas de resumos diários
-│   ├── dashboard.py        # Rotas do dashboard
-│   ├── facial.py           # Rotas de reconhecimento facial
-│   ├── admin.py            # Rotas administrativas
-│   └── admin_auth.py       # Autenticação administrativa
-│
-├── utils/                 # Utilitários e helpers
-│   ├── __init__.py
-│   ├── aws.py             # Clientes AWS (DynamoDB, Rekognition, S3)
-│   ├── s3.py              # Gerenciamento de fotos no S3
-│   ├── geolocation.py     # Validação de localização
-│   ├── auth.py            # Autenticação JWT e hash de senhas
-│   └── logger.py          # Configuração de logging
-│
-├── services/              # Serviços de negócio
-│   ├── __init__.py
-│   ├── summaries.py       # Serviço de resumos (DailySummary)
-│   ├── summary.py         # Cálculo de resumos diários/mensais
-│   └── overtime.py         # Cálculo de horas extras
-│
-├── config/                # Configurações
-│   ├── __init__.py
-│   ├── adapter.py         # Adaptador de configurações (compatibilidade)
-│   └── gunicorn.py        # Configuração do Gunicorn
-│
-├── deploy/                # Arquivos de deploy
-│   ├── nginx.conf         # Configuração do Nginx
-│   └── registraponto.service  # Systemd service
-│
-└── scripts/               # Scripts auxiliares
-    ├── generate_cert.py   # Geração de certificados SSL
-    ├── start.py           # Script de desenvolvimento (Python)
-    └── start-dev.ps1      # Script de desenvolvimento (PowerShell)
+├── app.py              # Flask application factory; Blueprint registration
+├── wsgi.py             # Gunicorn entry point
+├── models.py           # DailySummary / MonthlySummary dataclasses
+├── routes/             # One Blueprint per domain
+│   ├── api.py          # Attendance records, employees, leave management, audit
+│   ├── v2.py           # V2 endpoints: daily/monthly summaries, company dashboard
+│   ├── daily.py        # Per-employee mirror (espelho de ponto) read path
+│   ├── dashboard.py    # Real-time company-wide presence dashboard
+│   ├── facial.py       # Rekognition enroll / clock-in endpoints
+│   ├── admin.py        # Platform-level admin operations
+│   ├── admin_auth.py   # Admin JWT issuance and verification
+│   ├── feriados.py     # Brazilian public holiday calendar (per-state)
+│   └── chatbot_rh.py   # Groq-powered HR Q&A chatbot
+├── services/
+│   ├── calculation_engine.py  # Hour calculation: standard / flex / bank-of-hours
+│   ├── audit_service.py       # Fire-and-forget audit logger (AuditLogs table)
+│   ├── summaries.py           # DailySummary writer
+│   └── summary.py             # MonthlySummary aggregation
+├── utils/
+│   ├── aws.py          # DynamoDB / S3 / Rekognition clients; presigned-URL helpers
+│   ├── auth.py         # JWT encode/decode; bcrypt password hashing; @token_required
+│   ├── geolocation.py  # Haversine geofence validation
+│   └── safe_logger.py  # PII-scrubbing log wrapper
+└── config/
+    ├── gunicorn.py     # Workers, timeout, bind, pidfile
+    └── adapter.py      # Backward-compat shim for legacy config keys
 ```
 
-## 🚀 Iniciando o Servidor
+---
 
-### Desenvolvimento
+## Key Design Decisions
+
+**Multi-tenancy at the storage layer.** Every DynamoDB item carries `company_id` as partition key. The `@token_required` decorator validates the JWT and injects `company_id` into the route; every query filters by it — cross-tenant reads are structurally impossible.
+
+**Single-table DynamoDB.** `TimeRecords` uses `company_id` (PK) + `employee_id#date_time` (SK). Point reads, date-range scans per employee, and aggregate dashboard queries all use `query()` — no `scan()` in hot paths.
+
+**Biometric isolation.** Each company has its own Rekognition Face Collection. `SearchFacesByImage` is scoped to that collection so one company's face vectors are never searched against another's.
+
+**Stateless JWT.** Tokens carry `company_id`, `role`, and `usuario_id`. No server-side session state; any Gunicorn worker can serve any request. Token expiry is enforced on every protected route.
+
+**Audit trail.** `services/audit_service.py` writes to `AuditLogs` (DynamoDB) on every mutating operation — record creation, edits, leave entries, atestado substitution, and invalidations — with `before` / `after` snapshots and IP attribution.
+
+---
+
+## Data Flow — Clock-In via Facial Recognition
+
+```
+Kiosk (browser) → POST /api/registrar_ponto
+  → routes/facial.py
+    → S3: save frame temporarily
+    → Rekognition SearchFacesByImage (company collection, threshold=85)
+    → Validate company_id match (TENANT_MISMATCH check)
+    → Write TimeRecords item: company_id / employee_id#timestamp / type / method=FACIAL
+    → services/summaries.py: upsert DailySummary
+    → Return employee name + clock type to kiosk
+```
+
+---
+
+## Calculation Engine
+
+`services/calculation_engine.py` supports three payroll modes:
+
+| Mode | Description |
+|---|---|
+| `standard` | Fixed daily hours; tracks tardiness, absences, overtime |
+| `variable` | Hour-bank accumulation; configurable carry-over rules |
+| `interval_manual` | Custom clock-in/out windows per shift |
+
+Overtime (`adicional_noturno`, `hora_extra`) is computed at summary-write time and stored on the `MonthlySummary` record for payroll export.
+
+---
+
+## Local Development
 
 ```bash
-# Usando script Python
-python scripts/start.py
-
-# Ou usando PowerShell
-.\scripts\start-dev.ps1
-
-# Ou diretamente
+cd backend
+python -m venv venv && source venv/bin/activate   # venv\Scripts\activate on Windows
+pip install -r requirements.txt
+cp env.example .env   # fill AWS credentials and table names
 python app.py
 ```
 
-### Produção (EC2)
+The dev server starts on `http://localhost:5000`.
+
+---
+
+## Running Tests
 
 ```bash
-# Usando Gunicorn
-gunicorn --config config/gunicorn.py wsgi:app
-
-# Ou usando systemd
-sudo systemctl start registraponto
+cd backend
+python -m pytest tests/ -v --tb=short
 ```
 
-## ⚙️ Configuração
+The test suite covers the calculation engine exhaustively (standard / variable / interval modes, edge cases for overnight shifts and bank-of-hours overflow).
 
-1. Copie o arquivo de exemplo:
+---
+
+## Production
+
+Deployed on an EC2 instance behind Nginx (TLS termination). Gunicorn runs 3 workers bound to `127.0.0.1:8000`. Graceful reload (zero-downtime):
+
 ```bash
-cp env.example .env
+kill -HUP $(cat gunicorn.pid)
 ```
 
-2. Edite o `.env` com suas configurações:
-- `SECRET_KEY`: Chave secreta para JWT (obrigatória)
-- `AWS_REGION`: Região AWS
-- `S3_BUCKET`: Bucket S3 para fotos
-- `REKOGNITION_COLLECTION`: Collection do Rekognition
-- E outras variáveis conforme necessário
-
-## 📝 Variáveis de Ambiente Importantes
-
-- `SECRET_KEY` - **OBRIGATÓRIA** - Chave secreta para JWT
-- `FLASK_PORT` - Porta do servidor (padrão: 5000)
-- `FLASK_HOST` - Host do servidor (padrão: 0.0.0.0)
-- `AWS_REGION` - Região AWS (padrão: us-east-1)
-- `S3_BUCKET` - Bucket S3 para fotos
-- `REKOGNITION_COLLECTION` - Collection do Rekognition
-- `REKOGNITION_THRESHOLD` - Threshold de similaridade (padrão: 85)
-
-## 🔧 Dependências
-
-Instale as dependências:
-```bash
-pip install -r requirements.txt
-```
-
-## 📚 Documentação das Rotas
-
-### Rotas Principais (v1)
-- `/api/*` - Rotas principais da API
-
-### Rotas v2
-- Rotas modernas com nova arquitetura
-
-### Rotas de Reconhecimento Facial
-- `/api/reconhecer_rosto` - Reconhecer funcionário por foto
-- `/api/registrar_ponto_facial` - Registrar ponto com reconhecimento facial
-
-### Rotas Administrativas
-- `/api/admin/*` - Painel administrativo
-
-## 🗑️ Arquivos Removidos
-
-Os seguintes arquivos foram removidos na reorganização:
-- `testar_sistema.py` - Script de teste
-- `lambda_adapter.py` - Adaptador Lambda (não usado)
-- `template.yaml` - Template SAM (não usado)
-- `samconfig.toml` - Config SAM (não usado)
-- Documentação desnecessária (.md)
-
-## 📦 Estrutura Antiga vs Nova
-
-### Antes:
-```
-backend/
-├── routes.py
-├── routes_v2.py
-├── aws_utils.py
-├── auth.py
-└── ...
-```
-
-### Depois:
-```
-backend/
-├── routes/
-│   ├── api.py
-│   ├── v2.py
-│   └── ...
-├── utils/
-│   ├── aws.py
-│   ├── auth.py
-│   └── ...
-└── ...
-```
-
-## 🔄 Migração de Imports
-
-Se você tiver código que importa os módulos antigos, atualize:
-
-```python
-# Antes
-from aws_utils import ...
-from auth import ...
-from routes import ...
-
-# Depois
-from utils.aws import ...
-from utils.auth import ...
-from routes import ...
-```
-
+Environment variables are set in `/home/ubuntu/RP_Full/backend/.env` (never committed).

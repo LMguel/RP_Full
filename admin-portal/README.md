@@ -1,56 +1,69 @@
-# Admin Portal
+# Admin Portal — Internal Operations Dashboard
 
-Admin Portal é a interface interna do Registro de Ponto usada pelo time administrativo para gerenciar empresas, usuários e operações diárias. O projeto é construído com React, TypeScript e Vite, com Tailwind CSS para estilização e ESLint para padronização.
+React 19 · TypeScript · Vite · Radix UI · Tailwind CSS 3
 
-## Principais recursos
-- Autenticação com fluxo protegido (`ProtectedRoute`).
-- Dashboard com indicadores operacionais.
-- Gestão de empresas (listagem, criação e detalhes).
-- Integração com a API interna via `services/api.ts`.
+Internal super-admin panel for the REGISTRA.PONTO platform. Provides cross-tenant visibility: company provisioning, subscription management, kiosk telemetry, and platform-level feature flags. Separate auth domain from the per-company admin SPA (`front/`).
 
-## Stack técnica
-- React 18 + TypeScript.
-- Vite para bundling e HMR.
-- Tailwind CSS + componentes reutilizáveis em `src/components`.
-- Context API e hooks customizados para estado de autenticação.
+---
 
-## Estrutura
-- `src/pages`: páginas principais (Dashboard, Login, Companies, etc.).
-- `src/components`: layout (Sidebar, Topbar, AppLayout) e biblioteca UI.
-- `src/services/api.ts`: instância Axios configurada com base URL.
-- `src/context/AuthContext.tsx`: guarda sessão do usuário e token.
-- `public/`: assets estáticos servidos diretamente.
+## Scope
 
-## Pré-requisitos
-- Node.js 18+.
-- Gerenciador de pacotes npm (default do projeto).
+This portal operates at the **platform** level, not the company level. A single operator account can see and act across all tenants — it is never exposed to end-customer users.
 
-## Como executar
-1. Instale dependências:
-   ```bash
-   npm install
-   ```
-2. Inicie o servidor de desenvolvimento:
-   ```bash
-   npm run dev
-   ```
-3. Acesse http://localhost:5173.
+| Page | Description |
+|---|---|
+| `Dashboard` | Platform KPIs: active companies, total employees, daily punch volume |
+| `Companies` | Company list; provision new tenants; toggle features per company |
+| `KioskLogs` | Per-device telemetry; connectivity status; force-update trigger |
+| `Users` | Platform operator accounts and permission scopes |
 
-## Scripts úteis
-- `npm run dev`: modo desenvolvimento.
-- `npm run build`: build de produção.
-- `npm run preview`: serve o build gerado.
-- `npm run lint`: executa ESLint com as regras do projeto.
+---
 
-## Variáveis de ambiente
-- Copie `.env.example` para `.env` e preencha a URL da API, chaves de autenticação e demais valores obrigatórios.
+## Stack
 
-## Convenções e qualidade
-- ESLint e TypeScript evitam regressões e problemas de tipagem.
-- Padrões visuais definidos em Tailwind + componentes reutilizáveis.
-- Pull requests devem incluir prints do fluxo alterado sempre que houver mudança visual.
+```
+React 19
+TypeScript 5.x — strict mode
+Vite 5
+Radix UI — accessible, unstyled primitives (Dialog, Select, Tooltip, etc.)
+Tailwind CSS 3 — utility-first styling over Radix components
+Axios — API client with JWT interceptor
+React Router 7
+```
 
-## Próximos passos
-- Adicionar testes unitários para hooks e contextos.
-- Documentar endpoints consumidos pelo `api.ts`.
-- Automatizar deploy com CI/CD quando o build for estável.
+The Radix UI + Tailwind pairing (vs. MUI in `front/`) was a deliberate design choice: Radix provides WAI-ARIA compliant primitives with zero default styles, giving full control over the visual layer while maintaining accessibility guarantees.
+
+---
+
+## Project Structure
+
+```
+src/
+├── pages/              # One file per route
+├── components/         # Shared layout (Sidebar, Topbar, AppLayout) + UI library
+├── services/api.ts     # Typed Axios wrapper for platform-level endpoints
+├── context/
+│   └── AuthContext.tsx # Session state; JWT storage; auto-logout on 401
+└── App.tsx             # Route tree + ProtectedRoute guard
+```
+
+---
+
+## Local Development
+
+```bash
+cd admin-portal
+npm install
+cp .env.example .env   # VITE_API_URL=https://registra-ponto.duckdns.org
+npm run dev            # http://localhost:5173
+```
+
+---
+
+## Build & Deploy
+
+```bash
+npm run build
+# deploy via ../deploy/deploy_admin.sh
+# requires S3_BUCKET_ADMIN and CLOUDFRONT_ID_ADMIN in deploy/.env
+```

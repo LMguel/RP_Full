@@ -1,214 +1,86 @@
-# REGISTRA.PONTO - Frontend
+# Front — Admin SPA
 
-Sistema de controle de ponto eletrônico com reconhecimento facial.
+React 19 · TypeScript · Vite 6 · MUI 7 · Tailwind CSS 4 · Framer Motion · Recharts
 
-## 🚀 Tecnologias
+The primary management interface for REGISTRA.PONTO. Consumed by company administrators to manage employees, review attendance records, configure schedules, run payroll pre-calculations, and monitor the audit trail.
 
-- **React 18** - Framework principal
-- **TypeScript** - Tipagem estática
-- **Vite** - Build tool e dev server
-- **Material UI (MUI)** - Biblioteca de componentes
-- **TailwindCSS** - Framework CSS utilitário
-- **Recharts** - Gráficos e visualizações
-- **React Router** - Roteamento
-- **Axios** - Cliente HTTP
-- **Framer Motion** - Animações
-- **React Hot Toast** - Notificações
-- **Zustand** - Gerenciamento de estado
+Live: **app.registraponto.app.br** (S3 + CloudFront, `us-east-1`)
 
-## 📦 Instalação
+---
 
-```bash
-# Instalar dependências
-npm install
+## Pages
 
-# Executar em modo desenvolvimento
-npm run dev
+| Route | Component | Description |
+|---|---|---|
+| `/dashboard` | `DashboardPage` | Real-time presence overview; daily chart; alert feed |
+| `/employees` | `EmployeesPage` | Employee roster with CRUD, photo upload, Rekognition enrollment |
+| `/records` | `RecordsPage` | Attendance record table; manual entry; Excel export |
+| `/records/:id` | `EmployeeRecordsPage` | Per-employee monthly mirror with calendar heat-map; leave management |
+| `/payroll` | `PayrollPage` | Pre-payroll calculation; bank-of-hours; monthly close |
+| `/audit` | `AuditPage` | Structured audit log with `before`/`after` diffs per event |
+| `/settings` | `SettingsPage` | Schedule presets, geofence radius, holiday calendar |
+| `/users` | `UsersPage` | Sub-user management with role-based permission overrides |
+| `/kiosk-logs` | `KioskLogsPage` | Kiosk telemetry; remote force-update trigger |
 
-# Build para produção
-npm run build
+---
 
-# Preview do build
-npm run preview
+## Stack
+
+```
+React 19 (concurrent features, use hook)
+TypeScript 5.x — strict mode, no `any`
+Vite 6 + vite-plugin-legacy (ES2015 target for Android tablets)
+MUI 7 (sx-prop only, no class-based overrides)
+Tailwind CSS 4 (utility layer on top of MUI)
+Framer Motion 11 (AnimatePresence on every route transition)
+Recharts 2 (dashboard charts)
+Axios (interceptors: JWT injection, 401 → auto-logout)
+React Router 7
 ```
 
-## 🔧 Configuração
+---
 
-Crie um arquivo `.env` na raiz do projeto:
-
-```env
-VITE_API_URL=http://localhost:5000
-VITE_APP_NAME=REGISTRA.PONTO
-VITE_APP_VERSION=1.0.0
-```
-
-## 🎨 Funcionalidades
-
-### ✅ Implementadas
-
-- **Autenticação**
-  - Login com JWT
-  - Cadastro de usuário/empresa
-  - Proteção de rotas
-  - Persistência de sessão
-
-- **Dashboard**
-  - Resumo da empresa
-  - Gráficos de horas trabalhadas
-  - Tabela de registros recentes
-  - Estatísticas em tempo real
-
-- **Gestão de Funcionários**
-  - Listagem com filtros
-  - Cadastro com foto
-  - Edição de dados
-  - Exclusão com confirmação
-  - Upload de fotos para reconhecimento
-
-- **Registros de Ponto**
-  - Listagem com filtros avançados
-  - Registro manual
-  - Exclusão de registros
-  - Exportação (preparado)
-
-- **Configurações**
-  - Perfil do usuário
-  - Dados da empresa
-  - Alteração de senha
-  - Logout
-
-### 🚧 Em Desenvolvimento
-
-- Captura de foto com câmera
-- Reconhecimento facial
-- Exportação para PDF/CSV
-- Modo escuro
-- Notificações push
-
-## 🏗️ Estrutura do Projeto
+## Project Structure
 
 ```
 src/
-├── components/          # Componentes reutilizáveis
-│   ├── Layout.tsx      # Layout principal com sidebar
-│   ├── LoginForm.tsx   # Formulário de login
-│   ├── RegisterForm.tsx # Formulário de cadastro
-│   ├── EmployeeForm.tsx # Formulário de funcionário
-│   ├── TimeRecordForm.tsx # Formulário de registro
-│   └── ProtectedRoute.tsx # Proteção de rotas
-├── pages/              # Páginas da aplicação
-│   ├── LoginPage.tsx
-│   ├── RegisterPage.tsx
-│   ├── DashboardPage.tsx
-│   ├── EmployeesPage.tsx
-│   ├── RecordsPage.tsx
-│   └── SettingsPage.tsx
-├── contexts/           # Contextos React
-│   └── AuthContext.tsx # Contexto de autenticação
-├── services/           # Serviços e APIs
-│   └── api.ts         # Cliente HTTP
-├── types/             # Definições TypeScript
-│   └── index.ts       # Interfaces e tipos
-├── config/            # Configurações
-│   └── index.ts       # Configurações da app
-└── App.tsx            # Componente principal
+├── pages/               # One file per route (co-located state + UI)
+├── sections/            # Shared layout components (PageLayout, Sidebar, Topbar)
+├── components/          # Reusable primitives (dialogs, forms, guards)
+├── services/api.ts      # Typed Axios wrapper; all API calls go through here
+├── types/index.ts       # Canonical TypeScript interfaces (no duplication)
+├── config/index.ts      # VITE_API_URL, feature flags
+└── App.tsx              # Route declarations + AuthContext provider
 ```
 
-## 🎯 Funcionalidades Principais
+---
 
-### 1. Autenticação Segura
-- Login com JWT
-- Proteção de rotas
-- Interceptadores Axios
-- Logout automático em caso de token expirado
+## Notable Patterns
 
-### 2. Dashboard Intuitivo
-- Cards com estatísticas
-- Gráficos interativos (Recharts)
-- Tabela de registros recentes
-- Design responsivo
+**Typed API service.** `services/api.ts` exports a single `ApiService` class. Every endpoint has a typed method — no raw `axios.get` calls in components.
 
-### 3. Gestão Completa de Funcionários
-- CRUD completo
-- Upload de fotos
-- Filtros e busca
-- Validação de formulários
+**EmployeeRecordsPage calendar.** The monthly calendar grid is fully interactive: clicking any day opens a context-sensitive `<Menu>` with actions scoped to that day's status (mark leave, register medical certificate, undo, substitute document). Backed by three new API endpoints added alongside the UI.
 
-### 4. Registros de Ponto
-- Listagem com filtros avançados
-- Registro manual
-- Interface preparada para câmera
-- Exclusão com confirmação
+**Audit integration.** Every mutating action (leave entry, record invalidation, document substitution) is logged server-side. `AuditPage` renders `before`/`after` snapshots with human-readable summary text generated from action + entity + payload type.
 
-### 5. Configurações
-- Perfil do usuário
-- Dados da empresa
-- Segurança (alteração de senha)
-- Zona de perigo (logout)
+---
 
-## 🎨 Design System
+## Local Development
 
-### Cores
-- **Primária**: Azul (#3b82f6)
-- **Secundária**: Cinza (#6b7280)
-- **Sucesso**: Verde (#10b981)
-- **Erro**: Vermelho (#ef4444)
-- **Aviso**: Amarelo (#f59e0b)
+```bash
+cd front
+npm install
+cp .env.example .env   # set VITE_API_URL=http://localhost:5000
+npm run dev
+```
 
-### Tipografia
-- **Fonte**: Inter
-- **Tamanhos**: Responsivos
-- **Pesos**: 300, 400, 500, 600, 700
+---
 
-### Componentes
-- Material UI como base
-- TailwindCSS para ajustes
-- Animações com Framer Motion
-- Ícones Material Icons
+## Build & Deploy
 
-## 📱 Responsividade
-
-- **Desktop**: Layout completo com sidebar
-- **Tablet**: Sidebar colapsável
-- **Mobile**: Menu hambúrguer
-- **Breakpoints**: Material UI padrão
-
-## 🔒 Segurança
-
-- Autenticação JWT
-- Interceptadores para tokens
-- Validação de formulários
-- Sanitização de dados
-- Proteção de rotas
-
-## 🚀 Deploy
-
-### Build para Produção
 ```bash
 npm run build
+# outputs to dist/ — deploy via ../deploy/deploy_front.sh
 ```
 
-### Deploy no AWS S3 + CloudFront
-1. Build do projeto
-2. Upload para S3
-3. Configurar CloudFront
-4. Configurar variáveis de ambiente
-
-## 📝 Scripts Disponíveis
-
-- `npm run dev` - Servidor de desenvolvimento
-- `npm run build` - Build para produção
-- `npm run preview` - Preview do build
-- `npm run lint` - Linter (se configurado)
-
-## 🤝 Contribuição
-
-1. Fork o projeto
-2. Crie uma branch para sua feature
-3. Commit suas mudanças
-4. Push para a branch
-5. Abra um Pull Request
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT.
+Assets with content hashes are served with `max-age=31536000,immutable`. `index.html` and `*.json` files use `no-cache` so CDN invalidations take effect immediately.

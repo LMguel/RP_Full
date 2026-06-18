@@ -37,11 +37,13 @@ Per-company configuration: work schedule (punch tolerance, auto-checkout, automa
 
 ```
 RP_Full/
-├── backend/          # Python · Flask · AWS Lambda
-├── front/            # React 19 · TypeScript · Vite 7 (admin SPA)
-├── pwa-mobile/       # React 18 · Vite · PWA (browser kiosk)
-├── mobile/           # React Native 0.75 · Android (native kiosk)
-└── landingpage/      # Marketing site (Vite + React)
+├── backend/          # Python 3.11 · Flask · Gunicorn · EC2
+├── front/            # React 19 · TypeScript · Vite · MUI 7 (admin SPA)
+├── pwa-mobile/       # React 18 · Vite PWA · Dexie/IndexedDB (browser kiosk)
+├── admin-portal/     # React 19 · Radix UI · Tailwind (platform ops panel)
+├── mobile/           # React Native 0.75 · Android (native kiosk, on-device ML)
+├── landingpage/      # Vite · React · Framer Motion (marketing site)
+└── deploy/           # Bash scripts · S3 · CloudFront · EC2 rsync
 ```
 
 The platform is multi-tenant at the data layer. Every DynamoDB item is partitioned by `empresa_id`, and every API route enforces ownership via JWT claims — one tenant can never read another's data.
@@ -50,7 +52,7 @@ The platform is multi-tenant at the data layer. Every DynamoDB item is partition
 
 ## Backend — Python · Flask · AWS Serverless
 
-**Runtime:** Python 3.11 on AWS Lambda (Mangum ASGI adapter), exposed through API Gateway HTTP API.
+**Runtime:** Python 3.11 on an EC2 instance (Ubuntu 22.04), served by Gunicorn 3 workers behind Nginx. Zero-downtime deploys via Gunicorn SIGHUP graceful reload.
 
 **Framework:** Flask with Blueprint-based modular routing. Domain boundaries are enforced at the Blueprint level: authentication, attendance records, facial biometrics, dashboard aggregations, HR chatbot, and public holiday lookups each live in their own Blueprint and are mounted at distinct prefixes.
 
@@ -86,7 +88,7 @@ The platform is multi-tenant at the data layer. Every DynamoDB item is partition
 A single-page application serving company administrators.
 
 **Core stack:**
-- **React 19** with concurrent features; hooks-based architecture throughout.
+- **React 19** with concurrent features; hooks-based architecture throughout. No class components.
 - **TypeScript** with strict mode — all API response shapes typed end-to-end.
 - **Vite 7** with `@vitejs/plugin-react` (SWC transform); production bundle split by route via dynamic `import()`.
 

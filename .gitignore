@@ -1,3 +1,9 @@
+# ─── Internal tooling — excluded from public repo ─────────────────────────────
+.claude/
+CLAUDE.md
+creative/
+docs/
+
 # Backend
 backend/venv/
 backend/__pycache__/
