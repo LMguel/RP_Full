@@ -16,7 +16,29 @@
       "Bash(Sort-Object FullName)",
       "Bash(npx tsc *)",
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(node_modules\\\\vite\\\\bin\\\\vite.js build *)"
+      "Bash(node_modules\\\\vite\\\\bin\\\\vite.js build *)",
+      "Bash(node -p \"require\\('./package.json'\\).version\")",
+      "PowerShell(npx tsc --noEmit --project \"C:\\\\RP_Full\\\\admin-portal\\\\tsconfig.json\" 2>&1 | Select-Object -First 30)",
+      "PowerShell(& \"C:\\\\RP_Full\\\\admin-portal\\\\node_modules\\\\.bin\\\\tsc\" --noEmit --project \"C:\\\\RP_Full\\\\admin-portal\\\\tsconfig.json\" 2>&1 | Select-Object -First 30)",
+      "PowerShell(node \"C:\\\\RP_Full\\\\admin-portal\\\\node_modules\\\\typescript\\\\bin\\\\tsc\" --noEmit --project \"C:\\\\RP_Full\\\\admin-portal\\\\tsconfig.json\" 2>&1 | Select-Object -First 30)",
+      "PowerShell(python \"C:\\\\RP_Full\\\\backend\\\\app.py\" --check 2>&1; python -c \"import sys; sys.path.insert\\(0,'C:/RP_Full/backend'\\); import app; print\\('OK'\\)\" 2>&1)",
+      "PowerShell(python -c \"import sys; sys.path.insert\\(0,'C:/RP_Full/backend'\\); import app; print\\('OK'\\)\" 2>&1)",
+      "PowerShell(python -m py_compile \"C:\\\\RP_Full\\\\backend\\\\routes\\\\kiosk_telemetry.py\" 2>&1; if \\($?\\) { \"OK\" } else { \"ERRO\" })",
+      "PowerShell(node \"C:\\\\RP_Full\\\\pwa-mobile\\\\node_modules\\\\typescript\\\\bin\\\\tsc\" --noEmit --project \"C:\\\\RP_Full\\\\pwa-mobile\\\\tsconfig.json\" 2>&1 | Select-Object -First 20)",
+      "PowerShell(python -m py_compile \"C:\\\\RP_Full\\\\backend\\\\routes\\\\api.py\" 2>&1; if \\($?\\) { \"OK\" } else { \"ERRO\" })",
+      "PowerShell(python -m py_compile \"C:\\\\RP_Full\\\\backend\\\\scripts\\\\create_kiosk_telemetry_table.py\" 2>&1; if \\($?\\) { \"OK\" } else { \"ERRO\" })",
+      "PowerShell(node \"C:\\\\RP_Full\\\\pwa-mobile\\\\node_modules\\\\typescript\\\\bin\\\\tsc\" --noEmit --project \"C:\\\\RP_Full\\\\pwa-mobile\\\\tsconfig.json\" 2>&1 | Select-Object -First 10)",
+      "PowerShell(cd C:\\\\RP_Full\\\\admin-portal; node \"$\\(npm root\\)\\\\typescript\\\\bin\\\\tsc\" --noEmit --project tsconfig.json 2>&1 | Select-Object -First 40)",
+      "Bash(node ./node_modules/typescript/bin/tsc --noEmit --project tsconfig.json)",
+      "Bash(node \"C:/RP_Full/admin-portal/node_modules/typescript/bin/tsc\" --noEmit --project \"C:/RP_Full/admin-portal/tsconfig.json\")",
+      "Bash(python -c ' *)",
+      "Bash(python *)",
+      "Bash(bash deploy/deploy_pwa.sh)",
+      "Bash(node ./node_modules/.bin/vitest run src/__tests__/sessionTimeout.test.ts)",
+      "Bash(npx vitest *)",
+      "Bash(S3_BUCKET_PWA=pwa-registra-ponto CLOUDFRONT_ID_PWA=E34SUQ0BNKFXYE bash deploy/deploy_pwa.sh)",
+      "Bash(aws cloudfront create-invalidation *)",
+      "Bash(node \"C:/RP_Full/pwa-mobile/node_modules/typescript/bin/tsc\" --noEmit --project \"C:/RP_Full/pwa-mobile/tsconfig.json\")"
     ]
   }
 }
