@@ -5,45 +5,48 @@ import { Camera, BarChart2, Shield, Zap, BrainCircuit, WifiOff } from 'lucide-re
 const features = [
   {
     icon: BrainCircuit,
-    title: 'Chatbot de RH com Inteligência Artificial',
+    title: 'Chatbot de RH com inteligência artificial',
     description: 'Consulte presenças, faltas e banco de horas de qualquer funcionário em linguagem natural — sem abrir relatório, sem esperar. O assistente responde em segundos com os dados do seu time.',
     color: 'blue',
-    large: true,
+    span: 2,
+    wide: true,
   },
   {
     icon: Camera,
     title: 'Reconhecimento facial moderno',
     description: 'Tablet fixo na entrada com foto capturada em cada registro. Rápido, seguro e sem necessidade de cartão ou senha.',
     color: 'sky',
-    large: false,
+    span: 1,
   },
   {
     icon: Shield,
     title: 'Sem fraude, sem conflito',
     description: 'Cada registro tem foto e horário preciso. Conformidade total com a CLT e segurança para evitar autuações trabalhistas.',
     color: 'blue',
-    large: false,
+    span: 1,
   },
   {
     icon: BarChart2,
     title: 'Relatórios prontos para o DP',
     description: 'Painel completo com presenças, ausências e horas extras. Exporte em Excel pronto para o departamento pessoal.',
     color: 'sky',
-    large: false,
+    span: 1,
   },
   {
     icon: Zap,
     title: 'Implantação em até 48 horas',
     description: 'Levamos o tablet configurado, instalamos e treinamos a equipe. Operacional em horas, não em semanas.',
     color: 'blue',
-    large: false,
+    span: 1,
+    smSpan: 2,
   },
   {
     icon: WifiOff,
     title: 'Funciona sem internet',
     description: 'Os registros continuam normalmente mesmo sem conexão. Assim que a internet voltar, tudo é sincronizado automaticamente — sem perda de dados.',
     color: 'sky',
-    large: false,
+    span: 3,
+    wide: true,
   },
 ]
 
@@ -78,83 +81,95 @@ export default function Features() {
 
   return (
     <section className="py-24 bg-rp-surface relative overflow-hidden">
-      <div className="absolute inset-0 bg-dot-grid opacity-60 pointer-events-none" />
       <div
-        className="absolute top-0 right-1/4 w-[600px] h-[350px] rounded-full pointer-events-none opacity-[0.06]"
-        style={{ background: '#1847D6', filter: 'blur(120px)' }}
-      />
-      <div
-        className="absolute bottom-0 left-1/4 w-[400px] h-[300px] rounded-full pointer-events-none opacity-[0.05]"
-        style={{ background: '#38BDF8', filter: 'blur(100px)' }}
+        className="absolute top-0 right-1/4 w-[500px] h-[300px] rounded-full pointer-events-none opacity-[0.05]"
+        style={{ background: '#1847D6', filter: 'blur(130px)' }}
       />
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
-          <motion.span
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.4 }}
-            className="section-label"
-          >
-            Benefícios
-          </motion.span>
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-            className="text-2xl sm:text-4xl lg:text-5xl font-bold text-[#0C1A38] tracking-tight mt-2 mb-4"
-          >
-            Por que escolher o{' '}
-            <span className="gradient-text">REGISTRA.PONTO</span>?
-          </motion.h2>
+
+        {/* Header — left-aligned, split layout */}
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-14">
+          <div>
+            <motion.span
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4 }}
+              className="section-label"
+            >
+              Funcionalidades
+            </motion.span>
+            <motion.h2
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+              className="text-2xl sm:text-4xl lg:text-5xl font-bold text-[#0C1A38] tracking-tight mt-2"
+              style={{ textWrap: 'balance' }}
+            >
+              Tudo que você precisa,{' '}
+              <span className="gradient-text">numa plataforma só</span>
+            </motion.h2>
+          </div>
           <motion.p
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-[#4D5E7A] text-lg max-w-2xl mx-auto"
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="text-[#4D5E7A] text-base lg:max-w-xs lg:text-right lg:pb-1 shrink-0"
           >
             Sistema completo, fácil de usar e com suporte local para empresas de qualquer porte.
           </motion.p>
         </div>
 
+        {/* Asymmetric grid */}
         <motion.div
           ref={ref}
           variants={container}
           initial="hidden"
           animate={inView ? 'visible' : 'hidden'}
-          className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
         >
-          {features.map(({ icon: Icon, title, description, color, large: isLarge }) => {
+          {features.map(({ icon: Icon, title, description, color, span, smSpan, wide }) => {
             const c = colorMap[color]
+            const colSpanClass =
+              span === 3 ? 'sm:col-span-2 lg:col-span-3'
+              : span === 2 ? 'lg:col-span-2'
+              : smSpan === 2 ? 'sm:col-span-2 lg:col-span-1'
+              : ''
+
             return (
               <motion.div
                 key={title}
                 variants={item}
-                whileHover={{ y: -5, boxShadow: c.glow, transition: { duration: 0.2 } }}
-                className="card-dark p-6 group cursor-default"
-                style={isLarge ? { background: 'linear-gradient(135deg, rgba(24,71,214,0.04) 0%, #FFFFFF 60%)' } : {}}
+                whileHover={{ y: -4, boxShadow: c.glow, transition: { duration: 0.2 } }}
+                className={`card-dark group cursor-default ${colSpanClass} ${wide ? 'flex flex-row gap-6 p-6 items-start' : 'p-6'}`}
               >
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center mb-5 transition-transform duration-200 group-hover:scale-110 group-hover:rotate-3"
-                  style={{ background: c.bg, border: `1px solid ${c.border}` }}
-                >
-                  <Icon size={20} style={{ color: c.icon }} />
+                <div className={wide ? 'flex flex-col gap-5 flex-1' : ''}>
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110 group-hover:rotate-3"
+                    style={{ background: c.bg, border: `1px solid ${c.border}` }}
+                  >
+                    <Icon size={20} style={{ color: c.icon }} />
+                  </div>
+                  <div className={wide ? '' : 'mt-5'}>
+                    <h3 className="font-semibold text-[#0C1A38] text-[15px] mb-2 leading-snug">{title}</h3>
+                    <p className="text-sm text-[#4D5E7A] leading-relaxed">{description}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-semibold text-[#0C1A38] text-[15px]">{title}</h3>
-                  {isLarge && (
+
+                {/* Wide card right side accent */}
+                {wide && span === 2 && (
+                  <div className="hidden sm:flex items-center justify-center flex-shrink-0 w-28 lg:w-36">
                     <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0"
+                      className="inline-flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-full uppercase tracking-wider"
                       style={{ background: 'rgba(24,71,214,0.09)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.18)' }}
                     >
                       Novidade
                     </span>
-                  )}
-                </div>
-                <p className="text-sm text-[#4D5E7A] leading-relaxed">{description}</p>
+                  </div>
+                )}
               </motion.div>
             )
           })}

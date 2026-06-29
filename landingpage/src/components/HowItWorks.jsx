@@ -51,10 +51,9 @@ const colorMap = {
 export default function HowItWorks() {
   return (
     <section className="py-24 bg-rp-bg relative overflow-hidden">
-      <div className="absolute inset-0 bg-dot-grid opacity-50 pointer-events-none" />
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[400px] rounded-full pointer-events-none opacity-[0.04]"
-        style={{ background: '#1847D6', filter: 'blur(150px)' }}
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[300px] rounded-full pointer-events-none opacity-[0.04]"
+        style={{ background: '#1847D6', filter: 'blur(160px)' }}
       />
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

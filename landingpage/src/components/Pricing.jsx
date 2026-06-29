@@ -124,7 +124,6 @@ export default function Pricing() {
 
   return (
     <section id="planos" className="py-24 bg-rp-surface relative overflow-hidden">
-      <div className="absolute inset-0 bg-dot-grid opacity-50" />
       <div
         className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full opacity-[0.05]"
         style={{ background: '#1847D6', filter: 'blur(130px)' }}

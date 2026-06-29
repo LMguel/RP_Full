@@ -49,17 +49,12 @@ export default function Navbar() {
 
             {/* Logo */}
             <a href="#" className="flex items-center gap-3 select-none group">
-              <div
-                className="flex-shrink-0 flex items-center justify-center rounded-xl p-1.5"
-                style={{ background: '#1847D6' }}
-              >
-                <img
-                  src="/image/logo.png"
-                  alt="REGISTRA.PONTO"
-                  className="h-10 w-auto object-contain block"
-                  draggable={false}
-                />
-              </div>
+              <img
+                src="/image/logo.png"
+                alt="REGISTRA.PONTO"
+                className="h-14 w-auto object-contain block flex-shrink-0"
+                draggable={false}
+              />
               <span
                 className="font-bold tracking-tight text-[15px] sm:text-base leading-none text-[#0C1A38]"
                 style={{ fontFamily: 'Outfit, sans-serif' }}

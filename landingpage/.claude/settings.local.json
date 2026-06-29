@@ -38,7 +38,13 @@
       "Bash(npx vitest *)",
       "Bash(S3_BUCKET_PWA=pwa-registra-ponto CLOUDFRONT_ID_PWA=E34SUQ0BNKFXYE bash deploy/deploy_pwa.sh)",
       "Bash(aws cloudfront create-invalidation *)",
-      "Bash(node \"C:/RP_Full/pwa-mobile/node_modules/typescript/bin/tsc\" --noEmit --project \"C:/RP_Full/pwa-mobile/tsconfig.json\")"
+      "Bash(node \"C:/RP_Full/pwa-mobile/node_modules/typescript/bin/tsc\" --noEmit --project \"C:/RP_Full/pwa-mobile/tsconfig.json\")",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5199/)",
+      "PowerShell(Get-ChildItem \"C:\\\\RP_Full\\\\landingpage\\\\public\" -Recurse | Where-Object { $_.Extension -match \"\\\\.\\(png|jpg|svg|ico\\)\" })"
     ]
   }
 }

@@ -1,114 +1,129 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, ShoppingBag, UtensilsCrossed } from 'lucide-react'
+import { GraduationCap, ShoppingBag, UtensilsCrossed, Building2, Wrench } from 'lucide-react'
 
 const sectors = [
-  {
-    icon: GraduationCap,
-    label: 'Escolas',
-    description: 'Registro realizado diretamente no tablet, sem necessidade de cartão ou equipamento adicional.',
-    color: 'blue',
-  },
-  {
-    icon: ShoppingBag,
-    label: 'Comércios',
-    description: 'Acompanhamento centralizado da equipe com visibilidade em tempo real pelo painel.',
-    color: 'sky',
-  },
-  {
-    icon: UtensilsCrossed,
-    label: 'Restaurantes',
-    description: 'Controle simples e organizado da jornada, com exportação pronta para o departamento pessoal.',
-    color: 'indigo',
-  },
+  { icon: GraduationCap, label: 'Escolas e faculdades',     desc: 'Registro integrado para docentes e funcionários administrativos.' },
+  { icon: ShoppingBag,   label: 'Comércios locais',         desc: 'Visibilidade em tempo real da equipe de vendas e estoque.' },
+  { icon: UtensilsCrossed, label: 'Restaurantes e buffets', desc: 'Controle de jornada em ambientes com alta rotatividade de turno.' },
+  { icon: Building2,     label: 'Empresas de serviços',     desc: 'Gestão centralizada de equipes internas e externas.' },
+  { icon: Wrench,        label: 'Oficinas e indústrias',    desc: 'Ponto preciso por setor, pronto para o departamento pessoal.' },
 ]
-
-const colorMap = {
-  blue:   { bg: 'rgba(24,71,214,0.08)',  border: 'rgba(24,71,214,0.18)',  icon: '#1847D6'  },
-  sky:    { bg: 'rgba(14,165,233,0.08)', border: 'rgba(14,165,233,0.20)', icon: '#0EA5E9'  },
-  indigo: { bg: 'rgba(79,70,229,0.08)',  border: 'rgba(79,70,229,0.18)',  icon: '#4F46E5'  },
-}
-
-const container = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.1 } },
-}
-
-const item = {
-  hidden:  { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
-}
 
 export default function Testimonial() {
   return (
     <section className="py-20 bg-rp-surface relative overflow-hidden">
-      <div className="absolute inset-0 bg-dot-grid opacity-50 pointer-events-none" />
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ background: 'radial-gradient(ellipse 55% 50% at 50% 50%, rgba(24,71,214,0.04) 0%, transparent 70%)' }}
+        style={{ background: 'radial-gradient(ellipse 40% 40% at 80% 50%, rgba(24,71,214,0.04) 0%, transparent 70%)' }}
       />
 
-      <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <motion.span
-            initial={{ opacity: 0, y: 10 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="section-label"
-          >
-            Clientes
-          </motion.span>
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-            className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#0C1A38] tracking-tight mt-2 mb-4"
-          >
-            REGISTRA<span style={{ color: '#1847D6' }}>.</span>PONTO{' '}
-            <span className="gradient-text">em operação</span>
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="text-[#4D5E7A] max-w-xl mx-auto"
-          >
-            Empresas utilizam o REGISTRA.PONTO diariamente para simplificar o controle de ponto.
-          </motion.p>
-        </div>
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid lg:grid-cols-5 gap-12 lg:gap-16 items-start">
 
-        <motion.div
-          variants={container}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: '-60px' }}
-          className="grid sm:grid-cols-3 gap-5"
-        >
-          {sectors.map(({ icon: Icon, label, description, color }) => {
-            const c = colorMap[color]
-            return (
-              <motion.div
-                key={label}
-                variants={item}
-                whileHover={{ y: -4, transition: { duration: 0.2 } }}
-                className="card-dark p-6 flex flex-col gap-4 cursor-default"
-              >
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: c.bg, border: `1px solid ${c.border}` }}
+          {/* Left: statement */}
+          <div className="lg:col-span-3">
+            <motion.span
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="section-label"
+            >
+              Quem usa
+            </motion.span>
+            <motion.h2
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+              className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#0C1A38] tracking-tight mt-2 mb-5"
+              style={{ textWrap: 'balance' }}
+            >
+              Empresas de diferentes setores registram ponto{' '}
+              <span className="gradient-text">todo dia com o sistema</span>
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.18 }}
+              className="text-[#4D5E7A] leading-relaxed max-w-lg"
+            >
+              O REGISTRA.PONTO funciona em qualquer negócio com funcionários sob CLT.
+              Instalamos, configuramos e treinamos a equipe — você não precisa entender de tecnologia.
+            </motion.p>
+
+            {/* Divider stat */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.28 }}
+              className="mt-8 pt-8 flex items-center gap-6"
+              style={{ borderTop: '1px solid rgba(24,71,214,0.10)' }}
+            >
+              <div>
+                <p className="text-3xl font-black text-[#0C1A38] tracking-tight leading-none mb-1" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  48h
+                </p>
+                <p className="text-xs text-[#8FA0BE] leading-snug">da assinatura ao<br />primeiro registro</p>
+              </div>
+              <div className="w-px h-10 bg-[rgba(24,71,214,0.10)]" />
+              <div>
+                <p className="text-3xl font-black text-[#0C1A38] tracking-tight leading-none mb-1" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  R$6
+                </p>
+                <p className="text-xs text-[#8FA0BE] leading-snug">por dia para<br />10 funcionários</p>
+              </div>
+              <div className="w-px h-10 bg-[rgba(24,71,214,0.10)]" />
+              <div>
+                <p className="text-3xl font-black text-[#0C1A38] tracking-tight leading-none mb-1" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  0
+                </p>
+                <p className="text-xs text-[#8FA0BE] leading-snug">cartão ou senha<br />necessário</p>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Right: sector list */}
+          <div className="lg:col-span-2">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: '-60px' }}
+              variants={{
+                hidden: {},
+                visible: { transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
+              }}
+              className="flex flex-col divide-y"
+              style={{ borderTop: '1px solid rgba(24,71,214,0.09)', borderBottom: '1px solid rgba(24,71,214,0.09)' }}
+            >
+              {sectors.map(({ icon: Icon, label, desc }) => (
+                <motion.div
+                  key={label}
+                  variants={{
+                    hidden:  { opacity: 0, x: 16 },
+                    visible: { opacity: 1, x: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } },
+                  }}
+                  className="flex items-start gap-3 py-4 group"
+                  style={{ borderColor: 'rgba(24,71,214,0.07)' }}
                 >
-                  <Icon size={20} style={{ color: c.icon }} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-[#0C1A38] text-[15px] mb-1.5">{label}</h3>
-                  <p className="text-sm text-[#4D5E7A] leading-relaxed">{description}</p>
-                </div>
-              </motion.div>
-            )
-          })}
-        </motion.div>
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 transition-transform duration-200 group-hover:scale-110"
+                    style={{ background: 'rgba(24,71,214,0.07)', border: '1px solid rgba(24,71,214,0.14)' }}
+                  >
+                    <Icon size={15} style={{ color: '#1847D6' }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#0C1A38] mb-0.5">{label}</p>
+                    <p className="text-xs text-[#8FA0BE] leading-relaxed">{desc}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+
+        </div>
       </div>
     </section>
   )

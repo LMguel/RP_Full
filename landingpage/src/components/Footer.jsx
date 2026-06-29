@@ -42,17 +42,12 @@ export default function Footer() {
           {/* Brand */}
           <div className="sm:col-span-2">
             <a href="#" className="flex items-center gap-2.5 mb-4">
-              <div
-                className="flex-shrink-0 flex items-center justify-center rounded-lg p-1"
-                style={{ background: '#1847D6' }}
-              >
-                <img
-                  src="/image/logo.png"
-                  alt="REGISTRA.PONTO"
-                  className="h-6 w-auto object-contain block"
-                  draggable={false}
-                />
-              </div>
+              <img
+                src="/image/logo.png"
+                alt="REGISTRA.PONTO"
+                className="h-12 w-auto object-contain block flex-shrink-0"
+                draggable={false}
+              />
               <span
                 className="font-bold text-[#0C1A38] tracking-tight"
                 style={{ fontFamily: 'Outfit, sans-serif' }}
