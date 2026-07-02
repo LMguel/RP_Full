@@ -18,6 +18,7 @@ import jwt
 from flask import current_app
 from boto3.dynamodb.conditions import Attr, Key
 from services.overtime import calculate_overtime, format_minutes_to_time
+from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 from utils.geolocation import validar_localizacao, formatar_distancia
 import unicodedata
 import re
@@ -479,12 +480,34 @@ def atualizar_funcionario(payload, funcionario_id):
                     funcionario['intervalo_emp'] = None
 
         # Novo campo: intervalo_padrao_minutos (0 é válido = sem intervalo)
+        # Vazio/ausente ou 'empresa' = usar configuração da empresa (remove override).
         ipm_val = request.form.get('intervalo_padrao_minutos')
-        if ipm_val is not None and ipm_val.strip() != '':
-            try:
-                funcionario['intervalo_padrao_minutos'] = int(ipm_val)
-            except Exception:
-                pass
+        if ipm_val is not None:
+            if ipm_val.strip() == '' or ipm_val.strip().lower() == 'empresa':
+                funcionario.pop('intervalo_padrao_minutos', None)
+            else:
+                try:
+                    funcionario['intervalo_padrao_minutos'] = int(ipm_val)
+                except Exception:
+                    pass
+
+        # Configuração individual de jornada: entrada antecipada como hora extra.
+        # Tri-estado: '' ou 'empresa' → usar config da empresa (remove override).
+        eeo_val = request.form.get('early_entry_overtime')
+        if eeo_val is not None:
+            if eeo_val.strip() == '' or eeo_val.strip().lower() == 'empresa':
+                funcionario.pop('early_entry_overtime', None)
+            else:
+                funcionario['early_entry_overtime'] = eeo_val.strip().lower() == 'true'
+
+        # Modo do intervalo: manual (exige registro de saída/volta) ou automático
+        # (desconta sozinho). '' ou 'empresa' → usar config da empresa (remove override).
+        ia_val = request.form.get('intervalo_automatico')
+        if ia_val is not None:
+            if ia_val.strip() == '' or ia_val.strip().lower() == 'empresa':
+                funcionario.pop('intervalo_automatico', None)
+            else:
+                funcionario['intervalo_automatico'] = ia_val.strip().lower() == 'true'
 
         # Aplicar regras de horário por dia
         if tipo_horario == 'variavel':
@@ -750,7 +773,9 @@ def cadastrar_funcionario(payload):
             intervalo_personalizado = bool(data.get('intervalo_personalizado', False))
             intervalo_emp = data.get('intervalo_emp')
             intervalo_padrao_minutos = data.get('intervalo_padrao_minutos')
-            
+            early_entry_overtime = data.get('early_entry_overtime')
+            intervalo_automatico_ind = data.get('intervalo_automatico')
+
             if not all([nome, cargo]):
                 return jsonify({"error": "Nome e cargo são obrigatórios"}), 400
                 
@@ -779,6 +804,8 @@ def cadastrar_funcionario(payload):
                 except Exception:
                     intervalo_emp = None
             intervalo_padrao_minutos = request.form.get('intervalo_padrao_minutos')
+            early_entry_overtime = request.form.get('early_entry_overtime')
+            intervalo_automatico_ind = request.form.get('intervalo_automatico')
 
             if not all([nome, cargo, foto]):
                 return jsonify({"error": "Nome, cargo e foto são obrigatórios"}), 400
@@ -917,11 +944,27 @@ def cadastrar_funcionario(payload):
                     funcionario_item['intervalo_emp'] = None
 
         # Novo campo: intervalo_padrao_minutos (0 é válido = sem intervalo)
-        if intervalo_padrao_minutos is not None and str(intervalo_padrao_minutos).strip() != '':
+        # Ausente/vazio/'empresa' = usar configuração da empresa (sem override).
+        if intervalo_padrao_minutos is not None and str(intervalo_padrao_minutos).strip() not in ('', 'empresa'):
             try:
                 funcionario_item['intervalo_padrao_minutos'] = int(intervalo_padrao_minutos)
             except Exception:
                 pass
+
+        # Configuração individual de jornada: entrada antecipada como hora extra.
+        # Ausente/vazio/'empresa' = usar configuração da empresa (sem override).
+        if early_entry_overtime is not None:
+            if isinstance(early_entry_overtime, bool):
+                funcionario_item['early_entry_overtime'] = early_entry_overtime
+            elif str(early_entry_overtime).strip().lower() not in ('', 'empresa'):
+                funcionario_item['early_entry_overtime'] = str(early_entry_overtime).strip().lower() == 'true'
+
+        # Modo do intervalo: manual/automático. Ausente/vazio/'empresa' = usar empresa.
+        if intervalo_automatico_ind is not None:
+            if isinstance(intervalo_automatico_ind, bool):
+                funcionario_item['intervalo_automatico'] = intervalo_automatico_ind
+            elif str(intervalo_automatico_ind).strip().lower() not in ('', 'empresa'):
+                funcionario_item['intervalo_automatico'] = str(intervalo_automatico_ind).strip().lower() == 'true'
 
         # Aplicar regras de horário por dia
         if tipo_horario == 'variavel':
@@ -1216,8 +1259,15 @@ def listar_registros(payload):
                         
                         # 3 cases: auto, manual+tem intervalo, manual+sem intervalo
                         dash_func_ti, dash_func_val = _emp_tem_intervalo(funcionario)
-                        
-                        if intervalo_automatico or dash_func_ti:
+                        dash_conta_entrada_antecipada = resolve_early_entry_overtime(funcionario, configuracoes)
+                        # Modo de intervalo explícito do funcionário tem prioridade absoluta
+                        dash_emp_auto_override = funcionario.get('intervalo_automatico') if isinstance(funcionario, dict) else None
+                        dash_intervalo_automatico = (
+                            bool(dash_emp_auto_override) if dash_emp_auto_override is not None
+                            else (intervalo_automatico or dash_func_ti)
+                        )
+
+                        if dash_intervalo_automatico:
                             calculo = calculate_overtime(
                                 horario_entrada_esperado,
                                 horario_saida_esperado,
@@ -1226,7 +1276,8 @@ def listar_registros(payload):
                                 configuracoes,
                                 True,
                                 dash_func_val if dash_func_ti else duracao_intervalo,
-                                None
+                                None,
+                                dash_conta_entrada_antecipada
                             )
                         else:
                             calculo = calculate_overtime(
@@ -1237,7 +1288,8 @@ def listar_registros(payload):
                                 configuracoes,
                                 False,
                                 duracao_intervalo,
-                                dash_break_real
+                                dash_break_real,
+                                dash_conta_entrada_antecipada
                             )
                         
                         # Armazenar status calculado (apenas horas extras e minutos trabalhados)
@@ -1861,6 +1913,8 @@ def listar_funcionarios(payload):
                 'intervalo_personalizado': f.get('intervalo_personalizado', False),
                 'intervalo_emp': f.get('intervalo_emp'),
                 'intervalo_padrao_minutos': f.get('intervalo_padrao_minutos'),
+                'intervalo_automatico': f.get('intervalo_automatico'),
+                'early_entry_overtime': f.get('early_entry_overtime'),
                 'tolerancia_atraso': f.get('tolerancia_atraso'),
                 'custom_schedule': f.get('custom_schedule'),
                 'pred_hora': f.get('pred_hora'),
@@ -2290,7 +2344,7 @@ def registrar_ponto_manual(payload):
                 
                 # Calcular break real se manual (gap entre 1ª saída e 2ª entrada)
                 loc_break_real = None
-                loc_is_auto = configuracoes.get('intervalo_automatico', False)
+                loc_is_auto = resolve_interval_automatico(funcionario, configuracoes)
                 if not loc_is_auto:
                     manual_entradas = []
                     manual_saidas = []
@@ -2313,7 +2367,8 @@ def registrar_ponto_manual(payload):
                             pass
                 
                 loc_func_ti, loc_func_val = _emp_tem_intervalo(funcionario)
-                
+                loc_conta_entrada_antecipada = resolve_early_entry_overtime(funcionario, configuracoes)
+
                 if loc_is_auto or loc_func_ti:
                     calculo = calculate_overtime(
                         horario_entrada_esperado,
@@ -2323,7 +2378,8 @@ def registrar_ponto_manual(payload):
                         configuracoes,
                         True,
                         loc_func_val if loc_func_ti else int(configuracoes.get('duracao_intervalo', 60)),
-                        None
+                        None,
+                        loc_conta_entrada_antecipada
                     )
                 else:
                     calculo = calculate_overtime(
@@ -2334,7 +2390,8 @@ def registrar_ponto_manual(payload):
                         configuracoes,
                         False,
                         configuracoes.get('duracao_intervalo', 60),
-                        loc_break_real
+                        loc_break_real,
+                        loc_conta_entrada_antecipada
                     )
                 
                 # Adicionar informações ao registro (apenas horas extras e trabalhadas)

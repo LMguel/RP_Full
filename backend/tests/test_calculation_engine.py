@@ -20,10 +20,12 @@ from services.calculation_engine import (
     apply_bank_tolerance,
     calculate_delay_minutes,
     calculate_early_departure_minutes,
+    calculate_early_entry_minutes,
     calculate_expected_minutes,
     calculate_worked_minutes,
     minutes_to_hhmm,
 )
+from utils.schedule_settings import resolve_early_entry_overtime
 
 
 # ─────────────────────────────────────────────
@@ -149,6 +151,65 @@ class TestCalculateEarlyDeparture:
         # Saiu depois → não é antecipado
         minutes = calculate_early_departure_minutes('2026-05-01T17:30:00', '17:00', tolerance_minutes=0)
         assert minutes == 0
+
+
+# ─────────────────────────────────────────────
+# calculate_early_entry_minutes
+# ─────────────────────────────────────────────
+
+class TestCalculateEarlyEntryMinutes:
+    def test_exemplo_1_entrada_30min_antes(self):
+        # Jornada 13:00-18:00, registro 12:30 → 30 min antecipados
+        minutes = calculate_early_entry_minutes('2026-05-01T12:30:00', '13:00')
+        assert minutes == 30
+
+    def test_exemplo_2_apenas_a_entrada_conta(self):
+        # A função só mede a entrada; a saída depois é somada pelo chamador
+        minutes = calculate_early_entry_minutes('2026-05-01T12:30:00', '13:00')
+        assert minutes == 30
+
+    def test_entrada_no_horario_previsto(self):
+        minutes = calculate_early_entry_minutes('2026-05-01T13:00:00', '13:00')
+        assert minutes == 0
+
+    def test_entrada_depois_do_previsto_nao_penaliza(self):
+        minutes = calculate_early_entry_minutes('2026-05-01T13:15:00', '13:00')
+        assert minutes == 0
+
+    def test_sem_first_punch_retorna_zero(self):
+        assert calculate_early_entry_minutes(None, '13:00') == 0
+
+    def test_sem_horario_previsto_retorna_zero(self):
+        assert calculate_early_entry_minutes('2026-05-01T12:30:00', None) == 0
+
+
+# ─────────────────────────────────────────────
+# resolve_early_entry_overtime — prioridade funcionário > empresa > padrão
+# ─────────────────────────────────────────────
+
+class TestResolveEarlyEntryOvertime:
+    def test_sem_config_usa_padrao_false(self):
+        assert resolve_early_entry_overtime({}, {}) is False
+
+    def test_empresa_liga_funcionario_sem_override(self):
+        employee = {}
+        company = {'hora_extra_entrada_antecipada': True}
+        assert resolve_early_entry_overtime(employee, company) is True
+
+    def test_funcionario_true_sobrepoe_empresa_false(self):
+        employee = {'early_entry_overtime': True}
+        company = {'hora_extra_entrada_antecipada': False}
+        assert resolve_early_entry_overtime(employee, company) is True
+
+    def test_funcionario_false_sobrepoe_empresa_true(self):
+        employee = {'early_entry_overtime': False}
+        company = {'hora_extra_entrada_antecipada': True}
+        assert resolve_early_entry_overtime(employee, company) is False
+
+    def test_funcionario_none_usa_empresa(self):
+        employee = {'early_entry_overtime': None}
+        company = {'count_early_as_extra': True}
+        assert resolve_early_entry_overtime(employee, company) is True
 
 
 # ─────────────────────────────────────────────

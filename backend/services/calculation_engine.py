@@ -334,6 +334,31 @@ def calculate_overtime_exit_minutes(
     return max(0, diff - tolerance_minutes)
 
 
+def calculate_early_entry_minutes(
+    first_punch_iso: Optional[str],
+    scheduled_start: Optional[str],
+) -> int:
+    """
+    Calcula minutos de entrada antecipada (entrada real antes do horário previsto).
+    Usado quando a config (empresa ou funcionário) conta entrada antecipada como
+    hora extra. Sem tolerância — o valor é exato.
+
+    Exemplo: previsto 13:00, entrada real 12:30 → 30 min.
+    Retorna 0 se a entrada foi no horário previsto ou depois.
+    """
+    if not first_punch_iso or not scheduled_start:
+        return 0
+    scheduled_min = _parse_hhmm(scheduled_start)
+    if scheduled_min is None:
+        return 0
+    hhmm = _extract_hhmm_from_iso(first_punch_iso)
+    actual_min = _parse_hhmm(hhmm)
+    if actual_min is None:
+        return 0
+    diff = scheduled_min - actual_min  # positivo = chegou antes
+    return max(0, diff)
+
+
 def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:
     """
     Zera o saldo diário quando dentro da tolerância configurada.

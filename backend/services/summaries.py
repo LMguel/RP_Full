@@ -18,6 +18,8 @@ from decimal import Decimal
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 
+from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
+
 # Configure logger
 logger = logging.getLogger(__name__)
 
@@ -340,15 +342,17 @@ class SummaryService:
             
             # 3. Get schedule for this date
             schedule = self._get_schedule_for_date(company_config, employee_config, date_obj)
+            # Modo de intervalo (manual/automático): funcionário > empresa > padrão
+            interval_auto = resolve_interval_automatico(employee_config, company_config)
             expected_hours = self._calculate_expected_hours(
                 schedule,
-                company_config.get('break_duration', 0) if company_config.get('interval_auto') else 0
+                company_config.get('break_duration', 0) if interval_auto else 0
             )
-            
+
             # 4. Calculate worked hours
             actual_start, actual_end, worked_minutes = self._calculate_worked_hours(
                 records,
-                company_config.get('interval_auto', False),
+                interval_auto,
                 company_config.get('break_duration', 60)
             )
             
@@ -388,8 +392,8 @@ class SummaryService:
                                 company_config.get('round_to_nearest', 5)
                             )
                     
-                    # Count early arrival as extra if configured
-                    if company_config.get('count_early_as_extra', False):
+                    # Count early arrival as extra if configured (employee override > company)
+                    if resolve_early_entry_overtime(employee_config, company_config):
                         tolerance_before = company_config.get('tolerance_before', 0)
                         early_threshold = sched_start_dt - timedelta(minutes=tolerance_before)
                         

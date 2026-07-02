@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.aws import tabela_configuracoes as table_config
 from services.overtime import calculate_overtime
+from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 
 dashboard_routes = Blueprint('dashboard_routes', __name__)
 
@@ -914,8 +915,10 @@ def get_last_five_records():
                         horario_entrada_real,
                         horario_saida_real,
                         company_settings,
-                        intervalo_automatico,
-                        duracao_intervalo
+                        resolve_interval_automatico(employee, company_settings),
+                        duracao_intervalo,
+                        None,
+                        resolve_early_entry_overtime(employee, company_settings)
                     )
                     # Guardar apenas horas extras calculadas
                     status_por_funcionario[employee_id] = {

@@ -55,10 +55,12 @@ if _raw_origins.strip():
     allowed_origins = [o.strip().rstrip('/') for o in _raw_origins.split(',') if o.strip()]
 else:
     # Development-only fallback — production must set ALLOWED_ORIGINS env var
+    _dev_extra = os.getenv('DEV_ORIGINS', '')
     allowed_origins = [
         'http://localhost:5173',
         'http://localhost:3000',
         'http://localhost:4173',
+        *[o.strip().rstrip('/') for o in _dev_extra.split(',') if o.strip()],
     ]
 
 CORS(

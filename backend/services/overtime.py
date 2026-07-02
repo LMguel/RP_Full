@@ -44,11 +44,12 @@ def calculate_overtime(
     configuracoes,
     intervalo_automatico=None,
     duracao_intervalo=None,
-    break_real_minutes=None
+    break_real_minutes=None,
+    conta_entrada_antecipada=None
 ):
     """
     Calcula horas extras, atrasos e adiantamentos baseado nas configurações da empresa.
-    
+
     Args:
         horario_entrada_esperado: String HH:MM
         horario_saida_esperado: String HH:MM
@@ -58,14 +59,20 @@ def calculate_overtime(
         intervalo_automatico: Bool - se True, desconta duracao_intervalo; se False, desconta break_real_minutes
         duracao_intervalo: Int - duração do intervalo automático em minutos
         break_real_minutes: Int - tempo real de intervalo em minutos (break_start → break_end)
-    
+        conta_entrada_antecipada: Bool - se fornecido (não None), sobrepõe o valor resolvido de
+            configuracoes (usado para passar o override individual do funcionário, já resolvido
+            via resolve_early_entry_overtime). Se None, cai no valor de configuracoes.
+
     Returns:
         Dict com horas_extras_minutos, atraso_minutos, entrada_antecipada_minutos, saida_antecipada_minutos
     """
-    
+
     # Valores padrão das configurações
     tolerancia_atraso = configuracoes.get('tolerancia_atraso', 0)
-    conta_entrada_antecipada = configuracoes.get('hora_extra_entrada_antecipada', False)
+    conta_entrada_antecipada = (
+        conta_entrada_antecipada if conta_entrada_antecipada is not None
+        else configuracoes.get('hora_extra_entrada_antecipada', False)
+    )
     arredondamento = configuracoes.get('arredondamento_horas_extras', 'exato')
     compensar_saldo_horas = configuracoes.get('compensar_saldo_horas', False)
     
