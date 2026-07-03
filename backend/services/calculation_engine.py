@@ -359,6 +359,37 @@ def calculate_early_entry_minutes(
     return max(0, diff)
 
 
+def calculate_tolerance_rounding_minutes(
+    first_punch_iso: Optional[str],
+    scheduled_start: Optional[str],
+    tolerance_minutes: int = 0,
+) -> int:
+    """
+    Minutos a somar em horas trabalhadas quando a entrada real está atrasada
+    mas DENTRO da tolerância — nesse caso o dia é tratado como se a entrada
+    tivesse ocorrido exatamente no horário previsto (arredondamento a favor
+    do funcionário), sem alterar o horário de entrada exibido.
+
+    Exemplo: previsto 13:00, tolerância 10 min.
+      Entrada 13:10 → +10 min (arredonda para 13:00).
+      Entrada 13:15 → +0 min (fora da tolerância, conta atraso normalmente).
+      Entrada 12:55 (adiantado) → +0 min (não se aplica).
+    """
+    if not first_punch_iso or not scheduled_start:
+        return 0
+    scheduled_min = _parse_hhmm(scheduled_start)
+    if scheduled_min is None:
+        return 0
+    hhmm = _extract_hhmm_from_iso(first_punch_iso)
+    actual_min = _parse_hhmm(hhmm)
+    if actual_min is None:
+        return 0
+    diff = actual_min - scheduled_min  # positivo = chegou atrasado
+    if 0 < diff <= tolerance_minutes:
+        return diff
+    return 0
+
+
 def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:
     """
     Zera o saldo diário quando dentro da tolerância configurada.

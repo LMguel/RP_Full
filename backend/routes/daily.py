@@ -48,6 +48,7 @@ from services.calculation_engine import (
     count_valid_punches,
     get_actual_break_minutes,
     calculate_early_entry_minutes as eng_early_entry,
+    calculate_tolerance_rounding_minutes as eng_tolerance_round,
 )
 from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 import boto3
@@ -616,6 +617,11 @@ def get_daily_summaries():
             worked_min, first_iso, last_iso = eng_worked(
                 records, emp_intervalo_automatico, break_duration
             )
+
+            # Entrada dentro da tolerância: arredonda para o horário previsto no
+            # cálculo de horas trabalhadas (não altera o horário exibido/hora_entrada).
+            if not variavel:
+                worked_min += eng_tolerance_round(first_iso, scheduled_start, tolerancia_atraso)
 
             # n_punches calculado antes do split auto/manual (usado no status e no break)
             n_punches_count = count_valid_punches(records)

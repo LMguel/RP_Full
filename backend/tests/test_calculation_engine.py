@@ -23,6 +23,7 @@ from services.calculation_engine import (
     calculate_early_entry_minutes,
     calculate_expected_minutes,
     calculate_worked_minutes,
+    calculate_tolerance_rounding_minutes,
     minutes_to_hhmm,
 )
 from utils.schedule_settings import resolve_early_entry_overtime
@@ -181,6 +182,40 @@ class TestCalculateEarlyEntryMinutes:
 
     def test_sem_horario_previsto_retorna_zero(self):
         assert calculate_early_entry_minutes('2026-05-01T12:30:00', None) == 0
+
+
+# ─────────────────────────────────────────────
+# calculate_tolerance_rounding_minutes
+# ─────────────────────────────────────────────
+
+class TestCalculateToleranceRoundingMinutes:
+    def test_atraso_dentro_da_tolerancia_arredonda(self):
+        # Previsto 13:00, tolerância 10 min, entrada 13:10 → +10 min
+        minutes = calculate_tolerance_rounding_minutes('2026-05-01T13:10:00', '13:00', 10)
+        assert minutes == 10
+
+    def test_atraso_no_limite_da_tolerancia_arredonda(self):
+        minutes = calculate_tolerance_rounding_minutes('2026-05-01T13:05:00', '13:00', 10)
+        assert minutes == 5
+
+    def test_atraso_acima_da_tolerancia_nao_arredonda(self):
+        # 15 min de atraso com tolerância de 10 → não arredonda (atraso real se aplica)
+        minutes = calculate_tolerance_rounding_minutes('2026-05-01T13:15:00', '13:00', 10)
+        assert minutes == 0
+
+    def test_entrada_no_horario_nao_arredonda(self):
+        minutes = calculate_tolerance_rounding_minutes('2026-05-01T13:00:00', '13:00', 10)
+        assert minutes == 0
+
+    def test_entrada_antecipada_nao_arredonda(self):
+        minutes = calculate_tolerance_rounding_minutes('2026-05-01T12:50:00', '13:00', 10)
+        assert minutes == 0
+
+    def test_sem_first_punch_retorna_zero(self):
+        assert calculate_tolerance_rounding_minutes(None, '13:00', 10) == 0
+
+    def test_sem_horario_previsto_retorna_zero(self):
+        assert calculate_tolerance_rounding_minutes('2026-05-01T13:10:00', None, 10) == 0
 
 
 # ─────────────────────────────────────────────
