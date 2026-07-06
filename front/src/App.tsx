@@ -419,7 +419,6 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       />
-
       {/* RH / Folha */}
       <Route path="/rh" element={<ProtectedRoute><Layout><RHDashboardPage /></Layout></ProtectedRoute>} />
       <Route path="/rh/funcionarios" element={<ProtectedRoute><Layout><RHFuncionariosPage /></Layout></ProtectedRoute>} />

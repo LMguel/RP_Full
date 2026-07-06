@@ -441,14 +441,14 @@ export default function FuncionarioFormPage() {
                       ${tipoHorario === tipo
                         ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
                         : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                    {tipo === 'fixo' ? '📅 Horário Fixo' : '🕐 Horário Variável'}
+                    {tipo === 'fixo' ? '📅 Horário Fixo' : '🕐 Horista'}
                   </button>
                 ))}
               </div>
 
               {tipoHorario === 'variavel' ? (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-5 text-center">
-                  <p className="text-blue-300 font-semibold text-base">Horário Variável</p>
+                  <p className="text-blue-300 font-semibold text-base">Horista</p>
                   <p className="text-slate-400 text-sm mt-2">
                     O funcionário não terá horário fixo. Os registros serão armazenados sem cálculo de atrasos ou faltas.
                   </p>

@@ -28,8 +28,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 import { Employee, WeeklyScheduleMap, WeekdayKey } from '../types';
 
-const MONTHLY_TOLERANCE_MIN = 120;
-
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
 type StatusPeriodo = 'VARIAVEL' | 'REGULAR' | 'INCOMPLETO' | 'SEM_REGISTROS';
@@ -138,6 +136,9 @@ const RecordsSummaryPage: React.FC = () => {
   // Dados da empresa (para Excel)
   const [empresaNome, setEmpresaNome] = useState('');
   const [empresaCnpj, setEmpresaCnpj] = useState('');
+  const [toleranciaEmpresa, setToleranciaEmpresa] = useState<number>(5);
+  // Feriados do período (ISO date → nome) — usado para Ocorrência/Observações no Excel
+  const [holidayMap, setHolidayMap] = useState<Record<string, string>>({});
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -196,9 +197,19 @@ const RecordsSummaryPage: React.FC = () => {
           .map((h: any) => String(h?.date || h?.data || ''))
           .filter(Boolean)
       );
+      const newHolidayMap: Record<string, string> = {};
+      (Array.isArray(feriadosRaw) ? feriadosRaw : [])
+        .filter((h: any) => h?.active !== false && h?.ativo !== false)
+        .forEach((h: any) => {
+          const iso = String(h?.date || h?.data || '');
+          if (iso) newHolidayMap[iso] = String(h?.name || h?.nome || 'Feriado');
+        });
+      setHolidayMap(newHolidayMap);
 
       const dailyList: any[] = dailyResp?.summaries || [];
       const allEmps: Employee[] = empResp?.funcionarios || [];
+      const monthlyToleranceMin = Number(cfgResp?.tolerancia_atraso ?? 5);
+      setToleranciaEmpresa(monthlyToleranceMin);
 
       // Hoje — dias em processamento nunca entram nos indicadores oficiais
       const _n = new Date();
@@ -268,9 +279,9 @@ const RecordsSummaryPage: React.FC = () => {
           );
           const faltas = variavel ? 0 : Math.max(0, diasEsperados - presentes);
 
-          // Tolerância mensal
+          // Tolerância mensal (segue a configuração da empresa)
           const saldoBruto = minExtras - minAtrasos;
-          const toleranciaAplicada = !variavel && Math.abs(saldoBruto) <= MONTHLY_TOLERANCE_MIN;
+          const toleranciaAplicada = !variavel && Math.abs(saldoBruto) <= monthlyToleranceMin;
           const saldoFinal         = toleranciaAplicada ? 0 : saldoBruto;
           const displayExtras      = toleranciaAplicada ? 0 : minExtras;
           const displayAtrasos     = toleranciaAplicada ? 0 : minAtrasos;
@@ -404,7 +415,7 @@ const RecordsSummaryPage: React.FC = () => {
     REGULAR:      { label: 'Regular',       bg: 'rgba(16,185,129,0.15)',  border: '#10b981', color: '#10b981' },
     INCOMPLETO:   { label: 'Incompleto',    bg: 'rgba(245,158,11,0.15)',  border: '#f59e0b', color: '#f59e0b' },
     SEM_REGISTROS:{ label: 'Sem registros', bg: 'rgba(239,68,68,0.15)',   border: '#ef4444', color: '#ef4444' },
-    VARIAVEL:     { label: 'Variável',      bg: 'rgba(139,92,246,0.15)',  border: '#8b5cf6', color: '#8b5cf6' },
+    VARIAVEL:     { label: 'Horista',       bg: 'rgba(139,92,246,0.15)',  border: '#8b5cf6', color: '#8b5cf6' },
   };
 
   // ── Export Excel ──────────────────────────────────────────────────────────────
@@ -423,6 +434,8 @@ const RecordsSummaryPage: React.FC = () => {
       const GREEN  = { fgColor: { rgb: 'D9EAD3' } };
       const RED    = { fgColor: { rgb: 'FCE5CD' } };
       const YELLOW = { fgColor: { rgb: 'FFF2CC' } };
+      const TEAL   = { fgColor: { rgb: 'D0F0EC' } };
+      const PURPLE = { fgColor: { rgb: 'E6D9F5' } };
 
       const sTitle   = { font: { bold: true, sz: 13 }, fill: GRAY, alignment: { horizontal: 'left', vertical: 'center', wrapText: true }, border: bBox };
       const sMeta    = { font: { sz: 11 }, fill: W, alignment: { horizontal: 'left', vertical: 'center' }, border: bAll };
@@ -432,6 +445,8 @@ const RecordsSummaryPage: React.FC = () => {
       const sExtras  = { font: { bold: true, sz: 11 }, fill: BLUE,   alignment: { horizontal: 'center', vertical: 'center' }, border: bAll };
       const sAtraso  = { font: { bold: true, sz: 11 }, fill: YELLOW, alignment: { horizontal: 'center', vertical: 'center' }, border: bAll };
       const sEmpty   = { font: { sz: 10 }, fill: W, border: bAll };
+      const statusFill: Record<string, any> = { ATESTADO: TEAL, FERIAS: PURPLE, FERIADO: YELLOW, FALTA: RED };
+      const sStatus  = (fill: any) => ({ font: { bold: true, sz: 11 }, fill, alignment: { horizontal: 'center', vertical: 'center' }, border: bAll });
 
       const periodo = `${dateRange.start_date || '—'} a ${dateRange.end_date || '—'}`;
       const geradoEm = new Date().toLocaleString('pt-BR');
@@ -505,9 +520,36 @@ const RecordsSummaryPage: React.FC = () => {
       XLSXStyle.utils.book_append_sheet(wb, wsG, 'Resumo Geral');
 
       // Abas individuais por funcionário
-      const COLS8 = ['A','B','C','D','E','F','G','H','I','J'];
+      // 12 colunas: Data, Dia Semana, Entrada, Saída Intervalo, Retorno Intervalo, Saída,
+      // Jornada Prevista, Horas Trabalhadas, H. Extra, Banco do Dia, Ocorrência, Observações
+      const COLS8 = ['A','B','C','D','E','F','G','H','I','J','K','L'];
       const styleRow = (ws: any, r: number, fn: (ci: number) => any) =>
         COLS8.forEach((c, ci) => { const ref = c + r; if (ws[ref]) ws[ref].s = fn(ci); });
+
+      const ocorrenciaFill: Record<string, any> = {
+        'Atestado': TEAL, 'Folga/Férias': PURPLE, 'Feriado': YELLOW, 'Falta': RED,
+      };
+      const _n = new Date();
+      const todayISOExport = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
+
+      /** Ocorrência do dia + observação — usa exatamente os campos já calculados
+       * pelo motor de cálculo (status, atestado_url, feriados, previsto). Não
+       * inventa categorias inexistentes no sistema (ex.: abono, licença). */
+      const resolveOcorrencia = (d: any): { label: string; obs: string } => {
+        const iso = String(d.data || '');
+        const rawStatus = String(d.status || '').toUpperCase();
+        if (rawStatus === 'ATESTADO') return { label: 'Atestado', obs: d.atestado_url ? 'Documento anexado' : '' };
+        if (rawStatus === 'FERIAS')   return { label: 'Folga/Férias', obs: '' };
+        if (holidayMap[iso])          return { label: 'Feriado', obs: holidayMap[iso] };
+        if (rawStatus === 'INCOMPLETO') return { label: 'Incompleto', obs: '' };
+        const previsto = Number(d.horas_previstas_min ?? 0);
+        const hasPunches = (d.n_punches || 0) > 0;
+        if (!hasPunches) {
+          if (previsto > 0 && iso < todayISOExport) return { label: 'Falta', obs: '' };
+          return { label: '—', obs: '' }; // dia sem jornada prevista (folga semanal do funcionário)
+        }
+        return { label: 'Normal', obs: '' };
+      };
 
       for (const summary of employeeSummaries) {
         const days: any[] = (dailyByEmployee[summary.employee_id] || [])
@@ -516,11 +558,11 @@ const RecordsSummaryPage: React.FC = () => {
         const pct  = summary.variavel ? '—' : Math.round((summary.horas_trabalhadas / (summary.horas_previstas || 1)) * 100) + '%';
 
         const aoa: any[][] = [
-          ['ESPELHO DE PONTO — ' + nome.toUpperCase(), '','','','','','','','',''],
-          [empresaNome ? `${empresaNome}${cnpjFmt ? ` — CNPJ: ${cnpjFmt}` : ''}` : '', '','','','','','','','',''],
-          [`Período: ${periodo}`, '','','','','','','','',''],
-          [`Gerado em: ${geradoEm}`, '','','','','','','','',''],
-          ['Presentes', 'H. Trabalhadas', 'H. Previstas', 'H. Extras', 'Atrasos', 'Banco de Horas', '% Cumprimento', '', '', ''],
+          ['ESPELHO DE PONTO — ' + nome.toUpperCase(), '','','','','','','','','','',''],
+          [empresaNome ? `${empresaNome}${cnpjFmt ? ` — CNPJ: ${cnpjFmt}` : ''}` : '', '','','','','','','','','','',''],
+          [`Período: ${periodo}`, '','','','','','','','','','',''],
+          [`Gerado em: ${geradoEm}`, '','','','','','','','','','',''],
+          ['Presentes', 'H. Trabalhadas', 'H. Previstas', 'H. Extras', 'Atrasos', 'Banco de Horas', '% Cumprimento', '', '', '', '', ''],
           [
             summary.presentes,
             toHHMM(summary.horas_trabalhadas),
@@ -528,16 +570,17 @@ const RecordsSummaryPage: React.FC = () => {
             summary.variavel ? '—' : toHHMM(summary.horas_extras),
             summary.variavel ? '—' : toHHMM(summary.atrasos),
             summary.variavel ? '—' : toSignedHHMM(summary.saldo),
-            pct, '', '', '',
+            pct, '', '', '', '', '',
           ],
-          ['', '', '', '', '', '', '', '', '', ''],
-          ['Data', 'Dia', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'Trabalhado', 'Previsto', 'H. Extra', 'Banco Dia'],
+          ['', '', '', '', '', '', '', '', '', '', '', ''],
+          ['Data', 'Dia Semana', 'Entrada', 'Saída Intervalo', 'Retorno Intervalo', 'Saída', 'Jornada Prevista', 'Horas Trabalhadas', 'H. Extra', 'Banco do Dia', 'Ocorrência', 'Observações'],
           ...days.map(d => {
             const extrasMin = Number(d.horas_extras_min ?? d.horas_extras ?? 0);
             const bancoMin  = Number(d.banco_horas_dia ?? 0);
             const dataFmt   = (d.data || '').split('-').reverse().join('/');
             const diasPT    = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
             const dow       = d.dia_semana ? diasPT.indexOf(d.dia_semana) : new Date((d.data||'') + 'T12:00:00').getDay();
+            const { label: ocorrenciaLabel, obs } = resolveOcorrencia(d);
             return [
               dataFmt,
               d.dia_semana || (dow >= 0 ? diasPT[dow] : ''),
@@ -545,10 +588,12 @@ const RecordsSummaryPage: React.FC = () => {
               d.intervalo_saida || '—',
               d.intervalo_volta || '—',
               d.hora_saida    || '—',
-              d.horas_trabalhadas_str || toHHMM(Number(d.horas_trabalhadas_min || 0)),
               d.horas_previstas_str   || (d.horas_previstas_min != null ? toHHMM(Number(d.horas_previstas_min)) : '—'),
+              d.horas_trabalhadas_str || toHHMM(Number(d.horas_trabalhadas_min || 0)),
               extrasMin > 0  ? toHHMM(extrasMin)   : '—',
               bancoMin  !== 0 ? toSignedHHMM(bancoMin) : '00:00',
+              ocorrenciaLabel,
+              obs,
             ];
           }),
         ];
@@ -567,18 +612,25 @@ const RecordsSummaryPage: React.FC = () => {
           return sCell(true);
         });
         styleRow(ws, 7, () => sEmpty);
-        styleRow(ws, 8, (ci) => sHdr(ci === 0 || ci === 1));
+        styleRow(ws, 8, (ci) => sHdr(ci === 0 || ci === 1 || ci === 11));
         days.forEach((d, ri) => {
           const bancoMin = Number(d.banco_horas_dia ?? 0);
+          const { label: ocorrenciaLabel } = resolveOcorrencia(d);
+          const fill = ocorrenciaFill[ocorrenciaLabel];
           styleRow(ws, 9 + ri, (ci) => {
-            if (ci === 0 || ci === 1) return sCell(false, true);
+            // Dias de atestado/folga/feriado/falta: linha inteira destacada com a cor da ocorrência
+            if (fill) {
+              if (ci === 0 || ci === 1 || ci === 11) return { ...sCell(false, true), fill };
+              return sStatus(fill);
+            }
+            if (ci === 0 || ci === 1 || ci === 11) return sCell(false, true);
             if (ci === 8) return sExtras;
             if (ci === 9) return sSaldo(bancoMin >= 0);
             return sCell();
           });
         });
-        ws['!cols'] = [{wch:14},{wch:6},{wch:10},{wch:12},{wch:12},{wch:10},{wch:14},{wch:14},{wch:12},{wch:12}];
-        ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:9} },{ s:{r:1,c:0}, e:{r:1,c:9} },{ s:{r:2,c:0}, e:{r:2,c:9} },{ s:{r:3,c:0}, e:{r:3,c:9} },{ s:{r:7,c:0}, e:{r:7,c:9} }];
+        ws['!cols'] = [{wch:12},{wch:12},{wch:10},{wch:16},{wch:16},{wch:10},{wch:15},{wch:16},{wch:10},{wch:13},{wch:14},{wch:22}];
+        ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:11} },{ s:{r:1,c:0}, e:{r:1,c:11} },{ s:{r:2,c:0}, e:{r:2,c:11} },{ s:{r:3,c:0}, e:{r:3,c:11} },{ s:{r:6,c:0}, e:{r:6,c:11} }];
         (ws as any)['!pageSetup'] = { paperSize:9, orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0 };
         (ws as any)['!margins'] = { left:0.5, right:0.5, top:0.75, bottom:0.75, header:0.3, footer:0.3 };
         XLSXStyle.utils.book_append_sheet(wb, ws, nome.replace(/[:\\/\[\]*?]/g,'').slice(0,31));
@@ -606,7 +658,7 @@ const RecordsSummaryPage: React.FC = () => {
     { key: 'REGULAR',       label: '✓ Regulares',     count: regularCount,              color: '#10b981' },
     { key: 'INCOMPLETO',    label: '⚠ Incompletos',   count: incompletoCount,           color: '#f59e0b' },
     { key: 'SEM_REGISTROS', label: '✗ Sem registros', count: semRegistroCount,          color: '#ef4444' },
-    { key: 'VARIAVEL',      label: '~ Variáveis',     count: variavelCount,             color: '#8b5cf6' },
+    { key: 'VARIAVEL',      label: '~ Horistas',      count: variavelCount,             color: '#8b5cf6' },
   ];
 
   return (
@@ -649,7 +701,7 @@ const RecordsSummaryPage: React.FC = () => {
                 { label:'Regulares',        value: regularCount,      color:'#10b981', icon:'✓', sub:`${regularCount} funcionário(s)` },
                 { label:'Incompletos',       value: incompletoCount,   color:'#f59e0b', icon:'⚠', sub: incompletoCount > 0 ? 'Batidas faltando' : 'Nenhum' },
                 { label:'Sem registros',     value: semRegistroCount,  color:'#ef4444', icon:'✗', sub: semRegistroCount > 0 ? 'No período' : 'Nenhum' },
-                { label:'Horário variável',  value: variavelCount,     color:'#8b5cf6', icon:'~', sub:'Sem jornada fixa' },
+                { label:'Horista',  value: variavelCount,     color:'#8b5cf6', icon:'~', sub:'Sem jornada fixa' },
               ].map((card, i) => (
                 <Card key={i} sx={{ background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2, cursor:'pointer' }}
                   onClick={() => setStatusFilter((['REGULAR','INCOMPLETO','SEM_REGISTROS','VARIAVEL'] as StatusPeriodo[])[i])}>
@@ -829,7 +881,7 @@ const RecordsSummaryPage: React.FC = () => {
                             {s.variavel || isSemReg ? (
                               <Typography sx={{ color:'rgba(255,255,255,0.25)', fontSize:13 }}>—</Typography>
                             ) : (
-                              <Tooltip title={s.toleranciaAplicada ? 'Dentro da tolerância de 2h' : s.saldo > 0 ? 'Saldo positivo' : s.saldo < 0 ? 'Saldo negativo' : 'Zerado'}>
+                              <Tooltip title={s.toleranciaAplicada ? `Dentro da tolerância de ${toHHMM(toleranciaEmpresa)}` : s.saldo > 0 ? 'Saldo positivo' : s.saldo < 0 ? 'Saldo negativo' : 'Zerado'}>
                                 <Typography sx={{ fontWeight:800, fontFamily:'monospace', fontSize:13, color: s.saldo > 0 ? '#10b981' : s.saldo < 0 ? '#ef4444' : 'rgba(255,255,255,0.4)' }}>
                                   {s.saldo > 0 ? '+' : ''}{toHHMM(s.saldo)}
                                 </Typography>

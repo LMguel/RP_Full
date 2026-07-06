@@ -263,7 +263,7 @@ export default function EspelhoPontoPage() {
       const isWorkday = !isVariableSchedule && previstoMin > 0;
 
       // Crédito automático para feriados em dias úteis — APENAS jornada fixa.
-      // Horário variável não tem carga diária definida: crédito automático não se aplica.
+      // Horista não tem carga diária definida: crédito automático não se aplica.
       const feriadoCreditMin = isHoliday && records.length === 0 && !isVariableSchedule
         ? minutosPrevistosDia(employeeSchedule, customSchedule, companyWeeklySchedule, iso)
         : 0;
@@ -520,7 +520,7 @@ export default function EspelhoPontoPage() {
             {func?.nome && (
               <p className="text-slate-500 text-sm mt-0.5 truncate">
                 {func.nome}{func.cargo ? ` · ${func.cargo}` : ''}
-                {isVariableSchedule && <span className="ml-2 text-xs text-amber-400">Horário variável</span>}
+                {isVariableSchedule && <span className="ml-2 text-xs text-amber-400">Horista</span>}
               </p>
             )}
           </div>
@@ -608,7 +608,7 @@ export default function EspelhoPontoPage() {
                 </div>
                 <p className="text-3xl font-black text-white">{resumo.faltas} <span className="text-slate-500 text-lg font-medium">dias</span></p>
                 <p className="text-slate-500 text-xs mt-1">
-                  {isVariableSchedule ? 'Horário variável' : resumo.atrasos > 0 ? `${resumo.atrasos} atraso(s)` : 'Sem faltas'}
+                  {isVariableSchedule ? 'Horista' : resumo.atrasos > 0 ? `${resumo.atrasos} atraso(s)` : 'Sem faltas'}
                 </p>
               </div>
 
@@ -649,7 +649,7 @@ export default function EspelhoPontoPage() {
                   </p>
                 )}
                 <p className="text-slate-500 text-xs mt-1">
-                  {isVariableSchedule ? 'Horário variável' : 'Tempo excedente acumulado'}
+                  {isVariableSchedule ? 'Horista' : 'Tempo excedente acumulado'}
                 </p>
               </div>
 
@@ -669,7 +669,7 @@ export default function EspelhoPontoPage() {
                   </p>
                 )}
                 <p className="text-slate-500 text-xs mt-1">
-                  {isVariableSchedule ? 'Horário variável' : 'Tempo abaixo da jornada'}
+                  {isVariableSchedule ? 'Horista' : 'Tempo abaixo da jornada'}
                 </p>
               </div>
 
@@ -690,7 +690,7 @@ export default function EspelhoPontoPage() {
                 )}
                 <p className="text-slate-500 text-xs mt-1">
                   {isVariableSchedule
-                    ? 'Horário variável'
+                    ? 'Horista'
                     : resumo.toleranciaAplicada
                       ? 'Dentro da tolerância'
                       : resumo.saldoMin > 0 ? 'Saldo positivo' : resumo.saldoMin < 0 ? 'Saldo negativo' : 'Zerado'}

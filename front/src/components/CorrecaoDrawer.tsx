@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Drawer, Box, Typography, IconButton, Divider,
-  Button, TextField, CircularProgress, Chip, Tooltip,
+  Button, TextField, CircularProgress, Chip, Tooltip, LinearProgress,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -11,6 +11,8 @@ import {
   Check as CheckIcon,
   ArrowBack as BackIcon,
   WarningAmber as WarningIcon,
+  NavigateBefore as NavPrevIcon,
+  NavigateNext as NavNextIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
 import { apiService } from '../services/api';
@@ -42,6 +44,14 @@ interface IndividualRecord {
 type Mode = 'view' | 'add' | 'edit' | 'remove';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const JUSTIFICATIVAS_PRESET = [
+  'Esquecimento',
+  'Erro no tablet',
+  'Sistema fora do ar',
+  'Reconhecimento falhou',
+  'Ausência justificada',
+];
 
 const TIPOS_LABEL: Record<string, string> = {
   entrada: 'Entrada',
@@ -126,9 +136,13 @@ interface Props {
   onClose: () => void;
   onRefresh: () => void;
   onConfirmarCorreto?: (key: string) => void;
+  // Opção B: navegação sequencial em fila
+  queue?: DrawerTarget[];
+  queueIndex?: number;
+  onNavigate?: (target: DrawerTarget) => void;
 }
 
-export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmarCorreto }: Props) {
+export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmarCorreto, queue, queueIndex, onNavigate }: Props) {
   const [records, setRecords]       = useState<IndividualRecord[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
 
@@ -194,7 +208,7 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
       toast.success('Registro adicionado.');
       reset();
       reloadRecords();
-      onRefresh();
+      if (!queue) onRefresh();
     } catch { /* toast no interceptor */ } finally { setSaving(false); }
   };
 
@@ -212,7 +226,7 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
       toast.success('Registro ajustado.');
       reset();
       reloadRecords();
-      onRefresh();
+      if (!queue) onRefresh();
     } catch { /* toast no interceptor */ } finally { setSaving(false); }
   };
 
@@ -226,7 +240,7 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
       toast.success('Registro invalidado.');
       reset();
       reloadRecords();
-      onRefresh();
+      if (!queue) onRefresh();
     } catch { /* toast no interceptor */ } finally { setSaving(false); }
   };
 
@@ -264,9 +278,18 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
                 </IconButton>
               )}
               <Box sx={{ flex: 1 }}>
-                <Typography sx={{ fontWeight: 800, color: 'white', fontSize: 16, lineHeight: 1.2 }}>
-                  {target.employee_name}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography sx={{ fontWeight: 800, color: 'white', fontSize: 16, lineHeight: 1.2 }}>
+                    {target.employee_name}
+                  </Typography>
+                  {queue && queue.length > 1 && (
+                    <Box sx={{ px: 0.75, py: 0.15, borderRadius: '6px', bgcolor: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.28)', flexShrink: 0 }}>
+                      <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#a5b4fc', fontVariantNumeric: 'tabular-nums', lineHeight: 1.5 }}>
+                        {(queueIndex ?? 0) + 1}/{queue.length}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
                 <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, mt: 0.25 }}>
                   {target.dateLabel} · {target.diaSemana}
                 </Typography>
@@ -414,8 +437,28 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
                       </Box>
                     );
                   })()}
-                  <TextField label="Justificativa" value={justificativa} onChange={e => setJust(e.target.value)}
-                    fullWidth size="small" multiline rows={3} placeholder="Descreva o motivo da correção..." />
+                  <Box>
+                    <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', mb: 0.75 }}>Justificativa rápida</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 1 }}>
+                      {JUSTIFICATIVAS_PRESET.map(p => (
+                        <Chip
+                          key={p}
+                          label={p}
+                          size="small"
+                          onClick={() => setJust(p)}
+                          sx={{
+                            height: 24, fontSize: 11, cursor: 'pointer',
+                            bgcolor: justificativa === p ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)',
+                            color: justificativa === p ? '#34d399' : 'rgba(255,255,255,0.5)',
+                            border: `1px solid ${justificativa === p ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                            '&:hover': { bgcolor: 'rgba(16,185,129,0.1)', color: '#34d399' },
+                          }}
+                        />
+                      ))}
+                    </Box>
+                    <TextField label="Justificativa" value={justificativa} onChange={e => setJust(e.target.value)}
+                      fullWidth size="small" multiline rows={2} placeholder="Ou descreva o motivo..." />
+                  </Box>
                 </Box>
               </>
             )}
@@ -435,8 +478,28 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
                   </Box>
                   <TextField label="Novo horário" type="time" value={hora} onChange={e => setHora(e.target.value)}
                     fullWidth size="small" InputLabelProps={{ shrink: true }} />
-                  <TextField label="Justificativa" value={justificativa} onChange={e => setJust(e.target.value)}
-                    fullWidth size="small" multiline rows={3} placeholder="Descreva o motivo do ajuste..." />
+                  <Box>
+                    <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', mb: 0.75 }}>Justificativa rápida</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 1 }}>
+                      {JUSTIFICATIVAS_PRESET.map(p => (
+                        <Chip
+                          key={p}
+                          label={p}
+                          size="small"
+                          onClick={() => setJust(p)}
+                          sx={{
+                            height: 24, fontSize: 11, cursor: 'pointer',
+                            bgcolor: justificativa === p ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)',
+                            color: justificativa === p ? '#34d399' : 'rgba(255,255,255,0.5)',
+                            border: `1px solid ${justificativa === p ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                            '&:hover': { bgcolor: 'rgba(16,185,129,0.1)', color: '#34d399' },
+                          }}
+                        />
+                      ))}
+                    </Box>
+                    <TextField label="Justificativa" value={justificativa} onChange={e => setJust(e.target.value)}
+                      fullWidth size="small" multiline rows={2} placeholder="Ou descreva o motivo..." />
+                  </Box>
                 </Box>
               </>
             )}
@@ -455,8 +518,28 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
                     Este registro será marcado como invalidado.
                   </Typography>
                 </Box>
-                <TextField label="Justificativa" value={justificativa} onChange={e => setJust(e.target.value)}
-                  fullWidth size="small" multiline rows={3} placeholder="Descreva o motivo da invalidação..." />
+                <Box>
+                  <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', mb: 0.75 }}>Justificativa rápida</Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 1 }}>
+                    {JUSTIFICATIVAS_PRESET.map(p => (
+                      <Chip
+                        key={p}
+                        label={p}
+                        size="small"
+                        onClick={() => setJust(p)}
+                        sx={{
+                          height: 24, fontSize: 11, cursor: 'pointer',
+                          bgcolor: justificativa === p ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.05)',
+                          color: justificativa === p ? '#f87171' : 'rgba(255,255,255,0.5)',
+                          border: `1px solid ${justificativa === p ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                          '&:hover': { bgcolor: 'rgba(239,68,68,0.1)', color: '#f87171' },
+                        }}
+                      />
+                    ))}
+                  </Box>
+                  <TextField label="Justificativa" value={justificativa} onChange={e => setJust(e.target.value)}
+                    fullWidth size="small" multiline rows={2} placeholder="Ou descreva o motivo..." />
+                </Box>
               </>
             )}
           </Box>
@@ -465,6 +548,48 @@ export default function CorrecaoDrawer({ target, onClose, onRefresh, onConfirmar
           <Box sx={{ px: 2.5, py: 2, borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
             {mode === 'view' && (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {/* Navegação sequencial (Opção B) */}
+                {queue && queue.length > 1 && (
+                  <Box sx={{ mb: 0.25 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                      <LinearProgress
+                        variant="determinate"
+                        value={queue.length > 1 ? Math.round(((queueIndex ?? 0) / (queue.length - 1)) * 100) : 100}
+                        sx={{
+                          flex: 1, height: 3, borderRadius: 99,
+                          bgcolor: 'rgba(255,255,255,0.07)',
+                          '& .MuiLinearProgress-bar': { background: 'linear-gradient(90deg, #2563eb, #6366f1)', borderRadius: 99 },
+                        }}
+                      />
+                      <Typography sx={{ fontSize: 10.5, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                        {(queueIndex ?? 0) + 1} / {queue.length}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 0.75 }}>
+                      <Button size="small" fullWidth
+                        disabled={(queueIndex ?? 0) === 0}
+                        onClick={() => { reset(); onNavigate?.(queue[(queueIndex ?? 0) - 1]); }}
+                        startIcon={<NavPrevIcon sx={{ fontSize: 15 }} />}
+                        sx={{ fontSize: 11.5, py: 0.55, '&.Mui-disabled': { opacity: 0.25 } }}
+                      >
+                        Anterior
+                      </Button>
+                      <Button size="small" fullWidth variant="outlined"
+                        disabled={(queueIndex ?? 0) >= queue.length - 1}
+                        onClick={() => { reset(); onNavigate?.(queue[(queueIndex ?? 0) + 1]); }}
+                        endIcon={<NavNextIcon sx={{ fontSize: 15 }} />}
+                        sx={{
+                          fontSize: 11.5, py: 0.55,
+                          borderColor: 'rgba(96,165,250,0.35)', color: '#60a5fa',
+                          '&:hover': { borderColor: 'rgba(96,165,250,0.6)', bgcolor: 'rgba(96,165,250,0.07)' },
+                          '&.Mui-disabled': { opacity: 0.25, borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.25)' },
+                        }}
+                      >
+                        Próximo
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
                 {pontosProximos.size > 0 && onConfirmarCorreto && (
                   <Button
                     fullWidth variant="outlined"

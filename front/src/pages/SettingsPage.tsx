@@ -163,6 +163,7 @@ const TimeTrackingSettings: React.FC = () => {
   const [funcionariosAtualizados, setFuncionariosAtualizados] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [toleranciaInput, setToleranciaInput] = useState('5');
 
   useEffect(() => {
     loadSettings();
@@ -183,17 +184,19 @@ const TimeTrackingSettings: React.FC = () => {
       };
 
       // Mesclar resposta da API com valores padrão e garantir tipos corretos
+      // Usa != null (não ||) para não substituir um valor salvo como 0 pelo padrão
       const mergedSettings = {
         ...defaultSettings,
         ...response,
-        tolerancia_atraso: Number(response.tolerancia_atraso) || defaultSettings.tolerancia_atraso,
+        tolerancia_atraso: response.tolerancia_atraso != null ? Number(response.tolerancia_atraso) : defaultSettings.tolerancia_atraso,
         hora_extra_entrada_antecipada: Boolean(response.hora_extra_entrada_antecipada),
         intervalo_automatico: Boolean(response.intervalo_automatico),
-        duracao_intervalo: Number(response.duracao_intervalo) || defaultSettings.duracao_intervalo,
+        duracao_intervalo: response.duracao_intervalo != null ? Number(response.duracao_intervalo) : defaultSettings.duracao_intervalo,
         intervalo_padrao_global: response.intervalo_padrao_global != null ? Number(response.intervalo_padrao_global) : null,
       };
       
       setSettings(mergedSettings);
+      setToleranciaInput(String(mergedSettings.tolerancia_atraso));
     } catch (err: any) {
       console.error('Error loading settings:', err);
       toast.error('Erro ao carregar configurações de ponto');
@@ -207,8 +210,10 @@ const TimeTrackingSettings: React.FC = () => {
       setSaving(true);
 
       // Garantir que todos os valores sejam do tipo correto
+      // Usa toleranciaInput diretamente para não depender do blur do campo ter disparado antes do clique em Salvar
+      const toleranciaFinal = Math.max(0, parseInt(toleranciaInput, 10) || 0);
       const dataToSend = {
-        tolerancia_atraso: Number(settings.tolerancia_atraso) || 0,
+        tolerancia_atraso: toleranciaFinal,
         hora_extra_entrada_antecipada: Boolean(settings.hora_extra_entrada_antecipada),
         arredondamento_horas_extras: settings.arredondamento_horas_extras,
         intervalo_automatico: Boolean(settings.intervalo_automatico),
@@ -217,6 +222,9 @@ const TimeTrackingSettings: React.FC = () => {
       };
 
       const result = await apiService.put('/api/configuracoes', dataToSend);
+
+      setSettings((prev) => ({ ...prev, tolerancia_atraso: toleranciaFinal }));
+      setToleranciaInput(String(toleranciaFinal));
 
       const atualizados = result?.funcionarios_atualizados ?? 0;
       setFuncionariosAtualizados(atualizados > 0 ? atualizados : null);
@@ -307,41 +315,42 @@ const TimeTrackingSettings: React.FC = () => {
                   Tolerância de Ponto (Legal)
                 </Typography>
               </Box>
-              <Typography 
-                variant="caption" 
+              <Typography
+                variant="caption"
                 sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, display: 'block' }}
               >
-                Conforme CLT Art. 58, §1º e Súmula 366 do TST, a tolerância máxima permitida é de <b>10 minutos por dia</b> (somatório de atrasos e antecipações).<br />
-                Não é permitido configurar valores acima de 10 minutos ou tolerância separada para entrada/saída.
+                Conforme CLT Art. 58, §1º e Súmula 366 do TST, a tolerância legal padrão é de <b>10 minutos por dia</b> (somatório de atrasos e antecipações).
+                Ajuste livremente conforme a necessidade da empresa.
               </Typography>
-              <FormControl fullWidth sx={{ mt: 1 }}>
-                <InputLabel id="tolerancia-label" sx={{ color: 'rgba(255,255,255,0.7)' }}>Tolerância</InputLabel>
-                <Select
-                  labelId="tolerancia-label"
-                  value={settings.tolerancia_atraso}
-                  label="Tolerância"
-                  onChange={(e) => {
-                    const value = Number(e.target.value);
-                    setSettings({ ...settings, tolerancia_atraso: value });
-                  }}
-                  sx={{
+              <TextField
+                fullWidth
+                type="number"
+                label="Tolerância (minutos)"
+                value={toleranciaInput}
+                onChange={(e) => {
+                  // Mantém o texto livre enquanto digita (evita resetar para 0
+                  // ao limpar o campo antes de digitar o novo valor).
+                  setToleranciaInput(e.target.value);
+                }}
+                onBlur={() => {
+                  const value = Math.max(0, parseInt(toleranciaInput, 10) || 0);
+                  setToleranciaInput(String(value));
+                  setSettings((prev) => ({ ...prev, tolerancia_atraso: value }));
+                }}
+                inputProps={{ min: 0 }}
+                sx={{
+                  mt: 1,
+                  '& .MuiOutlinedInput-root': {
                     color: 'rgba(255,255,255,0.9)',
-                    '& .MuiOutlinedInput-notchedOutline': {
-                      borderColor: 'rgba(255,255,255,0.2)',
-                    },
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                      borderColor: 'rgba(255,255,255,0.3)',
-                    },
-                  }}
-                >
-                  <MenuItem value={0}>0 minutos</MenuItem>
-                  <MenuItem value={5}>5 minutos</MenuItem>
-                  <MenuItem value={10}>10 minutos (máximo legal)</MenuItem>
-                </Select>
-              </FormControl>
+                    '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+                    '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                  },
+                  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+                }}
+              />
               {settings.tolerancia_atraso > 10 && (
-                <Alert severity="error" sx={{ mt: 2 }}>
-                  Valor acima do permitido pela legislação. Ajuste para até 10 minutos.
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  Valor acima do limite legal padrão de 10 minutos. Confirme se essa configuração é intencional para a empresa.
                 </Alert>
               )}
             </Box>
@@ -486,7 +495,7 @@ const TimeTrackingSettings: React.FC = () => {
                 </Typography>
               </Box>
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', mb: 2, display: 'block' }}>
-                Ao salvar, aplica este valor como <b>intervalo padrão</b> para funcionários que ainda não têm intervalo definido (exceto horário variável).
+                Ao salvar, aplica este valor como <b>intervalo padrão</b> para funcionários que ainda não têm intervalo definido (exceto horista).
                 Deixe em branco para não alterar nenhum funcionário.
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

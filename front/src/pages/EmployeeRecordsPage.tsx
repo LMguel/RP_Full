@@ -71,8 +71,8 @@ interface EmployeeWithRecords extends Employee {
   ultimoRegistro?: TimeRecord;
 }
 
-// Tolerância mensal: saldo (extras − atrasos) ≤ 2h → cumprimento integral
-const MONTHLY_TOLERANCE_MIN = 120;
+// Tolerância mensal: saldo (extras − atrasos) ≤ tolerância da empresa → cumprimento integral
+// (o valor efetivo vem de companySettings/tolerancia_atraso, carregado em toleranciaEmpresa)
 
 interface RegistroDia {
   data: string;
@@ -370,7 +370,7 @@ const EmployeeRecordsPage: React.FC = () => {
       const summary = dailySummaries[iso];
 
       // Expected minutes: backend summary is primary, local fallback for FALTA detection only.
-      // Horário variável: nunca gera falta (sem jornada definida).
+      // Horista: nunca gera falta (sem jornada definida).
       // Falta (sem summary): usa jornada LÍQUIDA (com desconto de intervalo) = previsto real.
       const previstoMin = summary
         ? Number(summary.horas_previstas_min ?? 0)
@@ -430,7 +430,7 @@ const EmployeeRecordsPage: React.FC = () => {
       }
 
       // Crédito automático para feriados — APENAS jornada fixa.
-      // Horário variável não tem carga diária: crédito automático não se aplica.
+      // Horista não tem carga diária: crédito automático não se aplica.
       const feriadoCreditMin = isHoliday && records.length === 0 && !isVariableSchedule
         ? minutosPrevistosDia(funcionarioSchedule, iso)
         : 0;
@@ -494,12 +494,16 @@ const EmployeeRecordsPage: React.FC = () => {
     let totalMinExtras      = 0;
     let totalMinAtrasos     = 0;
 
+    // Trabalhado = soma direta da coluna "Trabalhado" da tabela.
+    // Extras/Atrasos = derivados da coluna "Banco Horas" de cada dia:
+    // banco > 0 vira Horas Extras, banco < 0 vira Atrasos (mesma fonte da tabela).
     Object.entries(dailySummaries).forEach(([iso, s]) => {
       if (iso >= todayISO) return; // hoje = EM_PROCESSAMENTO — não contabilizar
       totalMinTrabalhados += Number(s.horas_trabalhadas_min || 0);
       totalMinPrevistos   += Number(s.horas_previstas_min  || 0);
-      totalMinExtras      += Number((s as any).horas_extras_min ?? (s as any).horas_extras ?? 0);
-      totalMinAtrasos     += Number(s.atraso_minutos || 0) + Number((s as any).saida_antecipada_minutos || 0);
+      const bancoDia = Number((s as any).banco_horas_dia ?? 0);
+      if (bancoDia > 0) totalMinExtras  += bancoDia;
+      else if (bancoDia < 0) totalMinAtrasos += Math.abs(bancoDia);
     });
 
     // Crédito automático de feriados — apenas jornada fixa
@@ -516,7 +520,7 @@ const EmployeeRecordsPage: React.FC = () => {
       });
     }
 
-    // Déficit de faltas no banco de horas — cada falta = -previstoMin no saldo
+    // Déficit de faltas no banco de horas — cada falta = -previstoMin no saldo (entra como atraso)
     if (!isVariableSchedule) {
       calendarDays.forEach(d => {
         if (d.status !== 'FALTA') return;
@@ -528,17 +532,14 @@ const EmployeeRecordsPage: React.FC = () => {
       });
     }
 
-    // Tolerância mensal
-    const saldoBruto = totalMinExtras - totalMinAtrasos;
-    const toleranciaAplicada = Math.abs(saldoBruto) <= MONTHLY_TOLERANCE_MIN;
-    const saldoFinal         = toleranciaAplicada ? 0 : saldoBruto;
-    const displayExtras      = toleranciaAplicada ? 0 : totalMinExtras;
-    const displayAtrasos     = toleranciaAplicada ? 0 : totalMinAtrasos;
-    // Só substitui trabalhado por previsto quando há previsto real (> 0).
-    // Horário variável: previsto = 0 → sem substituição, exibe horas reais.
-    const displayTrabalhado  = (toleranciaAplicada && totalMinPrevistos > 0)
-      ? totalMinPrevistos
-      : totalMinTrabalhados;
+    // Banco de Horas do card = Horas Extras − Atrasos (mesma soma exibida nos cards),
+    // consistente com os valores por dia da tabela de registros.
+    const saldoFinal = totalMinExtras - totalMinAtrasos;
+    // Tolerância da empresa: apenas informativa (não altera os valores exibidos).
+    const toleranciaAplicada = Math.abs(saldoFinal) <= toleranciaEmpresa;
+    const displayExtras     = totalMinExtras;
+    const displayAtrasos    = totalMinAtrasos;
+    const displayTrabalhado = totalMinTrabalhados;
 
     const presentes = calendarDays.filter(d => {
       if (d.status === 'PRESENTE' || d.status === 'ATRASO' || d.status === 'INCOMPLETO') return true;
@@ -981,7 +982,7 @@ const EmployeeRecordsPage: React.FC = () => {
     apiService.getEmployee(employeeId).then((emp: any) => {
       const rawEntrada = emp?.horario_entrada;
       const rawSaida   = emp?.horario_saida;
-      // Detectar horário variável antes de aplicar defaults
+      // Detectar horista antes de aplicar defaults
       setIsVariableSchedule(!rawEntrada || !rawSaida);
       const entrada = rawEntrada || '08:00';
       const saida   = rawSaida   || '17:00';
@@ -1044,7 +1045,7 @@ const EmployeeRecordsPage: React.FC = () => {
                   ? `${resumo.faltas} falta${resumo.faltas > 1 ? 's' : ''}`
                   : 'Nenhuma falta',
               sub: isVariableSchedule
-                ? 'Horário variável'
+                ? 'Horista'
                 : resumo.incompletos > 0
                   ? `⚠ ${resumo.incompletos} dia(s) incompleto(s)`
                   : resumo.atrasos > 0
@@ -1072,7 +1073,7 @@ const EmployeeRecordsPage: React.FC = () => {
               value: isVariableSchedule
                 ? <Typography variant="h5" sx={{ fontWeight:800, color:'rgba(255,255,255,0.3)' }}>—</Typography>
                 : <Typography variant="h5" sx={{ fontWeight:800, color: resumo.totalMinExtras > 0 ? '#a78bfa' : 'rgba(255,255,255,0.45)' }}>{resumo.extras}</Typography>,
-              sub: isVariableSchedule ? 'Horário variável' : 'Tempo excedente acumulado',
+              sub: isVariableSchedule ? 'Horista' : 'Tempo excedente acumulado',
             },
             {
               icon:<WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.totalMinAtrasos > 0 ? '#f59e0b' : 'rgba(255,255,255,0.3)'), fontSize:28 }} />,
@@ -1080,7 +1081,7 @@ const EmployeeRecordsPage: React.FC = () => {
               value: isVariableSchedule
                 ? <Typography variant="h5" sx={{ fontWeight:800, color:'rgba(255,255,255,0.3)' }}>—</Typography>
                 : <Typography variant="h5" sx={{ fontWeight:800, color: resumo.totalMinAtrasos > 0 ? '#f59e0b' : 'rgba(255,255,255,0.45)' }}>{resumo.atrasosStr}</Typography>,
-              sub: isVariableSchedule ? 'Horário variável' : 'Tempo abaixo da jornada',
+              sub: isVariableSchedule ? 'Horista' : 'Tempo abaixo da jornada',
             },
             {
               icon:<WarningIcon sx={{ color: isVariableSchedule ? 'rgba(255,255,255,0.3)' : (resumo.saldoMin > 0 ? '#10b981' : resumo.saldoMin < 0 ? '#ef4444' : 'rgba(255,255,255,0.3)'), fontSize:28 }} />,
@@ -1091,8 +1092,8 @@ const EmployeeRecordsPage: React.FC = () => {
                     <Box sx={{ maxWidth:280 }}>
                       <Typography sx={{ fontSize:12, fontWeight:700, mb:0.5 }}>Como funciona o Banco de Horas</Typography>
                       <Typography sx={{ fontSize:11 }}>
-                        Banco = Horas Extras − Atrasos acumulados no período.<br/><br/>
-                        <strong>Tolerância mensal (2h):</strong> se o saldo absoluto for ≤ 2 horas, o sistema considera cumprimento integral — extras e atrasos são zerados no relatório. Isso evita penalizar flutuações mínimas.<br/><br/>
+                        Banco = Horas Extras − Atrasos, somando a coluna "Banco Horas" de cada dia da tabela abaixo (mesma fonte, sempre consistente).<br/><br/>
+                        <strong>Tolerância ({toleranciaEmpresa} min):</strong> se o saldo absoluto for ≤ {toHHMM(toleranciaEmpresa)}, é indicado como dentro da tolerância (não penaliza flutuações mínimas), mas os valores exibidos continuam sendo os reais. Valor definido em Configurações.<br/><br/>
                         <strong>Positivo (+):</strong> funcionário trabalhou além da jornada.<br/>
                         <strong>Negativo (−):</strong> funcionário deve horas à empresa.
                       </Typography>
@@ -1112,10 +1113,13 @@ const EmployeeRecordsPage: React.FC = () => {
                   </Box>
                 ),
               sub: isVariableSchedule
-                ? 'Horário variável'
-                : resumo.toleranciaAplicada
-                  ? '✓ Dentro da tolerância de 2h'
-                  : resumo.saldoMin > 0 ? 'Saldo positivo acumulado' : resumo.saldoMin < 0 ? 'Saldo negativo acumulado' : 'Zerado',
+                ? 'Horista'
+                : (() => {
+                    const base = resumo.saldoMin > 0 ? 'Saldo positivo acumulado' : resumo.saldoMin < 0 ? 'Saldo negativo acumulado' : 'Zerado';
+                    return resumo.toleranciaAplicada && resumo.saldoMin !== 0
+                      ? `${base} · dentro da tolerância de ${toHHMM(toleranciaEmpresa)}`
+                      : base;
+                  })(),
             },
           ].map((card,i) => (
             <Card key={i} sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2 }}>
@@ -1148,7 +1152,7 @@ const EmployeeRecordsPage: React.FC = () => {
             </Box>
             {isVariableSchedule ? (
               <Typography sx={{ color:'rgba(255,255,255,0.45)', fontSize:12, fontStyle:'italic' }}>
-                Horário variável
+                Horista
               </Typography>
             ) : (
               <Tooltip title={`Jornada líquida: ${toHHMM(minutosPrevistosDia(funcionarioSchedule))}h por dia`}>

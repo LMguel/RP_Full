@@ -143,6 +143,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   employee,
   loading = false,
   existingCargos = [],
+  companySettings,
 }) => {
   const [formData, setFormData] = useState({
     nome: employee?.nome || '',
@@ -165,6 +166,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     employee?.intervalo_padrao_minutos !== undefined && employee?.intervalo_padrao_minutos !== null
       ? String(employee.intervalo_padrao_minutos)
       : (employee ? '' : '60')
+  );
+  // Configuração individual de jornada
+  const [intervaloModoAutomatico, setIntervaloModoAutomatico] = useState<boolean>(
+    employee?.intervalo_automatico !== undefined && employee?.intervalo_automatico !== null
+      ? employee.intervalo_automatico
+      : !!companySettings?.intervalo_automatico
+  );
+  const [usarEmpresaEntradaAntecipada, setUsarEmpresaEntradaAntecipada] = useState<boolean>(
+    employee ? (employee.early_entry_overtime === undefined || employee.early_entry_overtime === null) : true
+  );
+  const [entradaAntecipadaExtra, setEntradaAntecipadaExtra] = useState<boolean>(
+    employee?.early_entry_overtime === true
   );
   const [tipoHorario, setTipoHorario] = useState<'fixo' | 'variavel'>(
     employee?.horario_entrada ? 'fixo' : 'variavel'
@@ -211,6 +224,13 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           ? String(employee.intervalo_padrao_minutos)
           : (employee.intervalo_emp ? String(employee.intervalo_emp) : '60')
       );
+      setIntervaloModoAutomatico(
+        employee.intervalo_automatico !== undefined && employee.intervalo_automatico !== null
+          ? employee.intervalo_automatico
+          : !!companySettings?.intervalo_automatico
+      );
+      setUsarEmpresaEntradaAntecipada(employee.early_entry_overtime === undefined || employee.early_entry_overtime === null);
+      setEntradaAntecipadaExtra(employee.early_entry_overtime === true);
       setTipoHorario(employee.horario_entrada ? 'fixo' : 'variavel');
 
       const predHora = employee.pred_hora || '';
@@ -235,6 +255,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setIntervaloPersonalizado(false);
       setIntervaloEmp('');
       setIntervaloPadrao('60');
+      setIntervaloModoAutomatico(!!companySettings?.intervalo_automatico);
+      setUsarEmpresaEntradaAntecipada(true);
+      setEntradaAntecipadaExtra(false);
     }
     setErrors({});
   }, [employee, open]);
@@ -360,10 +383,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         if (cfg?.saida)   formDataToSend.append('horario_saida',   cfg.saida);
       }
 
-      // Intervalo padrão em minutos (0 é válido = sem intervalo)
+      // Intervalo padrão em minutos (0 é válido = sem intervalo).
       const ipNum = intervaloPadrao.trim() === '' ? 60 : Math.max(0, parseInt(intervaloPadrao) || 0);
       formDataToSend.append('intervalo_padrao_minutos', String(ipNum));
+
+      // Modo do intervalo: manual (exige registro de saída/volta) ou automático (desconta sozinho).
+      formDataToSend.append('intervalo_automatico', intervaloModoAutomatico ? 'true' : 'false');
     }
+
+    // Configuração individual de jornada: entrada antecipada como hora extra.
+    // "Utilizar configuração da empresa" → envia vazio, backend remove o override.
+    formDataToSend.append(
+      'early_entry_overtime',
+      usarEmpresaEntradaAntecipada ? '' : (entradaAntecipadaExtra ? 'true' : 'false')
+    );
 
     await onSubmit(formDataToSend);
   };
@@ -378,6 +411,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     setHorariosPorDia(buildDefaultSchedule());
     setIntervaloPersonalizado(false);
     setIntervaloEmp('');
+    setIntervaloModoAutomatico(!!companySettings?.intervalo_automatico);
+    setUsarEmpresaEntradaAntecipada(true);
+    setEntradaAntecipadaExtra(false);
     setErrors({});
     onClose();
   };
@@ -510,7 +546,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   sx={{ '& .MuiToggleButton-root': { color: 'rgba(255, 255, 255, 0.7)', borderColor: 'rgba(255, 255, 255, 0.3)', py: 1.5, '&.Mui-selected': { background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: 'white', borderColor: '#3b82f6', '&:hover': { background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' } }, '&:hover': { background: 'rgba(255, 255, 255, 0.05)' } } }}
                 >
                   <ToggleButton value="fixo"><ScheduleIcon sx={{ mr: 1 }} />Horário Fixo</ToggleButton>
-                  <ToggleButton value="variavel"><AccessTimeIcon sx={{ mr: 1 }} />Horário Variável</ToggleButton>
+                  <ToggleButton value="variavel"><AccessTimeIcon sx={{ mr: 1 }} />Horista</ToggleButton>
                 </ToggleButtonGroup>
               </Box>
 
@@ -617,7 +653,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               ) : (
                 <Box sx={{ p: 3, background: 'rgba(59, 130, 246, 0.1)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.2)', textAlign: 'center' }}>
                   <AccessTimeIcon sx={{ fontSize: 40, color: '#60a5fa', mb: 1 }} />
-                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 500 }}>Horário Variável</Typography>
+                  <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 500 }}>Horista</Typography>
                   <Typography sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 14, mt: 1 }}>
                     O funcionário não terá horário fixo definido. Os registros serão armazenados sem cálculo de atrasos ou faltas.
                   </Typography>
@@ -625,28 +661,97 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               )}
             </Box>
 
-            {/* Intervalo padrão — apenas para horário fixo */}
+            {/* Configuração Individual de Jornada — apenas para horário fixo */}
             {tipoHorario === 'fixo' && (
               <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
                 <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
-                  Intervalo Padrão (Almoço)
+                  Configuração Individual de Jornada
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mb: 2 }}>
-                  Minutos descontados da jornada como intervalo. Use <strong>0</strong> para funcionários sem intervalo (ex: meio período).
-                  O intervalo é flexível — o funcionário pode sair para almoçar em qualquer horário.
+                  Sobrepõe a configuração da empresa apenas para este funcionário. Deixe marcado "Utilizar configuração da empresa" para manter o comportamento padrão.
                 </Typography>
-                <TextField
-                  fullWidth
-                  label="Intervalo padrão (minutos)"
-                  value={intervaloPadrao}
-                  onChange={(e) => setIntervaloPadrao(e.target.value)}
-                  type="number"
-                  disabled={loading}
-                  variant="outlined"
-                  inputProps={{ min: 0, max: 480 }}
-                  helperText="Ex: 0 (sem intervalo) · 60 (1h almoço) · 90 (1h30 almoço)"
-                  sx={inputSx}
-                />
+
+                {/* Intervalo Padrão */}
+                <Box sx={{ p: 2, borderRadius: '10px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', mb: 2 }}>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, mb: 1 }}>
+                    Intervalo Padrão
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mb: 1.5 }}>
+                    Minutos descontados da jornada como intervalo. Use <strong>0</strong> para funcionários sem intervalo (ex: meio período).
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    label="Intervalo padrão (minutos)"
+                    value={intervaloPadrao}
+                    onChange={(e) => setIntervaloPadrao(e.target.value)}
+                    type="number"
+                    disabled={loading}
+                    variant="outlined"
+                    inputProps={{ min: 0, max: 480 }}
+                    helperText="Ex: 0 (sem intervalo) · 60 (1h almoço) · 90 (1h30 almoço)"
+                    sx={{ ...inputSx, mb: 2 }}
+                  />
+
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, mb: 1 }}>
+                    Modo do Intervalo
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={intervaloModoAutomatico ? 'automatico' : 'manual'}
+                    exclusive
+                    onChange={(_e, newModo) => { if (newModo !== null) setIntervaloModoAutomatico(newModo === 'automatico'); }}
+                    disabled={loading}
+                    fullWidth
+                    sx={{ mb: 1.5, '& .MuiToggleButton-root': { color: 'rgba(255, 255, 255, 0.7)', borderColor: 'rgba(255, 255, 255, 0.3)', py: 1, fontSize: 13, '&.Mui-selected': { background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: 'white', borderColor: '#3b82f6', '&:hover': { background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' } }, '&:hover': { background: 'rgba(255, 255, 255, 0.05)' } } }}
+                  >
+                    <ToggleButton value="manual">Manual</ToggleButton>
+                    <ToggleButton value="automatico">Automático</ToggleButton>
+                  </ToggleButtonGroup>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13 }}>
+                    {intervaloModoAutomatico
+                      ? 'Automático: o intervalo é descontado sozinho da carga horária, sem exigir que o funcionário registre saída e volta do intervalo.'
+                      : 'Manual: exige que o funcionário registre a saída e a volta do intervalo (batidas de almoço).'}
+                  </Typography>
+                </Box>
+
+                {/* Entrada antecipada como hora extra */}
+                <Box sx={{ p: 2, borderRadius: '10px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, mb: 1 }}>
+                    Entrada Antecipada como Hora Extra
+                  </Typography>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={usarEmpresaEntradaAntecipada}
+                        onChange={(e) => setUsarEmpresaEntradaAntecipada(e.target.checked)}
+                        disabled={loading}
+                        size="small"
+                        sx={{ color: 'rgba(255, 255, 255, 0.5)', '&.Mui-checked': { color: '#3b82f6' }, py: 0 }}
+                      />
+                    }
+                    label="Utilizar configuração da empresa"
+                    sx={{ m: 0, mb: 1, '& .MuiFormControlLabel-label': { color: 'rgba(255,255,255,0.85)', fontSize: 14 } }}
+                  />
+                  {!usarEmpresaEntradaAntecipada && (
+                    <>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={entradaAntecipadaExtra}
+                            onChange={(e) => setEntradaAntecipadaExtra(e.target.checked)}
+                            disabled={loading}
+                            size="small"
+                            sx={{ color: 'rgba(255, 255, 255, 0.5)', '&.Mui-checked': { color: '#3b82f6' }, py: 0 }}
+                          />
+                        }
+                        label="Entrada antecipada conta como hora extra"
+                        sx={{ m: 0, '& .MuiFormControlLabel-label': { color: 'rgba(255,255,255,0.85)', fontSize: 14 } }}
+                      />
+                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mt: 1 }}>
+                        Se marcado, todo tempo registrado antes do horário de entrada é contabilizado como hora extra, independente da saída.
+                      </Typography>
+                    </>
+                  )}
+                </Box>
               </Box>
             )}
 

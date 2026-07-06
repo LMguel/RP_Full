@@ -53,7 +53,15 @@ export default defineConfig({
   ],
   server: {
     host: '0.0.0.0',
-    port: 3000
+    port: 3000,
+    // Proxy: evita CORS ao acessar o dev server por IP da rede.
+    // O browser faz requests para /api/... (mesmo origin) e o Vite repassa ao Flask.
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: 'dist',

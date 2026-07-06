@@ -462,13 +462,36 @@ const EmployeesPage: React.FC = () => {
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                          <Typography variant="body2">
-                            {employee.intervalo_padrao_minutos != null
-                              ? `${employee.intervalo_padrao_minutos} min`
-                              : employee.intervalo_emp != null
-                              ? `${employee.intervalo_emp} min`
-                              : '-'}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography variant="body2">
+                              {employee.intervalo_padrao_minutos != null
+                                ? `${employee.intervalo_padrao_minutos} min`
+                                : employee.intervalo_emp != null
+                                ? `${employee.intervalo_emp} min`
+                                : '-'}
+                            </Typography>
+                            {(employee.intervalo_padrao_minutos != null || employee.intervalo_emp != null) && (
+                              <Chip
+                                label={
+                                  (employee.intervalo_automatico ?? !!companySettings?.intervalo_automatico)
+                                    ? 'Automático'
+                                    : 'Manual'
+                                }
+                                size="small"
+                                sx={{
+                                  height: 20,
+                                  fontSize: '10px',
+                                  background: (employee.intervalo_automatico ?? !!companySettings?.intervalo_automatico)
+                                    ? 'rgba(59, 130, 246, 0.15)'
+                                    : 'rgba(148, 163, 184, 0.15)',
+                                  color: (employee.intervalo_automatico ?? !!companySettings?.intervalo_automatico)
+                                    ? '#60a5fa'
+                                    : '#cbd5e1',
+                                  border: `1px solid ${(employee.intervalo_automatico ?? !!companySettings?.intervalo_automatico) ? 'rgba(59, 130, 246, 0.3)' : 'rgba(148, 163, 184, 0.3)'}`,
+                                }}
+                              />
+                            )}
+                          </Box>
                         </TableCell>
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Typography variant="body2">

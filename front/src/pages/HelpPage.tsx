@@ -227,7 +227,7 @@ const sections: Section[] = [
               <Typography sx={{ fontSize: 13 }}>Para funcionários com dias e horários definidos. O sistema calcula automaticamente previstos, atrasos e horas extras com base no horário cadastrado.</Typography>
             </Box>
             <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 1.5 }}>
-              <Typography sx={{ fontWeight: 700, color: '#3b82f6', mb: 0.5 }}>Horário Variável (Horista)</Typography>
+              <Typography sx={{ fontWeight: 700, color: '#3b82f6', mb: 0.5 }}>Horista</Typography>
               <Typography sx={{ fontSize: 13 }}>Para funcionários com carga horária variável por dia ou semana. O sistema registra as batidas mas não calcula previstos automaticamente.</Typography>
             </Box>
           </Box>

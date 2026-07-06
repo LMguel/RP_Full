@@ -82,6 +82,8 @@ export interface Employee {
   intervalo_personalizado?: boolean;
   intervalo_emp?: number;
   intervalo_padrao_minutos?: number; // intervalo de almoço em minutos (0 = sem intervalo)
+  intervalo_automatico?: boolean | null; // modo do intervalo: true = automático (desconta sozinho), false = manual (exige registro). null/ausente = usa config da empresa
+  early_entry_overtime?: boolean | null; // entrada antecipada conta como hora extra (null/ausente = usa config da empresa)
   carga_horaria_mensal?: number; // horas/mês, cadastro manual para banco de horas
 }
 

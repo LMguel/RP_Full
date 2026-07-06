@@ -63,8 +63,8 @@ const mainRoutes: RouteConfig[] = [
   { text: 'Dashboard',    icon: <DashboardIcon  sx={{ fontSize: 19 }} />, path: '/dashboard',  color: '#10b981', permission: 'dashboard' },
   { text: 'Funcionários', icon: <PeopleIcon      sx={{ fontSize: 19 }} />, path: '/employees',  color: '#3b82f6', permission: 'funcionarios' },
   { text: 'Registros',    icon: <AccessTimeIcon  sx={{ fontSize: 19 }} />, path: '/records',    color: '#8b5cf6', permission: 'registros' },
-  { text: 'Correções',    icon: <BuildCircleIcon sx={{ fontSize: 19 }} />, path: '/correcoes',  color: '#f59e0b', permission: 'correcoes' },
-  { text: 'RH / Folha',   icon: <RHIcon          sx={{ fontSize: 19 }} />, path: '/rh',         color: '#f472b6', permission: 'rh_folha' },
+  { text: 'Correções',    icon: <BuildCircleIcon  sx={{ fontSize: 19 }} />, path: '/correcoes',  color: '#f59e0b', permission: 'correcoes' },
+  { text: 'RH / Folha',   icon: <RHIcon           sx={{ fontSize: 19 }} />, path: '/rh',         color: '#f472b6', permission: 'rh_folha' },
 ];
 
 const toolRoutes: RouteConfig[] = [
@@ -79,8 +79,8 @@ const allRoutes = [...mainRoutes, ...toolRoutes];
 const getActiveRoute = (pathname: string): RouteConfig | undefined =>
   allRoutes.find(r =>
     r.path === pathname ||
-    (r.path === '/records' && pathname.startsWith('/records')) ||
-    (r.path === '/rh'      && pathname.startsWith('/rh'))
+    (r.path === '/records'    && pathname.startsWith('/records')) ||
+    (r.path === '/rh'         && pathname.startsWith('/rh'))
   );
 
 interface LayoutProps { children: React.ReactNode }
