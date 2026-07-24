@@ -30,6 +30,7 @@ from utils.aws import (
     tabela_funcionarios,
     tabela_registros,
     tabela_configuracoes,
+    generate_presigned_url,
 )
 
 routes_facial = Blueprint('routes_facial', __name__)
@@ -185,15 +186,22 @@ def reconhecer_rosto(payload):
                 'error': 'Funcionário não pertence a esta empresa'
             }), 403
 
-        if status != 'OK':
+        if status not in ('OK', 'LOW_CONFIDENCE'):
             return jsonify({
                 'reconhecido': False,
                 'error': f"Erro no reconhecimento: {match.get('reason', status)}"
             }), 500
 
+        baixa_confianca = status == 'LOW_CONFIDENCE'
         company_id = match['company_id']
         employee_id = match['employee_id']
         similarity = match.get('similarity', 0)
+
+        if baixa_confianca:
+            print(
+                f"[FACIAL] Aceito com baixa confiança: company_id={token_company_id} "
+                f"employee_id={employee_id} similarity={similarity:.2f}%"
+            )
 
         # 2) Defesa #2: nunca confiar só no helper. Re-checar igualdade.
         if company_id != token_company_id:
@@ -236,7 +244,13 @@ def reconhecer_rosto(payload):
             or employee_id
         )
         cargo = funcionario.get('cargo') or funcionario.get('position') or ''
-        foto_url = funcionario.get('foto_url') or funcionario.get('photo_url') or ''
+        # Foto CADASTRADA do funcionário (não a captura feita agora pro reconhecimento).
+        # foto_s3_key é a fonte atual; foto_url/photo_url ficam como fallback legado.
+        foto_s3_key = funcionario.get('foto_s3_key')
+        if foto_s3_key:
+            foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300) or ''
+        else:
+            foto_url = funcionario.get('foto_url') or funcionario.get('photo_url') or ''
 
         # 5) Determinar próximo tipo baseado no ÚLTIMO registro do dia.
         # Regra: alternar ENTRADA → SAÍDA → ENTRADA → SAÍDA indefinidamente.
@@ -268,6 +282,7 @@ def reconhecer_rosto(payload):
 
         return jsonify({
             'reconhecido': True,
+            'baixaConfianca': baixa_confianca,
             'ponto_completo': ponto_completo,
             'funcionario': {
                 'funcionario_id': employee_id,

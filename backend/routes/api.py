@@ -413,21 +413,16 @@ def atualizar_funcionario(payload, funcionario_id):
             foto = request.files['foto']
             temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uuid.uuid4().hex}.jpg")
             foto.save(temp_path)
-            # Upload into company folder
-            foto_s3_key = enviar_s3(temp_path, f"funcionarios/{funcionario_id}.jpg", empresa_id)
-            foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
-            if 'face_id' in funcionario and rekognition:
-                try:
-                    rekognition.delete_faces(
-                        CollectionId=COLLECTION,
-                        FaceIds=[funcionario['face_id']]
-                    )
-                except Exception as e:
-                    print(f"Aviso: falha ao deletar face anterior: {e}")
+
+            # 1) Indexar a NOVA foto primeiro. Só apagamos a face antiga depois de
+            #    confirmar que a nova entrou na collection — caso contrário o
+            #    funcionário ficaria sem nenhuma face cadastrada (nunca mais seria
+            #    reconhecido) e o erro passaria despercebido.
             face_id = None
-            with open(temp_path, 'rb') as image:
-                _atu_raw = image.read()
+            index_error = None
             if rekognition:
+                with open(temp_path, 'rb') as image:
+                    _atu_raw = image.read()
                 try:
                     rekognition_response = rekognition.index_faces(
                         CollectionId=COLLECTION,
@@ -440,8 +435,39 @@ def atualizar_funcionario(payload, funcionario_id):
                     records = rekognition_response.get('FaceRecords', [])
                     if records:
                         face_id = records[0].get('Face', {}).get('FaceId')
+                    else:
+                        # QualityFilter="AUTO" rejeitou a foto (rosto não detectado
+                        # com confiança suficiente): provavelmente iluminação, ângulo
+                        # ou foco ruins.
+                        index_error = 'baixa_qualidade'
                 except Exception as rek_err:
-                    print(f"[PUT] Rekognition indexing falhou (não crítico): {rek_err}")
+                    print(f"[PUT] Rekognition indexing falhou: {rek_err}")
+                    index_error = 'erro_rekognition'
+
+                if index_error:
+                    os.remove(temp_path)
+                    return jsonify({
+                        'error': (
+                            'Não foi possível cadastrar o rosto nesta foto. '
+                            'Verifique se o rosto está bem iluminado, de frente '
+                            'para a câmera e sem obstruções, e tente novamente.'
+                        ),
+                        'motivo': index_error,
+                    }), 400
+
+            # 2) Só agora apagamos a face antiga (se existir), com a nova já indexada.
+            if 'face_id' in funcionario and rekognition and face_id:
+                try:
+                    rekognition.delete_faces(
+                        CollectionId=COLLECTION,
+                        FaceIds=[funcionario['face_id']]
+                    )
+                except Exception as e:
+                    print(f"Aviso: falha ao deletar face anterior: {e}")
+
+            # Upload into company folder
+            foto_s3_key = enviar_s3(temp_path, f"funcionarios/{funcionario_id}.jpg", empresa_id)
+            foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
             os.remove(temp_path)
             funcionario['foto_s3_key'] = foto_s3_key
             funcionario.pop('foto_url', None)
@@ -590,38 +616,66 @@ def atualizar_foto_funcionario(payload, funcionario_id):
         if not funcionario:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
 
-        # Remover face anterior usando face_id armazenado — evita list_faces (caro)
-        if rekognition:
-            face_id_antigo = funcionario.get('face_id')
-            if face_id_antigo:
-                try:
-                    rekognition.delete_faces(CollectionId=COLLECTION, FaceIds=[face_id_antigo])
-                    print(f"[PUT FOTO] Face anterior removida: {face_id_antigo}")
-                except Exception as e:
-                    print(f"[PUT FOTO] Aviso: falha ao deletar face anterior: {e}")
-
-        foto_nome = f"funcionarios/{funcionario_id}.jpg"
-        foto_s3_key = enviar_s3(temp_path, foto_nome, empresa_id)
-        foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
+        # 1) Indexar a NOVA foto primeiro. Só apagamos a face antiga depois de
+        #    confirmar que a nova entrou na collection — do contrário o
+        #    funcionário fica sem nenhuma face cadastrada e ninguém percebe.
+        face_id = None
+        index_error = None
         if rekognition:
             try:
                 with open(temp_path, 'rb') as _f:
                     _raw = _f.read()
-                rekognition.index_faces(
+                rekognition_response = rekognition.index_faces(
                     CollectionId=COLLECTION,
                     Image={'Bytes': _resize_for_rekognition(_raw)},
                     ExternalImageId=f"{empresa_id}_{funcionario_id}",
                     MaxFaces=1,
                     QualityFilter="AUTO",
                 )
+                records = rekognition_response.get('FaceRecords', [])
+                if records:
+                    face_id = records[0].get('Face', {}).get('FaceId')
+                else:
+                    index_error = 'baixa_qualidade'
             except Exception as rek_e:
-                print(f"[PUT FOTO dedicado] Rekognition falhou (não crítico): {rek_e}")
+                print(f"[PUT FOTO dedicado] Rekognition falhou: {rek_e}")
+                index_error = 'erro_rekognition'
 
-        tabela_funcionarios.update_item(
-            Key={'company_id': empresa_id, 'id': funcionario_id},
-            UpdateExpression='SET foto_s3_key = :key REMOVE foto_url',
-            ExpressionAttributeValues={':key': foto_s3_key}
-        )
+            if index_error:
+                return jsonify({
+                    'error': (
+                        'Não foi possível cadastrar o rosto nesta foto. '
+                        'Verifique se o rosto está bem iluminado, de frente '
+                        'para a câmera e sem obstruções, e tente novamente.'
+                    ),
+                    'motivo': index_error,
+                }), 400
+
+        # 2) Só agora apagamos a face antiga (se existir), com a nova já indexada.
+        face_id_antigo = funcionario.get('face_id')
+        if rekognition and face_id_antigo and face_id:
+            try:
+                rekognition.delete_faces(CollectionId=COLLECTION, FaceIds=[face_id_antigo])
+                print(f"[PUT FOTO] Face anterior removida: {face_id_antigo}")
+            except Exception as e:
+                print(f"[PUT FOTO] Aviso: falha ao deletar face anterior: {e}")
+
+        foto_nome = f"funcionarios/{funcionario_id}.jpg"
+        foto_s3_key = enviar_s3(temp_path, foto_nome, empresa_id)
+        foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
+
+        if face_id:
+            tabela_funcionarios.update_item(
+                Key={'company_id': empresa_id, 'id': funcionario_id},
+                UpdateExpression='SET foto_s3_key = :key, face_id = :fid REMOVE foto_url',
+                ExpressionAttributeValues={':key': foto_s3_key, ':fid': face_id}
+            )
+        else:
+            tabela_funcionarios.update_item(
+                Key={'company_id': empresa_id, 'id': funcionario_id},
+                UpdateExpression='SET foto_s3_key = :key REMOVE foto_url',
+                ExpressionAttributeValues={':key': foto_s3_key}
+            )
         return jsonify({"success": True, "foto_url": foto_url})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

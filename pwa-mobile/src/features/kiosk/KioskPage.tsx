@@ -18,6 +18,7 @@ import { kioskUpdateCoordinator } from '../../services/kioskUpdateCoordinator';
 import { kioskTelemetry } from '../../services/kioskTelemetry';
 
 const CAMERA_STREAM_MAX_MS = 30 * 60 * 1000; // reinicia stream após 30min
+const LAST_BOOT_DATE_KEY = '@kiosk:last_boot_date';
 
 type ConfirmData = {
   id: string;
@@ -26,6 +27,7 @@ type ConfirmData = {
   cargo?: string;
   tipo: string;
   tipoLabel: string;
+  fotoUrl?: string;
 };
 
 type SuccessData = { nome: string; tipo: string; tipo_label: string; horario: string };
@@ -44,7 +46,9 @@ export default function KioskPage() {
   // regardless of React's async state updates (fixes stale closure bug in cleanup).
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraStartTimeRef = useRef(0);           // Unix ms — quando o stream foi iniciado
-  const errorCountRef = useRef(0);                // Erros consecutivos — guia a recuperação automática
+  const errorCountRef = useRef(0);                // Erros consecutivos — guia a recuperação automática.
+                                                   // Só zera em reconhecimento bem-sucedido (nunca em
+                                                   // restart de câmera), senão a escalada pro reload nunca acontece.
   const isProcessingRef = useRef(false);          // Stale-closure guard para o coordinator
 
   const navigate = useNavigate();
@@ -66,6 +70,7 @@ export default function KioskPage() {
   const [pontoCompleto, setPontoCompleto] = useState<{ nome: string; cargo?: string } | null>(null);
   const [showSuccess, setShowSuccess] = useState<SuccessData | false>(false);
   const [showSoftReload, setShowSoftReload] = useState(false);
+  const [morningBoot, setMorningBoot] = useState(false);
   const [error, setError] = useState('');
   const [isFlashing, setIsFlashing] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(true);
@@ -92,7 +97,6 @@ export default function KioskPage() {
       });
       cameraStreamRef.current = stream;
       cameraStartTimeRef.current = Date.now();
-      errorCountRef.current = 0;
       setCameraStream(stream);
       if (videoRef.current) videoRef.current.srcObject = stream;
       setError('');
@@ -107,7 +111,7 @@ export default function KioskPage() {
   // ── Health monitor — auto-recuperação inteligente ────────────────────────────
   // Substitui o useKioskWatchdog (reload cego a cada 4h) por health-checks a cada
   // 5 min que só atuam quando o kiosk está genuinamente idle e seguro.
-  const { markFrameReceived, markActivity, setCameraRecovering } = useKioskHealth({
+  const { markFrameReceived, markActivity, setCameraRecovering, isCameraFrozen } = useKioskHealth({
     isProcessing: () => isProcessingRef.current,
     isSyncing: () => syncStatus === 'syncing',
     getPendingCount: () => pendingCount,
@@ -285,7 +289,44 @@ export default function KioskPage() {
     return false;
   };
 
+  // Verifica se o stream/vídeo está de fato produzindo imagem (não só "aberto" a nível de API)
+  const isCameraFrameHealthy = useCallback((): boolean => {
+    const stream = cameraStreamRef.current;
+    const video = videoRef.current;
+    if (!stream || !video) return false;
+    const track = stream.getVideoTracks()[0];
+    if (!track || track.readyState !== 'live') return false;
+    if (video.videoWidth === 0 || video.readyState < 2) return false;
+    return !isCameraFrozen();
+  }, [isCameraFrozen]);
+
   // ── Capture / Recognize ──────────────────────────────────────────────────────
+
+  // Primeiro toque do dia: força uma câmera 100% limpa antes de tentar reconhecer.
+  // O kiosk fica ~12h parado (18h–6h) e a câmera pode travar nesse intervalo sem
+  // que ninguém perceba — em vez de deixar o primeiro funcionário do dia esbarrar
+  // nisso como um erro genérico, resolve de forma proativa e visível no 1º toque.
+  const runMorningBootIfNeeded = useCallback(async (): Promise<void> => {
+    const todayKey = new Date().toDateString();
+    if (localStorage.getItem(LAST_BOOT_DATE_KEY) === todayKey) return;
+    localStorage.setItem(LAST_BOOT_DATE_KEY, todayKey);
+
+    kioskLog('MORNING_BOOT');
+    setMorningBoot(true);
+    stopCamera();
+    await new Promise(r => setTimeout(r, 600));
+    await startCamera();
+
+    // Aguarda o vídeo produzir um frame de verdade (até 4s) antes de liberar a tela
+    const deadline = Date.now() + 4_000;
+    while (Date.now() < deadline) {
+      if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.readyState >= 2) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    markFrameReceived();
+    setMorningBoot(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopCamera, startCamera]);
 
   const handleCapture = async () => {
     // Guard: update pendente — não iniciar nova captura
@@ -295,7 +336,9 @@ export default function KioskPage() {
       console.log('[Kiosk] recognizeFace blocked: offline mode');
       return;
     }
-    if (!videoRef.current || isProcessing) return;
+    if (morningBoot || isProcessing) return;
+    await runMorningBootIfNeeded();
+    if (!videoRef.current) return;
     // Guard: câmera ainda inicializando — videoWidth=0 geraria canvas 0×0 e NO_FACE no Rekognition
     if (!videoRef.current.videoWidth || !videoRef.current.videoHeight) {
       setError('Câmera inicializando. Aguarde um momento.');
@@ -362,12 +405,17 @@ export default function KioskPage() {
             cargo: result.funcionario.cargo,
             tipo: result.proximo_tipo ?? 'entrada',
             tipoLabel: result.proximo_tipo_label || result.proximo_tipo || 'entrada',
+            fotoUrl: result.funcionario.foto_url,
           });
         }
       } else if (result.nenhumRostoDetectado) {
         kioskLog('NO_FACE');
         setError('Nenhum rosto detectado');
         setTimeout(() => setError(''), 1500);
+      } else if (result.baixaConfianca) {
+        kioskLog('FACE_LOW_CONFIDENCE', String(result.confianca ?? ''));
+        setError(result.mensagem || 'Confiança baixa — tente novamente com mais luz');
+        setTimeout(() => setError(''), 4000);
       } else {
         kioskLog('FACE_NO_MATCH');
         setError('Rosto não reconhecido — tente novamente');
@@ -388,6 +436,11 @@ export default function KioskPage() {
         }
       }
 
+      // Distingue falha real de câmera (travada/sem frame) de falha de reconhecimento —
+      // evita culpar "o rosto" quando o problema é técnico (câmera travada, ex: após
+      // o kiosk ficar 12h parado durante a noite).
+      const cameraProblema = !isCameraFrameHealthy();
+
       if (err?.response?.status === 403) {
         setError(`Acesso negado. Contate o administrador do sistema.`);
         setTimeout(() => setError(''), 5000);
@@ -400,13 +453,27 @@ export default function KioskPage() {
       } else if (err?.message?.includes('no faces')) {
         setError('Nenhum rosto detectado');
         setTimeout(() => setError(''), 1500);
+      } else if (cameraProblema) {
+        setError('Câmera com falha técnica. Reiniciando automaticamente…');
+        setTimeout(() => setError(''), 3000);
       } else {
-        setError('Não foi possível reconhecer o rosto. Tente novamente.');
+        setError('Falha ao comunicar com o servidor de reconhecimento. Tente novamente.');
         setTimeout(() => setError(''), 3000);
       }
 
-      // Recuperação automática por erros consecutivos (kiosk only)
-      if (localStorage.getItem('@kiosk:active') === 'true') {
+      if (cameraProblema) {
+        // Problema identificado como câmera — vai direto pra recuperação real (restart
+        // de stream) em vez de esperar 2-3 tentativas consecutivas, e não conta pro
+        // contador de erros de reconhecimento (motivo é outro).
+        kioskLog('CAMERA_UNHEALTHY_ON_CAPTURE');
+        setCameraRecovering(true);
+        stopCamera();
+        setTimeout(async () => {
+          await startCamera();
+          setCameraRecovering(false);
+        }, 1_200);
+      } else if (localStorage.getItem('@kiosk:active') === 'true') {
+        // Recuperação automática por erros consecutivos de reconhecimento (kiosk only)
         const n = ++errorCountRef.current;
         if (n >= 3) {
           kioskLog('RECOVERY_RELOAD', `${n} erros consecutivos`);
@@ -588,8 +655,8 @@ export default function KioskPage() {
         <div className="flex-1 flex flex-col items-center justify-center px-8">
           <motion.div initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center mb-8">
             <div className="w-32 h-32 mx-auto mb-5 rounded-full overflow-hidden border-4 border-white/30 shadow-2xl">
-              {capturedUrl
-                ? <img src={capturedUrl} alt="Rosto" className="w-full h-full object-cover" />
+              {confirmData.fotoUrl
+                ? <img src={confirmData.fotoUrl} alt="Rosto cadastrado" className="w-full h-full object-cover" />
                 : <div className="w-full h-full bg-slate-700 flex items-center justify-center"><svg className="w-16 h-16 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg></div>
               }
             </div>
@@ -774,6 +841,26 @@ export default function KioskPage() {
       <AnimatePresence>
         {isProcessing && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 z-20" />
+        )}
+      </AnimatePresence>
+
+      {/* Boot matinal — 1º toque do dia força câmera limpa antes do reconhecimento */}
+      <AnimatePresence>
+        {morningBoot && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex flex-col items-center justify-center px-8"
+          >
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              className="text-7xl mb-6"
+            >
+              ☀️
+            </motion.div>
+            <p className="text-white text-3xl font-black text-center mb-2">{getGreeting()}!</p>
+            <p className="text-white/70 text-xl text-center">Estamos iniciando o sistema…</p>
+          </motion.div>
         )}
       </AnimatePresence>
 

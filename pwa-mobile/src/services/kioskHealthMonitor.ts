@@ -3,6 +3,7 @@
  *
  * Hierarquia de ações (da menos à mais disruptiva):
  *   1. CAMERA_RECOVERY  — reinicia stream sem reload de página
+ *   1.5 DAILY_REFRESH   — reload proativo 1x/dia (madrugada, ninguém usando)
  *   2. MEMORY_PRESSURE  — libera recursos ou reinicia câmera
  *   3. SOFT_RELOAD      — reload apenas quando idle + sem sync + sem captura
  *   4. HARD_RELOAD      — reload após N horas de uptime + M minutos idle + fila vazia
@@ -11,6 +12,8 @@
  */
 
 import { kioskLog } from './kioskLogger';
+
+const DAILY_REFRESH_KEY = '@kiosk:daily_refresh_date';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -25,6 +28,8 @@ export interface KioskHealthConfig {
   hardReloadAfterHours: number;
   /** Idle mínimo (sem atividade) para hard-reload. Padrão: 15 min. */
   hardReloadIdleMinutes: number;
+  /** Hora local (0-23) em que um refresh diário proativo é permitido. Padrão: 5 (5h da manhã). */
+  dailyRefreshHour: number;
   /** % de heap que ativa aviso leve. Padrão: 75%. */
   memoryLightPct: number;
   /** % de heap que reinicia câmera. Padrão: 85%. */
@@ -39,6 +44,7 @@ export const DEFAULT_CONFIG: KioskHealthConfig = {
   softReloadEnabled: true,
   hardReloadAfterHours: 12,
   hardReloadIdleMinutes: 15,
+  dailyRefreshHour: 5,
   memoryLightPct: 75,
   memoryMediumPct: 85,
   memorySeverePct: 90,
@@ -184,6 +190,11 @@ export class KioskHealthMonitor {
       uptime_h: uptimeH,
     }));
 
+    const safeToReload =
+      !this.providers.isProcessing() &&
+      !this.providers.isSyncing() &&
+      this.providers.getPendingCount() === 0;
+
     // 1. Camera recovery — sem reload
     const stream = this.providers.getCameraStream();
     const frozenMs = this.lastFrameMs > 0 ? Date.now() - this.lastFrameMs : 0;
@@ -197,6 +208,21 @@ export class KioskHealthMonitor {
       kioskLog('KIOSK_CAMERA_RECOVERY', reason);
       this.emit({ type: 'CAMERA_RECOVERY', reason });
       return; // ação escalada ao componente; próximo ciclo verifica resultado
+    }
+
+    // 1.5 Refresh diário proativo — evita que o kiosk chegue na abertura da escola
+    // com uma câmera travada durante a madrugada (uptime/idle longo demais para
+    // esperar a regra de hard-reload abaixo, que só age depois de 12h de uptime).
+    // Roda de madrugada (ninguém usando o kiosk), então mesmo se o reload atrasar
+    // não afeta ninguém — diferente do hard-reload feito na hora de abertura.
+    const now = new Date();
+    const todayKey = now.toDateString();
+    const lastDailyRefresh = localStorage.getItem(DAILY_REFRESH_KEY);
+    if (now.getHours() === this.config.dailyRefreshHour && lastDailyRefresh !== todayKey && safeToReload) {
+      localStorage.setItem(DAILY_REFRESH_KEY, todayKey);
+      kioskLog('KIOSK_DAILY_REFRESH', `hora=${now.getHours()}`);
+      this.emit({ type: 'HARD_RELOAD', reason: `daily-refresh-${now.getHours()}h` });
+      return;
     }
 
     // 2. Pressão de memória (gradual)
@@ -213,11 +239,6 @@ export class KioskHealthMonitor {
         this.emit({ type: 'MEMORY_PRESSURE', level: 'light' });
       }
     }
-
-    const safeToReload =
-      !this.providers.isProcessing() &&
-      !this.providers.isSyncing() &&
-      this.providers.getPendingCount() === 0;
 
     // 3. Hard reload — uptime longo + idle prolongado + seguro
     if (
@@ -242,6 +263,13 @@ export class KioskHealthMonitor {
   }
 
   // ── Helpers privados ──────────────────────────────────────────────────────
+
+  /** Câmera com stream ativo mas sem produzir frames novos há tempo demais. */
+  isFrozen(): boolean {
+    const stream = this.providers.getCameraStream();
+    const frozenMs = this.lastFrameMs > 0 ? Date.now() - this.lastFrameMs : 0;
+    return stream !== null && this.lastFrameMs > 0 && frozenMs > this.config.cameraLiveTimeoutMs;
+  }
 
   private isCameraHealthy(): boolean {
     const stream = this.providers.getCameraStream();

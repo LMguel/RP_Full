@@ -46,4 +46,4 @@ aws cloudfront create-invalidation \
   --query 'Invalidation.Id' --output text
 
 echo ""
-echo "✅ Frontend em produção: https://app.registraponto.app.br"
+echo "✅ Frontend em produção: https://painel.registraponto.app.br"

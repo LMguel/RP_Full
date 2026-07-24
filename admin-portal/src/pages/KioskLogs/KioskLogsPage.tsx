@@ -67,8 +67,12 @@ const TIME_RANGES = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtTs(ts: number): string {
-  return new Date(ts).toLocaleString("pt-BR", {
+function fmtTs(ts: number | string): string {
+  // Alguns backends antigos podem devolver ts como string (ex: Decimal do
+  // DynamoDB serializado pelo Flask) — new Date("172...") tenta parsear como
+  // data ISO e dá Invalid Date. Number(ts) garante que sempre tratamos como
+  // epoch ms, seja number ou string.
+  return new Date(Number(ts)).toLocaleString("pt-BR", {
     day: "2-digit", month: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });

@@ -158,12 +158,15 @@ export interface FuncionarioDashboard {
 export interface RecognitionResult {
   reconhecido: boolean;
   nenhumRostoDetectado?: boolean;
+  baixaConfianca?: boolean;
+  mensagem?: string;
   ponto_completo?: boolean;
   funcionario?: {
     funcionario_id: string;
     nome: string;
     cargo?: string;
     company_id?: string;
+    foto_url?: string;
   };
   proximo_tipo?: RegistroTipo;
   proximo_tipo_label?: string;

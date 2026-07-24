@@ -77,7 +77,7 @@ echo "  CloudFront invalidation..."
 CF_ID=$(aws cloudfront create-invalidation \
   --distribution-id "$CF_FRONT" --paths "/*" \
   --query 'Invalidation.Id' --output text)
-ok "Front publicado → https://app.registraponto.app.br  (inv: $CF_ID)"
+ok "Front publicado → https://painel.registraponto.app.br  (inv: $CF_ID)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "PWA Mobile — testes + build + S3 (pwa-registra-ponto) + CloudFront"
@@ -119,7 +119,7 @@ echo "  CloudFront invalidation..."
 CF_ID=$(aws cloudfront create-invalidation \
   --distribution-id "$CF_PWA" --paths "/*" \
   --query 'Invalidation.Id' --output text)
-ok "PWA publicado → https://painel.registraponto.app.br  (inv: $CF_ID)"
+ok "PWA publicado → https://app.registraponto.app.br  (inv: $CF_ID)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "Backend EC2 — sync + pip install + restart gunicorn"

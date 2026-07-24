@@ -309,7 +309,7 @@ export async function updateCompanyPaymentStatus(
 // ── Kiosk Telemetry ──────────────────────────────────────────────────────────
 
 export interface KioskLogEntry {
-  ts: number;
+  ts: number | string;
   event: string;
   detail?: string;
   company_id: string;

@@ -244,7 +244,14 @@ def admin_list_logs():
     end_ts   = int(request.args.get('end_ts', now_ms))
 
     try:
-        # Scan com FilterExpression — tabela pequena (TTL 30 dias), aceitável para admin
+        # Scan com FilterExpression, paginado.
+        # IMPORTANTE: `Limit` no scan() do DynamoDB limita quantos itens são LIDOS
+        # antes do FilterExpression ser aplicado, não quantos resultados filtrados
+        # voltam. Com a tabela misturando LOG#/HEARTBEAT#/CONTROL# de todas as
+        # empresas (~30k itens e crescendo), um scan de página única com Limit=2000
+        # praticamente nunca inclui itens recentes — por isso a visão padrão (24h)
+        # sempre vinha vazia. Aqui paginamos de fato via ExclusiveStartKey até achar
+        # itens suficientes ou esgotar um teto de páginas (custo previsível).
         filter_parts = [
             Attr('ts').between(start_ts, end_ts),
         ]
@@ -258,11 +265,17 @@ def admin_list_logs():
         for part in filter_parts[1:]:
             fe = fe & part
 
-        resp = _get_table().scan(
-            FilterExpression=fe,
-            Limit=2000,  # scan limit (antes dos filtros)
-        )
-        items = resp.get('Items', [])
+        MAX_SCAN_PAGES = 40  # teto de custo: ~40 páginas de até 1MB cada
+        table = _get_table()
+        items: list = []
+        scan_kwargs = {'FilterExpression': fe}
+        for _ in range(MAX_SCAN_PAGES):
+            resp = table.scan(**scan_kwargs)
+            items.extend(resp.get('Items', []))
+            last_key = resp.get('LastEvaluatedKey')
+            if not last_key or len(items) >= limit:
+                break
+            scan_kwargs['ExclusiveStartKey'] = last_key
 
         # Ordenar por ts desc e limitar
         items.sort(key=lambda x: x.get('ts', 0), reverse=True)
@@ -272,6 +285,11 @@ def admin_list_logs():
             item.pop('pk', None)
             item.pop('sk', None)
             item.pop('ttl', None)
+            # DynamoDB devolve números como Decimal, e o jsonify do Flask
+            # serializa Decimal como STRING (não como number) — o front
+            # (new Date(ts)) precisa de um number de verdade.
+            if 'ts' in item:
+                item['ts'] = int(item['ts'])
 
         return jsonify({'logs': items, 'total': len(items)}), 200
     except ClientError as e:
@@ -292,16 +310,27 @@ def admin_list_heartbeats():
     company_filter = request.args.get('company_id', '').strip()
 
     try:
+        table = _get_table()
         if company_filter:
-            resp = _get_table().query(
+            resp = table.query(
                 KeyConditionExpression=Key('pk').eq(f"HEARTBEAT#{company_filter}"),
             )
+            items = resp.get('Items', [])
         else:
-            resp = _get_table().scan(
-                FilterExpression=Attr('pk').begins_with('HEARTBEAT#'),
-            )
+            # Paginado: uma única página de scan() pode não cobrir os ~1MB da
+            # tabela inteira, e os itens HEARTBEAT# somem no meio de milhares
+            # de itens LOG# se pararmos na primeira página.
+            MAX_SCAN_PAGES = 40
+            items = []
+            scan_kwargs = {'FilterExpression': Attr('pk').begins_with('HEARTBEAT#')}
+            for _ in range(MAX_SCAN_PAGES):
+                resp = table.scan(**scan_kwargs)
+                items.extend(resp.get('Items', []))
+                last_key = resp.get('LastEvaluatedKey')
+                if not last_key:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = last_key
 
-        items = resp.get('Items', [])
         # Ordenar por last_seen desc
         items.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
 

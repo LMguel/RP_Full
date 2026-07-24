@@ -59,7 +59,7 @@ aws cloudfront create-invalidation \
   --query 'Invalidation.Id' --output text
 
 echo ""
-echo "✅ PWA em produção: https://painel.registraponto.app.br"
+echo "✅ PWA em produção: https://app.registraponto.app.br"
 echo ""
 echo "ℹ  Os tablets vão detectar a nova versão do Service Worker."
 echo "   Como kiosk_active está implementado, ao recarregar"

@@ -102,5 +102,9 @@ export function useKioskHealth({
     monitorRef.current?.setCameraRecovering(value);
   }, []);
 
-  return { markFrameReceived, markActivity, setCameraRecovering };
+  const isCameraFrozen = useCallback((): boolean => {
+    return monitorRef.current?.isFrozen() ?? false;
+  }, []);
+
+  return { markFrameReceived, markActivity, setCameraRecovering, isCameraFrozen };
 }

@@ -215,8 +215,19 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
             print("[REKOGNITION] Cache hit — chamada à API evitada")
             return _cached
 
-        # Threshold configurável via variável de ambiente (padrão: 85)
-        threshold = int(os.environ.get('REKOGNITION_THRESHOLD', '85'))
+        # Threshold configurável via variável de ambiente (padrão: 80).
+        # Baixado de 85→80 para reduzir falsos negativos causados por
+        # iluminação/ângulo do kiosk e pela perda de nitidez do resize
+        # para 800px (ver _resize_for_rekognition), mantendo margem de
+        # segurança contra falso-positivo entre funcionários da mesma empresa.
+        threshold = int(os.environ.get('REKOGNITION_THRESHOLD', '80'))
+
+        # Piso usado na chamada à AWS: mais baixo que o threshold real para que
+        # matches "quase corretos" (iluminação ruim, ângulo, foto desatualizada)
+        # ainda voltem na resposta e possamos informar o motivo em vez de um
+        # NO_MATCH genérico. O corte de aprovação continua sendo `threshold`.
+        LOW_CONFIDENCE_FLOOR = 60
+        api_threshold = min(threshold, LOW_CONFIDENCE_FLOOR)
 
         # Redimensionar antes da chamada — reduz tamanho do payload e custo
         api_bytes = _resize_for_rekognition(image_bytes)
@@ -227,7 +238,7 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
             CollectionId=COLLECTION,
             Image={'Bytes': api_bytes},
             MaxFaces=10,
-            FaceMatchThreshold=threshold,
+            FaceMatchThreshold=api_threshold,
         )
 
         matches = response.get('FaceMatches') or []
@@ -293,6 +304,25 @@ def reconhecer_funcionario(caminho_foto, expected_company_id=None):
         face_match, matched_company_id, employee_id = company_match
         similarity = face_match['Similarity']
         external_id = face_match['Face']['ExternalImageId']
+
+        if similarity < threshold:
+            # Melhor candidato da própria empresa, mas abaixo do corte de aprovação.
+            # Provavelmente iluminação/ângulo ruins ou foto de cadastro desatualizada.
+            print(
+                f"[REKOGNITION] Match abaixo do threshold: company_id={matched_company_id} "
+                f"employee_id={employee_id} similarity={similarity:.2f}% (mínimo={threshold}%)"
+            )
+            _low = {
+                'status': 'LOW_CONFIDENCE',
+                'company_id': matched_company_id,
+                'employee_id': employee_id,
+                'similarity': similarity,
+                'threshold': threshold,
+                'external_image_id': external_id,
+            }
+            _rek_cache_set(_ck, _low)
+            return _low
+
         print(
             f"[REKOGNITION] Match OK: company_id={matched_company_id} "
             f"employee_id={employee_id} similarity={similarity:.2f}%"
