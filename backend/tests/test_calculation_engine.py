@@ -24,6 +24,7 @@ from services.calculation_engine import (
     calculate_expected_minutes,
     calculate_worked_minutes,
     calculate_tolerance_rounding_minutes,
+    calculate_daily_balance,
     minutes_to_hhmm,
 )
 from utils.schedule_settings import resolve_early_entry_overtime
@@ -216,6 +217,92 @@ class TestCalculateToleranceRoundingMinutes:
 
     def test_sem_horario_previsto_retorna_zero(self):
         assert calculate_tolerance_rounding_minutes('2026-05-01T13:10:00', None, 10) == 0
+
+
+# ─────────────────────────────────────────────
+# calculate_daily_balance — banco de horas simétrico: worked vs expected.
+# O que exceder o previsto é hora extra, o que faltar é saldo negativo.
+# Usado igualmente nos modos manual e automático.
+#
+# Regressão: routes/daily.py, no modo manual, calculava o banco somando/
+# subtraindo atraso de entrada e hora extra de saída medidos separadamente
+# contra o horário cadastrado, sem nenhuma relação direta com o total de
+# horas trabalhadas no dia — um funcionário podia trabalhar quase a jornada
+# inteira e ainda fechar com saldo bem negativo, só porque seu horário
+# cadastrado não batia com o horário que ele realmente cumpre.
+# ─────────────────────────────────────────────
+
+class TestCalculateDailyBalance:
+    def test_caso_fernanda_quase_cumpriu_jornada_saldo_pequeno(self):
+        # Cadastro 07:00-17:00 (8h líquidas com 120min de intervalo), mas ela
+        # bateu 08:50/13:02/14:36/18:18 (trabalhado real ~474min = 07:54).
+        # Esperado: saldo próximo de zero (~-6min), não -32min.
+        worked_min = 474
+        expected_min = 480
+        banco, extra = calculate_daily_balance(
+            worked_min, expected_min,
+            first_punch_iso='2026-07-20T08:50:00',
+            scheduled_start='07:00',
+            tolerance_minutes=0,
+            count_early_entry_as_extra=False,
+        )
+        assert banco == -6
+        assert extra == 0
+
+    def test_excedeu_previsto_vira_hora_extra(self):
+        banco, extra = calculate_daily_balance(
+            worked_min=520, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='07:00',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == 40
+        assert extra == 40
+
+    def test_faltou_previsto_vira_saldo_negativo(self):
+        banco, extra = calculate_daily_balance(
+            worked_min=450, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='07:00',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == -30
+        assert extra == 0
+
+    def test_cumpriu_exatamente_saldo_zero(self):
+        banco, extra = calculate_daily_balance(
+            worked_min=480, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='07:00',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == 0
+        assert extra == 0
+
+    def test_dentro_da_tolerancia_zera_saldo(self):
+        banco, extra = calculate_daily_balance(
+            worked_min=475, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='07:00',
+            tolerance_minutes=10, count_early_entry_as_extra=False,
+        )
+        assert banco == 0
+        assert extra == 0
+
+    def test_entrada_antecipada_nao_conta_quando_flag_desligada(self):
+        # Chegou 30min antes do previsto; sem a flag, esse tempo não entra no saldo.
+        banco, extra = calculate_daily_balance(
+            worked_min=510, expected_min=480,
+            first_punch_iso='2026-07-20T06:30:00', scheduled_start='07:00',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == 0
+        assert extra == 0
+
+    def test_entrada_antecipada_conta_quando_flag_ligada(self):
+        banco, extra = calculate_daily_balance(
+            worked_min=510, expected_min=480,
+            first_punch_iso='2026-07-20T06:30:00', scheduled_start='07:00',
+            tolerance_minutes=0, count_early_entry_as_extra=True,
+        )
+        assert banco == 30
+        assert extra == 30
 
 
 # ─────────────────────────────────────────────

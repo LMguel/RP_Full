@@ -305,35 +305,6 @@ def calculate_early_departure_minutes(
     return max(0, diff - tolerance_minutes)
 
 
-def calculate_overtime_exit_minutes(
-    last_punch_iso: Optional[str],
-    scheduled_end: Optional[str],
-    tolerance_minutes: int = 0,
-) -> int:
-    """
-    Calcula hora extra baseada no horário de saída real vs contratado.
-    Usado exclusivamente no modo manual (intervalo_automatico=False).
-
-    hora_extra = max(0, saida_real - (saida_contratada + tolerancia))
-
-    Exemplo: contratado 17:00, tolerância 10 min.
-      Saiu 17:05 → 0 min.
-      Saiu 17:15 → 5 min.
-      Saiu 17:30 → 20 min.
-    """
-    if not last_punch_iso or not scheduled_end:
-        return 0
-    scheduled_min = _parse_hhmm(scheduled_end)
-    if scheduled_min is None:
-        return 0
-    hhmm = _extract_hhmm_from_iso(last_punch_iso)
-    actual_min = _parse_hhmm(hhmm)
-    if actual_min is None:
-        return 0
-    diff = actual_min - scheduled_min  # positivo = saiu depois
-    return max(0, diff - tolerance_minutes)
-
-
 def calculate_early_entry_minutes(
     first_punch_iso: Optional[str],
     scheduled_start: Optional[str],
@@ -399,6 +370,41 @@ def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:
     if tolerance_minutes > 0 and abs(balance_minutes) <= tolerance_minutes:
         return 0
     return balance_minutes
+
+
+def calculate_daily_balance(
+    worked_min: int,
+    expected_min: int,
+    first_punch_iso: Optional[str],
+    scheduled_start: Optional[str],
+    tolerance_minutes: int,
+    count_early_entry_as_extra: bool,
+) -> Tuple[int, int]:
+    """
+    Banco de horas do dia: simétrico e diretamente ligado ao total trabalhado.
+    O que exceder o previsto vira hora extra; o que faltar vira saldo negativo.
+    Usado igualmente nos modos manual e automático (intervalo_automatico) —
+    a única diferença entre os modos está em como worked_min é calculado
+    antes de chegar aqui, não em como o saldo é derivado dele.
+
+    Se a empresa/funcionário não conta entrada antecipada como hora extra,
+    o tempo trabalhado antes do horário previsto é descontado do saldo (mas
+    continua refletido em horas_trabalhadas, exibido separadamente).
+
+    Variações dentro da tolerância são zeradas (CLT Art. 58 §1, de minimis);
+    acima da tolerância, conta tudo (não só o excesso).
+
+    Retorna (banco_horas_dia, horas_extras_min).
+    """
+    worked_for_balance = worked_min
+    if not count_early_entry_as_extra:
+        early_min = calculate_early_entry_minutes(first_punch_iso, scheduled_start)
+        worked_for_balance = max(0, worked_min - early_min)
+
+    saldo_bruto = worked_for_balance - expected_min
+    banco_horas_dia = apply_bank_tolerance(saldo_bruto, tolerance_minutes)
+    horas_extras_min = max(0, banco_horas_dia) if expected_min > 0 else 0
+    return banco_horas_dia, horas_extras_min
 
 
 def apply_monthly_tolerance(

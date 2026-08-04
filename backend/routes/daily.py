@@ -41,14 +41,13 @@ from services.calculation_engine import (
     calculate_expected_minutes as eng_expected,
     calculate_delay_minutes as eng_delay,
     calculate_early_departure_minutes as eng_early_dep,
-    calculate_overtime_exit_minutes as eng_overtime_exit,
     calculate_interval_excess_minutes as eng_interval_excess,
     apply_bank_tolerance,
     minutes_to_hhmm,
     count_valid_punches,
     get_actual_break_minutes,
-    calculate_early_entry_minutes as eng_early_entry,
     calculate_tolerance_rounding_minutes as eng_tolerance_round,
+    calculate_daily_balance as eng_daily_balance,
 )
 from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 import boto3
@@ -694,20 +693,13 @@ def get_daily_summaries():
 
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
 
-                # Hora extra CLT (Art. 59 + Art. 58 §1):
-                # - Se saída exceder apenas a tolerância (de minimis): não conta.
-                # - Se exceder a tolerância: conta TODOS os minutos desde o horário
-                #   contratado (não só o excesso), pois a variação não é mais de minimis.
-                raw_overtime = eng_overtime_exit(last_iso, scheduled_end, 0)
-                horas_extras_min = raw_overtime if raw_overtime > tolerancia_atraso else 0
-
-                # Entrada antecipada como hora extra (configuração individual/empresa).
-                # Independente da hora extra de saída (Art. 59 acima).
-                if count_early:
-                    horas_extras_min += eng_early_entry(first_iso, scheduled_start)
-
-                # Banco = horas_extras - atrasos_totais - saida_antecipada
-                banco_horas_dia = horas_extras_min - atraso_min - saida_antecipada_min
+                # Banco de horas: ver calculate_daily_balance (motor canônico).
+                # atraso_entrada, excesso_intervalo e saida_antecipada acima ficam
+                # só para exibição informativa — não entram mais na conta do banco.
+                banco_horas_dia, horas_extras_min = eng_daily_balance(
+                    worked_min, expected_min, first_iso, scheduled_start,
+                    tolerancia_atraso, count_early,
+                )
             else:
                 # ── MODO AUTOMÁTICO (intervalo_automatico=True) ───────────────
                 # Previsto = jornada bruta - break configurado (intervalo não
@@ -720,19 +712,11 @@ def get_daily_summaries():
                 atraso_min = eng_delay(first_iso, scheduled_start, tolerancia_atraso)
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
 
-                # Entrada antecipada como hora extra (configuração individual/empresa).
-                # worked_min já inclui o tempo antes do previsto (via primeira batida);
-                # se a config estiver desligada, esse tempo não deve contar no saldo.
-                worked_min_para_saldo = worked_min
-                if not count_early:
-                    early_min = eng_early_entry(first_iso, scheduled_start)
-                    worked_min_para_saldo = max(0, worked_min - early_min)
-
-                # CLT Art. 58 §1: variações dentro da tolerância ignoradas (de minimis)
-                # Se ultrapassar, conta tudo (não só o excesso)
-                saldo_bruto = worked_min_para_saldo - expected_min
-                banco_horas_dia = saldo_bruto if abs(saldo_bruto) > tolerancia_atraso else 0
-                horas_extras_min = max(0, banco_horas_dia) if expected_min > 0 else 0
+                # Banco de horas: ver calculate_daily_balance (motor canônico).
+                banco_horas_dia, horas_extras_min = eng_daily_balance(
+                    worked_min, expected_min, first_iso, scheduled_start,
+                    tolerancia_atraso, count_early,
+                )
 
             try:
                 wd = datetime.strptime(date_str, '%Y-%m-%d').weekday()

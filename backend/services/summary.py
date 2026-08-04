@@ -14,8 +14,7 @@ from services.calculation_engine import (
     calculate_expected_minutes as eng_expected,
     calculate_delay_minutes as eng_delay,
     calculate_early_departure_minutes as eng_early_dep,
-    calculate_early_entry_minutes as eng_early_entry,
-    apply_bank_tolerance,
+    calculate_daily_balance as eng_daily_balance,
 )
 from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 
@@ -220,17 +219,16 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
         delay_min = eng_delay(first_iso, scheduled_start, tolerancia)
         _early_dep = eng_early_dep(last_iso, scheduled_end, tolerancia)
 
-        # Entrada antecipada como hora extra: funcionário > empresa > padrão (False).
-        # Se desligado, o tempo trabalhado antes do horário previsto não conta
-        # para o saldo/extra (mas continua refletido em worked_hours).
+        # Banco de horas: ver calculate_daily_balance (motor canônico) — simétrico
+        # com routes/daily.py, mesma fórmula usada nos dois modos.
         count_early = resolve_early_entry_overtime(employee, config)
-        early_min = eng_early_entry(first_iso, scheduled_start)
-        worked_for_balance = worked_min if count_early else max(0, worked_min - early_min)
+        balance_min, extra_min = eng_daily_balance(
+            worked_min, expected_min, first_iso, scheduled_start, tolerancia, count_early,
+        )
 
         expected_hours = Decimal(str(expected_min)) / Decimal('60')
-        balance_min = apply_bank_tolerance(worked_for_balance - expected_min, tolerancia)
         daily_balance = Decimal(str(balance_min)) / Decimal('60')
-        extra_hours = max(Decimal('0'), daily_balance)
+        extra_hours = Decimal(str(extra_min)) / Decimal('60')
 
         # Status
         status: DayStatus = "normal"
