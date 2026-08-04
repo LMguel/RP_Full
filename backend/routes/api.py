@@ -18,7 +18,6 @@ import jwt
 from flask import current_app
 from boto3.dynamodb.conditions import Attr, Key
 from services.overtime import calculate_overtime, format_minutes_to_time
-from services.calculation_engine import should_round_entrada_to_esperado
 from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 from utils.geolocation import validar_localizacao, formatar_distancia
 import unicodedata
@@ -2298,45 +2297,11 @@ def registrar_ponto_manual(payload):
         'duracao_intervalo': 60
     })
 
-    # Ajuste de tolerância de atraso para ENTRADA
-    # IMPORTANTE: Manter horário real para exibição, mas calcular horário arredondado para cálculos
-    data_hora_calculo = data_hora  # Por padrão, o horário de cálculo é igual ao real
-
-    if tipo == 'entrada':
-        try:
-            data_str, _ = data_hora.split(' ')
-            target_date = datetime.strptime(data_str, '%Y-%m-%d').date()
-        except Exception:
-            target_date = None
-        if target_date:
-            horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date, configuracoes)
-        else:
-            horario_entrada_esperado = funcionario.get('horario_entrada')
-        tolerancia_atraso = int(configuracoes.get('tolerancia_atraso', 5))
-        if horario_entrada_esperado:
-            data_str, hora_str = data_hora.split(' ')
-            # Aceita tanto HH:MM quanto HH:MM:SS
-            def parse_hora(h):
-                try:
-                    return datetime.strptime(h, '%H:%M')
-                except Exception:
-                    return datetime.strptime(h, '%H:%M:%S')
-            # Monta data completa para comparar
-            try:
-                entrada_real = datetime.strptime(data_hora, '%Y-%m-%d %H:%M')
-            except ValueError:
-                entrada_real = datetime.strptime(data_hora, '%Y-%m-%d %H:%M:%S')
-            # Monta horário esperado completo
-            try:
-                entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
-            except ValueError:
-                entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
-            diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
-            if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
-                # Dentro da tolerância: arredonda o horário de CÁLCULO (não o exibido)
-                data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
-                print(f"[REGISTRO MANUAL] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
-            # Se passar da tolerância, atraso será calculado normalmente
+    # data_hora_calculo é sempre igual ao horário real da batida. O bônus de
+    # tolerância para atrasos pequenos é aplicado apenas no cálculo de horas
+    # trabalhadas (calculation_engine.calculate_tolerance_rounding_minutes),
+    # nunca sobrescrevendo o horário exibido/gravado aqui.
+    data_hora_calculo = data_hora
 
     # Preparar o registro base
     registro = {
@@ -4298,45 +4263,11 @@ def registrar_ponto_localizacao(payload):
             print(f"[REGISTRO LOCATION] Erro ao determinar tipo: {e}")
             tipo = tipo_solicitado  # fallback para o tipo enviado pelo client
 
-        # Calcular horário de cálculo (arredondado se dentro da tolerância para entradas)
-        data_hora_calculo = data_hora_atual  # Por padrão igual ao real
-        
-        if tipo == 'entrada':
-            tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
-            try:
-                data_str = data_hora_atual.split(' ')[0]
-                target_date = datetime.strptime(data_str, '%Y-%m-%d').date()
-            except Exception:
-                target_date = None
-            if target_date:
-                horario_entrada_esperado, _ = get_schedule_for_date(funcionario, target_date, config)
-            else:
-                horario_entrada_esperado = funcionario.get('horario_entrada')
-
-            if horario_entrada_esperado:
-                try:
-                    data_str = data_hora_atual.split(' ')[0]  # YYYY-MM-DD
-                    
-                    # Parse horário atual
-                    try:
-                        entrada_real = datetime.strptime(data_hora_atual, '%Y-%m-%d %H:%M:%S')
-                    except:
-                        entrada_real = datetime.strptime(data_hora_atual, '%Y-%m-%d %H:%M')
-                    
-                    # Parse horário esperado
-                    try:
-                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
-                    except:
-                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
-                    
-                    diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
-
-                    if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
-                        # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
-                        data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
-                        print(f"[REGISTRO LOCATION] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
-                except Exception as e:
-                    print(f"[REGISTRO LOCATION] Aviso ao calcular arredondamento: {e}")
+        # data_hora_calculo é sempre igual ao horário real da batida. O bônus de
+        # tolerância para atrasos pequenos é aplicado apenas no cálculo de horas
+        # trabalhadas (calculation_engine.calculate_tolerance_rounding_minutes),
+        # nunca sobrescrevendo o horário exibido/gravado aqui.
+        data_hora_calculo = data_hora_atual
 
         # Criar registro com schema correto da tabela TimeRecords
         # HASH: company_id, RANGE: employee_id#date_time

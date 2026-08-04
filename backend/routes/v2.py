@@ -18,12 +18,10 @@ from services.summary import (
     rebuild_daily_summary,
     rebuild_monthly_summary
 )
-from services.calculation_engine import should_round_entrada_to_esperado
 from utils.s3 import upload_photo_to_s3, generate_s3_key, get_photo_url
 from utils.aws import (
     tabela_funcionarios as table_employees,
     tabela_registros as table_records,
-    tabela_configuracoes as table_config,
     dynamodb
 )
 import uuid
@@ -104,39 +102,15 @@ def registrar_ponto_v2(payload):
         agora = datetime.now()
         data_hora = agora.isoformat()
         data_hora_str = agora.strftime('%Y-%m-%d %H:%M:%S')
-        data_hora_calculo = data_hora_str  # Por padrão igual ao real
-        
-        # Se for entrada, verificar se deve arredondar para cálculo
-        if tipo_registro == 'entrada':
-            try:
-                # Buscar dados do funcionário e configurações
-                emp_response = table_employees.get_item(Key={'company_id': company_id, 'id': funcionario_id})
-                funcionario = emp_response.get('Item', {})
-                
-                config_response = table_config.get_item(Key={'company_id': company_id})
-                config = config_response.get('Item', {})
-                
-                tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
-                horario_entrada_esperado = funcionario.get('horario_entrada')
-                
-                if horario_entrada_esperado:
-                    data_str = agora.strftime('%Y-%m-%d')
-                    
-                    # Parse horário esperado
-                    try:
-                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M')
-                    except:
-                        entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
-                    
-                    diff_min = int((agora - entrada_esperada).total_seconds() // 60)
+        # data_hora_calculo é sempre igual ao horário real da batida. O bônus de
+        # tolerância para atrasos pequenos é aplicado apenas no cálculo de horas
+        # trabalhadas (calculation_engine.calculate_tolerance_rounding_minutes),
+        # nunca sobrescrevendo o horário exibido/gravado aqui.
+        data_hora_calculo = data_hora_str
 
-                    if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
-                        # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
-                        data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
-                        print(f"[V2] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
-            except Exception as e:
-                print(f"[V2] Aviso ao calcular arredondamento: {e}")
-        
+        emp_response = table_employees.get_item(Key={'company_id': company_id, 'id': funcionario_id})
+        funcionario = emp_response.get('Item', {})
+
         # Processar foto se houver
         foto_s3_key = None
         foto_url = None

@@ -390,28 +390,6 @@ def calculate_tolerance_rounding_minutes(
     return 0
 
 
-def should_round_entrada_to_esperado(diff_min: int, tolerancia_atraso: int) -> bool:
-    """
-    Decide se uma entrada deve ser arredondada para o horário previsto no
-    cálculo (data_hora_calculo), a favor do funcionário quando o atraso é
-    pequeno o bastante para ser "de minimis".
-
-    diff_min = minutos_reais - minutos_previstos (positivo = atrasado,
-    negativo = chegou adiantado).
-
-    Só arredonda atrasos dentro da tolerância. Chegadas adiantadas
-    (diff_min negativo) NUNCA são arredondadas aqui — o horário real deve
-    ser preservado para que features como entrada antecipada como hora
-    extra (resolve_early_entry_overtime) funcionem sobre o dado correto.
-
-    Exemplo: previsto 13:00, tolerância 5 min.
-      Entrada 12:30 (diff_min=-30) → False (adiantada, não arredonda).
-      Entrada 13:03 (diff_min=3)   → True  (atraso dentro da tolerância).
-      Entrada 13:15 (diff_min=15)  → False (atraso além da tolerância).
-    """
-    return 0 <= diff_min <= tolerancia_atraso
-
-
 def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:
     """
     Zera o saldo diário quando dentro da tolerância configurada.

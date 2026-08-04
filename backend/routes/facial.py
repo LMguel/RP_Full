@@ -32,7 +32,6 @@ from utils.aws import (
     tabela_configuracoes,
     generate_presigned_url,
 )
-from services.calculation_engine import should_round_entrada_to_esperado
 
 routes_facial = Blueprint('routes_facial', __name__)
 
@@ -449,32 +448,11 @@ def registrar_ponto_facial(payload):
         date_time_str = agora_registro.strftime('%Y-%m-%d %H:%M:%S')
         composite_key = f"{funcionario_id}#{date_time_str}"
 
-        # 5) Arredondamento para cálculo (entrada dentro da tolerância).
+        # data_hora_calculo é sempre igual ao horário real da batida. O bônus de
+        # tolerância para atrasos pequenos é aplicado apenas no cálculo de horas
+        # trabalhadas (calculation_engine.calculate_tolerance_rounding_minutes),
+        # nunca sobrescrevendo o horário exibido/gravado aqui.
         data_hora_calculo = date_time_str
-        if tipo == 'entrada':
-            try:
-                tolerancia_atraso = int(config.get('tolerancia_atraso', 5))
-                horario_entrada_esperado = funcionario.get('horario_entrada')
-                if horario_entrada_esperado:
-                    data_str = agora_registro.strftime('%Y-%m-%d')
-                    try:
-                        entrada_esperada = datetime.strptime(
-                            f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M'
-                        )
-                    except Exception:
-                        entrada_esperada = datetime.strptime(
-                            f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S'
-                        )
-                    entrada_esperada = TZ_SP.localize(entrada_esperada)
-                    diff_min = int((agora_registro - entrada_esperada).total_seconds() // 60)
-                    if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
-                        data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
-                        print(
-                            f"[FACIAL] Entrada dentro da tolerância ({diff_min}min). "
-                            f"Cálculo arredondado para {horario_entrada_esperado}"
-                        )
-            except Exception as e:
-                print(f"[FACIAL] Aviso ao calcular arredondamento: {e}")
 
         registro = {
             'company_id': token_company_id,
