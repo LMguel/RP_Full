@@ -120,9 +120,9 @@ class TestCalculateDelayMinutes:
         assert minutes == 0
 
     def test_acima_tolerancia(self):
-        # 12min late, tolerance=10 → 12 (not just the excess: full delay returned when over)
+        # 12min late, tolerance=10 → 2 (apenas o excedente além da tolerância)
         minutes = calculate_delay_minutes('2026-05-01T08:12:00', '08:00', tolerance_minutes=10)
-        assert minutes == 12
+        assert minutes == 2
 
     def test_sem_first_punch_retorna_zero(self):
         assert calculate_delay_minutes(None, '08:00') == 0

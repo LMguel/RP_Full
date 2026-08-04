@@ -2691,7 +2691,7 @@ def remover_especial(payload):
 
     tipos_alvo = {'ferias_folga', 'atestado'} if tipo == 'ambos' else {tipo}
 
-    func_resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'employee_id': employee_id})
+    func_resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': employee_id})
     func_nome = func_resp.get('Item', {}).get('nome', '') if func_resp.get('Item') else ''
 
     removidos = []
@@ -2771,7 +2771,7 @@ def substituir_atestado(payload):
     data_hora  = f"{data_str} 00:00:00"
     sort_key   = f"{employee_id}#{data_hora}"
 
-    func_resp_sub = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'employee_id': employee_id})
+    func_resp_sub = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': employee_id})
     func_nome_sub = func_resp_sub.get('Item', {}).get('nome', '') if func_resp_sub.get('Item') else ''
 
     resp = tabela_registros.get_item(
