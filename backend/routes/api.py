@@ -2473,11 +2473,24 @@ def registrar_ferias(payload):
     if dt_fim < dt_inicio:
         return jsonify({'mensagem': 'data_fim deve ser >= data_inicio'}), 400
 
+    config_response = tabela_configuracoes.get_item(Key={'company_id': empresa_id})
+    configuracoes = config_response.get('Item', {})
+
     criado_por = payload.get('usuario_id', payload.get('email', 'admin'))
     criados = []
+    pulados = []
     current = dt_inicio
     while current <= dt_fim:
         date_str = current.strftime('%Y-%m-%d')
+
+        # Não marca férias/folga em dias que o funcionário não trabalha
+        # (fim de semana sem escala, ou dia inativo na escala configurada).
+        dia_entrada, dia_saida = get_schedule_for_date(funcionario, current, configuracoes)
+        if not dia_entrada or not dia_saida:
+            pulados.append(date_str)
+            current += timedelta(days=1)
+            continue
+
         data_hora = f"{date_str} 00:00:00"
         sort_key  = f"{employee_id}#{data_hora}"
         registro = {
@@ -2506,14 +2519,18 @@ def registrar_ferias(payload):
             entity='RECORD', entity_id=f"{employee_id}#{criados[0]}",
             action='CREATE',
             before=None,
-            after={'type': 'ferias_folga', 'dias': criados, 'justificativa': justificativa},
+            after={'type': 'ferias_folga', 'dias': criados, 'dias_nao_uteis_pulados': pulados, 'justificativa': justificativa},
             request=request,
             employee_id=employee_id,
             employee_name=funcionario.get('nome', ''),
             reason=justificativa,
         )
 
-    return jsonify({'mensagem': f'Férias/Folga registradas para {len(criados)} dia(s)', 'dias': criados}), 200
+    return jsonify({
+        'mensagem': f'Férias/Folga registradas para {len(criados)} dia(s)',
+        'dias': criados,
+        'dias_nao_uteis_pulados': pulados,
+    }), 200
 
 
 @routes.route('/registrar_atestado', methods=['POST'])
