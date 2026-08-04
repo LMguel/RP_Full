@@ -304,6 +304,58 @@ class TestCalculateDailyBalance:
         assert banco == 30
         assert extra == 30
 
+    def test_caso_nicole_entrada_muito_adiantada_cumpriu_jornada_nao_fica_negativo(self):
+        # Cadastro 08:30, mas ela chega rotineiramente perto de 07:00 e sai por
+        # volta de 17:00 — total trabalhado quase bate com o previsto (07:59 de
+        # 08:00). Sem a flag de hora extra por entrada antecipada, o saldo NÃO
+        # pode ficar negativo só porque ela chegou adiantada (regressão: antes
+        # descontava o tempo adiantado do total trabalhado, gerando -01:29
+        # mesmo ela tendo cumprido a jornada quase inteira).
+        worked_min = 479  # 07:59
+        banco, extra = calculate_daily_balance(
+            worked_min, expected_min=480,
+            first_punch_iso='2026-07-20T07:02:00', scheduled_start='08:30',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == -1
+        assert extra == 0
+
+    def test_entrada_adiantada_nao_gera_hora_extra_mas_tambem_nao_penaliza(self):
+        # Chegou 90min adiantada (07:00 vs previsto 08:30) e trabalhou o
+        # suficiente para bater exatamente o previsto (8h) — sem a flag, o
+        # excedente causado pela entrada adiantada não deve virar hora extra,
+        # mas o saldo também não deve ficar negativo (ela cumpriu a jornada).
+        banco, extra = calculate_daily_balance(
+            worked_min=480, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='08:30',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == 0
+        assert extra == 0
+
+    def test_falta_genuina_mesmo_com_entrada_adiantada_continua_negativa(self):
+        # Chegou adiantada mas trabalhou pouco no total (saiu muito cedo) —
+        # falta genuína, deve continuar negativo mesmo sem clamp de entrada.
+        banco, extra = calculate_daily_balance(
+            worked_min=300, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='08:30',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == -180
+        assert extra == 0
+
+    def test_saida_tardia_gera_extra_mesmo_com_flag_desligada(self):
+        # Entrada no horário (sem adiantamento) e saída bem depois do previsto:
+        # o excedente não tem nenhuma relação com entrada antecipada, então
+        # deve contar como hora extra mesmo com count_early_entry_as_extra=False.
+        banco, extra = calculate_daily_balance(
+            worked_min=540, expected_min=480,
+            first_punch_iso='2026-07-20T07:00:00', scheduled_start='07:00',
+            tolerance_minutes=0, count_early_entry_as_extra=False,
+        )
+        assert banco == 60
+        assert extra == 60
+
 
 # ─────────────────────────────────────────────
 # resolve_early_entry_overtime — prioridade funcionário > empresa > padrão

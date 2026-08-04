@@ -387,22 +387,36 @@ def calculate_daily_balance(
     a única diferença entre os modos está em como worked_min é calculado
     antes de chegar aqui, não em como o saldo é derivado dele.
 
-    Se a empresa/funcionário não conta entrada antecipada como hora extra,
-    o tempo trabalhado antes do horário previsto é descontado do saldo (mas
-    continua refletido em horas_trabalhadas, exibido separadamente).
+    O total trabalhado (worked_min) NUNCA é descontado para fins de detectar
+    falta — se o funcionário cumpriu ou excedeu o previsto, o saldo nunca
+    fica negativo só por ter chegado adiantado. A configuração de "entrada
+    antecipada como hora extra" (funcionário > empresa > padrão False) só
+    limita se o excedente causado pela chegada adiantada é PAGO como hora
+    extra; ela nunca gera saldo negativo artificial (mesmo padrão já usado
+    em services/payroll_engine.py para o fechamento mensal).
 
     Variações dentro da tolerância são zeradas (CLT Art. 58 §1, de minimis);
     acima da tolerância, conta tudo (não só o excesso).
 
     Retorna (banco_horas_dia, horas_extras_min).
     """
-    worked_for_balance = worked_min
-    if not count_early_entry_as_extra:
-        early_min = calculate_early_entry_minutes(first_punch_iso, scheduled_start)
-        worked_for_balance = max(0, worked_min - early_min)
+    # Detecta falta genuína usando o total trabalhado, sem nenhum desconto —
+    # chegar adiantado nunca deve piorar esse número.
+    saldo_por_falta = worked_min - expected_min
 
-    saldo_bruto = worked_for_balance - expected_min
-    banco_horas_dia = apply_bank_tolerance(saldo_bruto, tolerance_minutes)
+    if saldo_por_falta < 0:
+        raw_balance = saldo_por_falta
+    else:
+        # Cumpriu ou excedeu o previsto: o excedente só conta como hora
+        # extra se não for inteiramente explicado pela entrada antecipada
+        # não autorizada (count_early_entry_as_extra=False).
+        worked_for_extra = worked_min
+        if not count_early_entry_as_extra:
+            early_min = calculate_early_entry_minutes(first_punch_iso, scheduled_start)
+            worked_for_extra = max(0, worked_min - early_min)
+        raw_balance = max(0, worked_for_extra - expected_min)
+
+    banco_horas_dia = apply_bank_tolerance(raw_balance, tolerance_minutes)
     horas_extras_min = max(0, banco_horas_dia) if expected_min > 0 else 0
     return banco_horas_dia, horas_extras_min
 
