@@ -18,6 +18,7 @@ import jwt
 from flask import current_app
 from boto3.dynamodb.conditions import Attr, Key
 from services.overtime import calculate_overtime, format_minutes_to_time
+from services.calculation_engine import should_round_entrada_to_esperado
 from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 from utils.geolocation import validar_localizacao, formatar_distancia
 import unicodedata
@@ -2331,7 +2332,7 @@ def registrar_ponto_manual(payload):
             except ValueError:
                 entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
             diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
-            if diff_min <= tolerancia_atraso:
+            if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
                 # Dentro da tolerância: arredonda o horário de CÁLCULO (não o exibido)
                 data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
                 print(f"[REGISTRO MANUAL] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")
@@ -4329,8 +4330,8 @@ def registrar_ponto_localizacao(payload):
                         entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
                     
                     diff_min = int((entrada_real - entrada_esperada).total_seconds() // 60)
-                    
-                    if diff_min <= tolerancia_atraso:
+
+                    if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
                         # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
                         data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
                         print(f"[REGISTRO LOCATION] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")

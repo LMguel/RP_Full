@@ -18,6 +18,7 @@ from services.summary import (
     rebuild_daily_summary,
     rebuild_monthly_summary
 )
+from services.calculation_engine import should_round_entrada_to_esperado
 from utils.s3 import upload_photo_to_s3, generate_s3_key, get_photo_url
 from utils.aws import (
     tabela_funcionarios as table_employees,
@@ -128,8 +129,8 @@ def registrar_ponto_v2(payload):
                         entrada_esperada = datetime.strptime(f"{data_str} {horario_entrada_esperado}", '%Y-%m-%d %H:%M:%S')
                     
                     diff_min = int((agora - entrada_esperada).total_seconds() // 60)
-                    
-                    if diff_min <= tolerancia_atraso:
+
+                    if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
                         # Dentro da tolerância: arredondar horário de CÁLCULO para o esperado
                         data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
                         print(f"[V2] Entrada dentro da tolerância ({diff_min}min). Arredondando cálculo para {horario_entrada_esperado}")

@@ -32,6 +32,7 @@ from utils.aws import (
     tabela_configuracoes,
     generate_presigned_url,
 )
+from services.calculation_engine import should_round_entrada_to_esperado
 
 routes_facial = Blueprint('routes_facial', __name__)
 
@@ -466,7 +467,7 @@ def registrar_ponto_facial(payload):
                         )
                     entrada_esperada = TZ_SP.localize(entrada_esperada)
                     diff_min = int((agora_registro - entrada_esperada).total_seconds() // 60)
-                    if diff_min <= tolerancia_atraso:
+                    if should_round_entrada_to_esperado(diff_min, tolerancia_atraso):
                         data_hora_calculo = f"{data_str} {horario_entrada_esperado}"
                         print(
                             f"[FACIAL] Entrada dentro da tolerância ({diff_min}min). "

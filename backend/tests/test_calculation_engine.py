@@ -24,6 +24,7 @@ from services.calculation_engine import (
     calculate_expected_minutes,
     calculate_worked_minutes,
     calculate_tolerance_rounding_minutes,
+    should_round_entrada_to_esperado,
     minutes_to_hhmm,
 )
 from utils.schedule_settings import resolve_early_entry_overtime
@@ -216,6 +217,43 @@ class TestCalculateToleranceRoundingMinutes:
 
     def test_sem_horario_previsto_retorna_zero(self):
         assert calculate_tolerance_rounding_minutes('2026-05-01T13:10:00', None, 10) == 0
+
+
+# ─────────────────────────────────────────────
+# should_round_entrada_to_esperado — usada em facial.py, api.py (x2) e v2.py
+# para decidir se data_hora_calculo é arredondado para o horário previsto.
+#
+# Regressão: bug histórico comparava só "diff_min <= tolerancia_atraso" sem
+# checar o piso 0, então entradas ADIANTADAS (diff_min negativo) também
+# satisfaziam a condição e eram erroneamente arredondadas para o horário
+# previsto — escondendo a chegada adiantada real do funcionário.
+# ─────────────────────────────────────────────
+
+class TestShouldRoundEntradaToEsperado:
+    def test_caso_barbara_entrada_30min_adiantada_nao_arredonda(self):
+        # Previsto 13:00, entrada real 12:30 → diff_min = -30, tolerância 0.
+        # Regressão: bug antigo arredondava (13:00) porque -30 <= 0.
+        assert should_round_entrada_to_esperado(-30, 0) is False
+
+    def test_atraso_dentro_da_tolerancia_arredonda(self):
+        assert should_round_entrada_to_esperado(3, 5) is True
+
+    def test_atraso_no_limite_da_tolerancia_arredonda(self):
+        assert should_round_entrada_to_esperado(5, 5) is True
+
+    def test_atraso_acima_da_tolerancia_nao_arredonda(self):
+        assert should_round_entrada_to_esperado(6, 5) is False
+
+    def test_entrada_exata_no_horario_arredonda(self):
+        assert should_round_entrada_to_esperado(0, 5) is True
+
+    def test_qualquer_adiantamento_nao_arredonda_mesmo_com_tolerancia(self):
+        assert should_round_entrada_to_esperado(-1, 5) is False
+
+    def test_tolerancia_zero_so_arredonda_horario_exato(self):
+        assert should_round_entrada_to_esperado(0, 0) is True
+        assert should_round_entrada_to_esperado(1, 0) is False
+        assert should_round_entrada_to_esperado(-1, 0) is False
 
 
 # ─────────────────────────────────────────────
