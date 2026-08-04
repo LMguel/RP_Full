@@ -59,9 +59,9 @@ def calculate_overtime(
         intervalo_automatico: Bool - se True, desconta duracao_intervalo; se False, desconta break_real_minutes
         duracao_intervalo: Int - duração do intervalo automático em minutos
         break_real_minutes: Int - tempo real de intervalo em minutos (break_start → break_end)
-        conta_entrada_antecipada: Bool - se fornecido (não None), sobrepõe o valor resolvido de
-            configuracoes (usado para passar o override individual do funcionário, já resolvido
-            via resolve_early_entry_overtime). Se None, cai no valor de configuracoes.
+        conta_entrada_antecipada: IGNORADO. Mantido só por compatibilidade com chamadas
+            existentes — a regra de hora extra agora é universal (trabalhado vs.
+            previsto, sem exceção para entrada antecipada).
 
     Returns:
         Dict com horas_extras_minutos, atraso_minutos, entrada_antecipada_minutos, saida_antecipada_minutos
@@ -69,10 +69,6 @@ def calculate_overtime(
 
     # Valores padrão das configurações
     tolerancia_atraso = configuracoes.get('tolerancia_atraso', 0)
-    conta_entrada_antecipada = (
-        conta_entrada_antecipada if conta_entrada_antecipada is not None
-        else configuracoes.get('hora_extra_entrada_antecipada', False)
-    )
     arredondamento = configuracoes.get('arredondamento_horas_extras', 'exato')
     compensar_saldo_horas = configuracoes.get('compensar_saldo_horas', False)
     
@@ -109,16 +105,10 @@ def calculate_overtime(
     if not entrada_real or not saida_real:
         return resultado
 
-    # Entrada efetiva para cálculo:
-    # - Se empresa conta entrada antecipada como extra → usa horário real de chegada
-    # - Caso contrário → clampeia chegada antecipada ao horário previsto (não bonifica chegada cedo)
-    if conta_entrada_antecipada:
-        entrada_efetiva = entrada_real
-    else:
-        entrada_efetiva = entrada_real if entrada_real >= entrada_esperado else entrada_esperado
-
-    # Horas REAIS trabalhadas (de entrada_efetiva até saida_real, descontando intervalo)
-    horas_brutas_reais = time_diff_minutes(entrada_efetiva, saida_real)
+    # Horas REAIS trabalhadas (de entrada_real até saida_real, descontando intervalo).
+    # Regra única e universal: trabalhado vs. previsto, sem clamp de entrada
+    # antecipada — o total trabalhado é sempre o que conta.
+    horas_brutas_reais = time_diff_minutes(entrada_real, saida_real)
     if intervalo_automatico and duracao_intervalo > 0:
         horas_reais = max(0, horas_brutas_reais - duracao_intervalo)
         print(f"[DEBUG] Horas reais: brutas={horas_brutas_reais}min, desconto_intervalo={duracao_intervalo}min, líquidas={horas_reais}min")

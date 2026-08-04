@@ -13,9 +13,8 @@ import calendar
 from services.calculation_engine import (
     calculate_worked_minutes,
     calculate_delay_minutes,
-    calculate_early_entry_minutes,
 )
-from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
+from utils.schedule_settings import resolve_interval_automatico
 
 dynamodb       = boto3.resource('dynamodb', region_name='us-east-1')
 table_records  = dynamodb.Table('TimeRecords')
@@ -138,7 +137,6 @@ def compute_worked_data(
     duracao_intervalo     = int(cfg_empresa.get('duracao_intervalo', 60) or 60)
     tolerancia_atraso_min = int(cfg_empresa.get('tolerancia_atraso', 0) or 0)
     horario_entrada_padrao = emp_info.get('horario_entrada') or '08:00'
-    conta_entrada_antecipada = resolve_early_entry_overtime(emp_info, cfg_empresa)
 
     # Dias úteis passados até hoje
     dias_uteis = 0
@@ -193,19 +191,11 @@ def compute_worked_data(
         wh = Decimal(str(round(worked_min / 60, 4)))
         horas_trab += wh
 
-        # Horas extras CLT (Art. 59 + Art. 58 §1): conta tudo além da jornada
-        # se ultrapassar a tolerância; dentro da tolerância, ignora (de minimis)
+        # Horas extras: regra única e universal (trabalhado vs. previsto do
+        # dia) — o que exceder é hora extra, sem exceção por entrada
+        # antecipada. Dentro da tolerância, ignora (de minimis, CLT Art. 58 §1).
         if dt.weekday() < 5 and dt_str not in feriados:
-            # Entrada antecipada como hora extra: funcionário > empresa > padrão (False).
-            # Se desligado, o tempo trabalhado antes do horário previsto não conta
-            # para a hora extra (mas continua refletido em horas_trab acima).
-            worked_min_extra = worked_min
-            if not conta_entrada_antecipada and first_punch:
-                horario_entrada_ref = emp_info.get('horario_entrada') or horario_entrada_padrao
-                early_min = calculate_early_entry_minutes(first_punch, horario_entrada_ref)
-                worked_min_extra = max(0, worked_min - early_min)
-
-            raw_extra_min = worked_min_extra - int(horas_diarias * 60)
+            raw_extra_min = worked_min - int(horas_diarias * 60)
             if raw_extra_min > tolerancia_atraso_min:
                 horas_extra += Decimal(str(round(raw_extra_min / 60, 4)))
             # Se raw_extra_min <= tolerancia → de minimis, não conta

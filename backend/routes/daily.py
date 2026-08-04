@@ -49,7 +49,7 @@ from services.calculation_engine import (
     calculate_tolerance_rounding_minutes as eng_tolerance_round,
     calculate_daily_balance as eng_daily_balance,
 )
-from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
+from utils.schedule_settings import resolve_interval_automatico
 import boto3
 
 import os as _os
@@ -524,9 +524,6 @@ def get_daily_summaries():
                 # Sem configuração explícita → fluxo de 2 batidas (entrada/saída)
                 emp_exige_intervalo = False
 
-            # Entrada antecipada como hora extra: funcionário > empresa > padrão (False)
-            count_early = resolve_early_entry_overtime(emp_info, config_data)
-
             # Modo de intervalo (manual/automático): funcionário > empresa > padrão (manual)
             emp_intervalo_automatico = item.get(
                 'intervalo_automatico_efetivo',
@@ -697,8 +694,7 @@ def get_daily_summaries():
                 # atraso_entrada, excesso_intervalo e saida_antecipada acima ficam
                 # só para exibição informativa — não entram mais na conta do banco.
                 banco_horas_dia, horas_extras_min = eng_daily_balance(
-                    worked_min, expected_min, first_iso, scheduled_start,
-                    tolerancia_atraso, count_early,
+                    worked_min, expected_min, tolerancia_atraso,
                 )
             else:
                 # ── MODO AUTOMÁTICO (intervalo_automatico=True) ───────────────
@@ -714,8 +710,7 @@ def get_daily_summaries():
 
                 # Banco de horas: ver calculate_daily_balance (motor canônico).
                 banco_horas_dia, horas_extras_min = eng_daily_balance(
-                    worked_min, expected_min, first_iso, scheduled_start,
-                    tolerancia_atraso, count_early,
+                    worked_min, expected_min, tolerancia_atraso,
                 )
 
             try:

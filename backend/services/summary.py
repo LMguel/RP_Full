@@ -16,7 +16,7 @@ from services.calculation_engine import (
     calculate_early_departure_minutes as eng_early_dep,
     calculate_daily_balance as eng_daily_balance,
 )
-from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
+from utils.schedule_settings import resolve_interval_automatico
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table_records = dynamodb.Table('TimeRecords')
@@ -221,10 +221,7 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
 
         # Banco de horas: ver calculate_daily_balance (motor canônico) — simétrico
         # com routes/daily.py, mesma fórmula usada nos dois modos.
-        count_early = resolve_early_entry_overtime(employee, config)
-        balance_min, extra_min = eng_daily_balance(
-            worked_min, expected_min, first_iso, scheduled_start, tolerancia, count_early,
-        )
+        balance_min, extra_min = eng_daily_balance(worked_min, expected_min, tolerancia)
 
         expected_hours = Decimal(str(expected_min)) / Decimal('60')
         daily_balance = Decimal(str(balance_min)) / Decimal('60')
