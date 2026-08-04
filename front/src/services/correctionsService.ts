@@ -178,7 +178,7 @@ export function detectarPendencias(
   const empIdsComRegistros = new Set<string>();
 
   for (const rec of records) {
-    if (rec.status === 'INVALIDADO') continue;
+    if (rec.status === 'INVALIDADO' || rec.status === 'AJUSTADO') continue;
     const date = rec.data_hora.slice(0, 10);
     if (date >= today) continue;
     if (date < startDate || date > endDate) continue;

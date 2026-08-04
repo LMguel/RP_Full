@@ -39,7 +39,7 @@ import {
   Lock as LockIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCorrecoesCtx } from '../contexts/CorrecoesContext';
 import { apiService } from '../services/api';
@@ -107,11 +107,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const activeRoute  = getActiveRoute(location.pathname);
   const { totalPendencias } = useCorrecoesCtx();
 
-  const handleNavigation = (path: string) => {
-    navigate(path);
-    if (isMobile) setMobileOpen(false);
-  };
-
   useEffect(() => {
     const deep = 'linear-gradient(160deg, #060d1f 0%, #0a1535 45%, #0e2060 100%)';
     document.body.style.background = deep;
@@ -132,7 +127,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <ListItem disablePadding sx={{ mb: 0.25 }}>
         <Tooltip title={drawerCollapsed ? route.text : ''} placement="right">
           <ListItemButton
-            onClick={() => handleNavigation(route.path)}
+            component={Link}
+            to={route.path}
+            onClick={() => { if (isMobile) setMobileOpen(false); }}
             sx={{
               borderRadius: '10px',
               justifyContent: drawerCollapsed ? 'center' : 'flex-start',

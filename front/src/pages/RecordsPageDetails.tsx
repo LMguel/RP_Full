@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import PageLayout from '../sections/PageLayout';
 import UnifiedRecordsFilter from '../components/UnifiedRecordsFilter';
+import MonthNavigator from '../components/MonthNavigator';
 import TimeRecordForm from '../components/TimeRecordForm';
 import {
   Box,
@@ -38,6 +39,7 @@ import { Collapse } from '@mui/material';
 import { motion } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../contexts/AuthContext';
+import { usePeriodo } from '../contexts/PeriodoContext';
 import { apiService } from '../services/api';
 import { TimeRecord, Employee } from '../types';
 
@@ -433,16 +435,13 @@ const RecordsDetailedPage: React.FC = () => {
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeOption | null>(null);
   
   // Estados para filtros de data
-  const currentDate = new Date();
-  const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-  const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
-  
-  const [dateRange, setDateRange] = useState({
-    start_date: currentMonthStart.toISOString().split('T')[0],
-    end_date: currentMonthEnd.toISOString().split('T')[0]
-  });
-  const [selectedMonth, setSelectedMonth] = useState('');
-  
+  const { ano: periodoAno, mes: periodoMes, dataInicio: periodoInicio, dataFim: periodoFim, setPeriodo } = usePeriodo();
+
+  // dateRange inicia sincronizado com o período compartilhado (Registros ↔ Correções);
+  // pode ser sobrescrito localmente por um intervalo customizado no filtro avançado.
+  const [dateRange, setDateRange] = useState({ start_date: periodoInicio, end_date: periodoFim });
+  const [selectedMonth, setSelectedMonth] = useState(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+
   // Funções utilitárias para filtro de mês
   const getFirstDayOfMonth = (yearMonth: string): string => {
     const [year, month] = yearMonth.split('-').map(Number);
@@ -455,13 +454,6 @@ const RecordsDetailedPage: React.FC = () => {
     return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
   };
 
-  const getCurrentMonth = (): string => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    return `${year}-${month.toString().padStart(2, '0')}`;
-  };
-
   const getMonthFromDate = (dateString: string): string => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -469,13 +461,13 @@ const RecordsDetailedPage: React.FC = () => {
     const month = date.getMonth() + 1;
     return `${year}-${month.toString().padStart(2, '0')}`;
   };
-  
-  // Inicializar mês atual
+
+  // Mês trocado pelo MonthNavigator (ou pela troca de aba) → refletir no dateRange local.
   useEffect(() => {
-    const currentMonth = getCurrentMonth();
-    setSelectedMonth(currentMonth);
-  }, []);
-  
+    setDateRange({ start_date: periodoInicio, end_date: periodoFim });
+    setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+  }, [periodoInicio, periodoFim, periodoAno, periodoMes]);
+
   // Efeito para capturar parâmetros de URL para filtros de data
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -935,15 +927,19 @@ const RecordsDetailedPage: React.FC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 2, mb: 4 }}>
           <Typography variant="h4" component="h1" sx={{ color: 'white' }}>Registros Gerais</Typography>
           <button
             onClick={handleAddRecord}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
+            className="flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all font-semibold shadow-lg"
           >
             + Adicionar Registro Manual
           </button>
         </Box>
+
+        <Paper sx={{ borderRadius: 2, background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', mb: 3 }}>
+          <MonthNavigator accentColor="#8b5cf6" />
+        </Paper>
 
         <Paper sx={{
           borderRadius: 2,
@@ -958,13 +954,9 @@ const RecordsDetailedPage: React.FC = () => {
             onEmployeeChange={setSelectedEmployee}
             selectedMonth={selectedMonth}
             onMonthChange={(month) => {
-              setSelectedMonth(month);
-              if (month) {
-                setDateRange({
-                  start_date: getFirstDayOfMonth(month),
-                  end_date: getLastDayOfMonth(month)
-                });
-              }
+              if (!month) { setSelectedMonth(''); setDateRange({ start_date: '', end_date: '' }); return; }
+              const [y, m] = month.split('-').map(Number);
+              setPeriodo(y, m); // propaga para o contexto compartilhado (Registros ↔ Correções)
             }}
             dateRange={dateRange}
             onDateRangeChange={(newRange) => {
@@ -973,19 +965,18 @@ const RecordsDetailedPage: React.FC = () => {
               if (newRange.start_date && newRange.end_date) {
                 const monthFrom = getMonthFromDate(newRange.start_date);
                 const monthTo = getMonthFromDate(newRange.end_date);
-                if (monthFrom === monthTo) {
+                if (monthFrom === monthTo && monthFrom) {
+                  const [y, m] = monthFrom.split('-').map(Number);
                   setSelectedMonth(monthFrom);
+                  setPeriodo(y, m);
                 } else {
                   setSelectedMonth('');
                 }
               }
             }}
             onClearFilters={() => {
-              setDateRange({
-                start_date: currentMonthStart.toISOString().split('T')[0],
-                end_date: currentMonthEnd.toISOString().split('T')[0]
-              });
-              setSelectedMonth('');
+              setDateRange({ start_date: periodoInicio, end_date: periodoFim });
+              setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
               setSelectedEmployee(null);
             }}
             onExportExcel={exportToExcel}

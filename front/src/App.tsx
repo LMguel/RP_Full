@@ -31,6 +31,7 @@ import PermissionGuard from './components/PermissionGuard';
 import FirstAccessModal from './components/FirstAccessModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { CorrecoesProvider } from './contexts/CorrecoesContext';
+import { PeriodoProvider } from './contexts/PeriodoContext';
 
 // Create theme
 const theme = createTheme({
@@ -458,6 +459,7 @@ const App: React.FC = () => {
       <CssBaseline />
       <AuthProvider>
         <CorrecoesProvider>
+        <PeriodoProvider>
         <Router>
           <div className="App">
             <AppRoutes />
@@ -509,6 +511,7 @@ const App: React.FC = () => {
             />
           </div>
         </Router>
+        </PeriodoProvider>
         </CorrecoesProvider>
       </AuthProvider>
     </ThemeProvider>

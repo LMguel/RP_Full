@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Box, Typography, Card, CardContent, Chip, CircularProgress,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  TextField, InputAdornment, IconButton, Tooltip, Select,
-  MenuItem, FormControl, Alert, Avatar, Collapse,
+  TextField, InputAdornment, IconButton, Tooltip,
+  Alert, Avatar, Collapse,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -12,9 +12,12 @@ import {
   CheckCircle as CheckCircleIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import PageLayout from '../sections/PageLayout';
+import MonthNavigator from '../components/MonthNavigator';
+import { usePeriodo } from '../contexts/PeriodoContext';
 import { getDailySummaries } from '../services/dailySummaryService';
 import { useCorrecoesCtx } from '../contexts/CorrecoesContext';
 import CorrecaoDrawer, { type DrawerTarget } from '../components/CorrecaoDrawer';
@@ -342,15 +345,15 @@ function saveConfirmed(set: Set<string>) {
 
 export default function CorrecaoPage() {
   const { setCorrecoesData } = useCorrecoesCtx();
-
-  const now = new Date();
-  const [mes, setMes]   = useState(now.getMonth() + 1);
-  const [ano, setAno]   = useState(now.getFullYear());
+  const { ano, mes } = usePeriodo();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [rows, setRows]       = useState<any[]>([]);
+  // Preenchido quando o mês selecionado está vazio e o sistema expandiu
+  // automaticamente a busca para incluir o mês anterior (ver loadData).
+  const [janelaExpandida, setJanelaExpandida] = useState<{ inicio: string; fim: string } | null>(null);
 
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [busca, setBusca]               = useState('');
@@ -369,41 +372,64 @@ export default function CorrecaoPage() {
   }, []);
 
   const isLoadingRef = useRef(false);
-  const anos = Array.from({ length: 3 }, (_, i) => now.getFullYear() - i);
+  const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+
+  /** Filtra e deduplica os summaries de um período, retornando só os que têm pendência. */
+  const filtrarProblemas = useCallback((summaries: any[]) => {
+    const seen = new Set<string>();
+    const problemas = summaries.filter(s => {
+      const date = s.date || s.data || '';
+      if (date >= today) return false;
+      const st = normalizeStatus(s.raw?.status ?? s.status);
+      const isProximos = detectarProximos(s);
+      if (!STATUS_PROBLEMA.has(st) && !isProximos) return false;
+      const key = `${s.employee_id || s.funcionario_id}|${date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      if (isProximos) s._proximos = true;
+      return true;
+    });
+
+    problemas.sort((a, b) => {
+      const da = a.date || a.data || '';
+      const db = b.date || b.data || '';
+      if (db !== da) return db.localeCompare(da);
+      return (a.employee_name || '').localeCompare(b.employee_name || '');
+    });
+
+    return problemas;
+  }, [today]);
 
   const loadData = useCallback(async () => {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
     setLoading(true);
     setError(null);
+    setJanelaExpandida(null);
     try {
       const { inicio, fim } = getPeriodo(ano, mes);
       const res = await getDailySummaries({ start_date: inicio, end_date: fim }, 1, 1000);
-      const summaries: any[] = res?.summaries ?? [];
+      let problemas = filtrarProblemas(res?.summaries ?? []);
 
-      const seen = new Set<string>();
-      const problemas = summaries.filter(s => {
-        const date = s.date || s.data || '';
-        if (date >= today) return false;
-        const st = normalizeStatus(s.raw?.status ?? s.status);
-        const isProximos = detectarProximos(s);
-        if (!STATUS_PROBLEMA.has(st) && !isProximos) return false;
-        const key = `${s.employee_id || s.funcionario_id}|${date}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        if (isProximos) s._proximos = true;
-        return true;
-      });
-
-      problemas.sort((a, b) => {
-        const da = a.date || a.data || '';
-        const db = b.date || b.data || '';
-        if (db !== da) return db.localeCompare(da);
-        return (a.employee_name || '').localeCompare(b.employee_name || '');
-      });
+      // Mês selecionado é o atual e está sem nenhuma pendência: a maioria das
+      // correções de virada de mês são sobre o mês ANTERIOR (que só termina
+      // de ser fechado nos primeiros dias do mês atual). Em vez de mostrar
+      // uma tela vazia, expande a busca para [1º do mês anterior → hoje].
+      const isMesAtual = ano === now.getFullYear() && mes === now.getMonth() + 1;
+      if (problemas.length === 0 && isMesAtual) {
+        const anoAnterior = mes === 1 ? ano - 1 : ano;
+        const mesAnterior  = mes === 1 ? 12 : mes - 1;
+        const { inicio: inicioAnterior } = getPeriodo(anoAnterior, mesAnterior);
+        const resFallback = await getDailySummaries({ start_date: inicioAnterior, end_date: today }, 1, 1000);
+        const problemasFallback = filtrarProblemas(resFallback?.summaries ?? []);
+        if (problemasFallback.length > 0) {
+          problemas = problemasFallback;
+          setJanelaExpandida({ inicio: inicioAnterior, fim: today });
+        }
+      }
 
       setRows(problemas);
       const nSt = (s: any) => normalizeStatus(s.raw?.status ?? s.status);
@@ -422,7 +448,7 @@ export default function CorrecaoPage() {
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [ano, mes, refreshKey, setCorrecoesData]);
+  }, [ano, mes, refreshKey, setCorrecoesData, filtrarProblemas]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -529,18 +555,6 @@ export default function CorrecaoPage() {
                 ))}
               </Box>
 
-              <FormControl size="small" sx={{ minWidth: 130 }}>
-                <Select value={mes} onChange={e => setMes(Number(e.target.value))} sx={{ fontSize: 13, height: 36 }}>
-                  {MESES.map((m, i) => <MenuItem key={i + 1} value={i + 1}>{m}</MenuItem>)}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" sx={{ minWidth: 90 }}>
-                <Select value={ano} onChange={e => setAno(Number(e.target.value))} sx={{ fontSize: 13, height: 36 }}>
-                  {anos.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                </Select>
-              </FormControl>
-
               <Tooltip title="Atualizar">
                 <IconButton size="small" onClick={handleRefresh}
                   sx={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: '9px', p: 0.75, color: 'rgba(255,255,255,0.5)', '&:hover': { color: 'white', borderColor: 'rgba(255,255,255,0.28)', bgcolor: 'rgba(255,255,255,0.06)' } }}>
@@ -550,6 +564,27 @@ export default function CorrecaoPage() {
             </Box>
           </Box>
         </motion.div>
+
+        {/* ── Navegador de mês — compartilhado com Registros ── */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.03 }} style={{ flexShrink: 0 }}>
+          <Box sx={{ borderRadius: 2, background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <MonthNavigator accentColor="#f59e0b" />
+          </Box>
+        </motion.div>
+
+        {/* ── Aviso de janela expandida (mês atual sem pendências) ── */}
+        {janelaExpandida && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} style={{ flexShrink: 0 }}>
+            <Alert
+              icon={<HistoryIcon sx={{ fontSize: 18 }} />}
+              severity="info"
+              sx={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: 'rgba(255,237,213,0.9)', '& .MuiAlert-icon': { color: '#f59e0b' }, borderRadius: 2, py: 0.75 }}
+            >
+              <strong>{MESES[mes - 1]} {ano}</strong> ainda não tem pendências — mostrando também{' '}
+              <strong>{formatDate(janelaExpandida.inicio)} até {formatDate(janelaExpandida.fim)}</strong> (fechamento do mês anterior).
+            </Alert>
+          </motion.div>
+        )}
 
         {/* ── Chips de filtro por status ── */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, delay: 0.05 }} style={{ flexShrink: 0 }}>
@@ -634,7 +669,9 @@ export default function CorrecaoPage() {
                     )}
                   </Typography>
                   <Typography sx={{ fontSize: 11.5, color: 'rgba(255,255,255,0.3)' }}>
-                    {MESES[mes - 1]} {ano}
+                    {janelaExpandida
+                      ? `${formatDate(janelaExpandida.inicio)} – ${formatDate(janelaExpandida.fim)}`
+                      : `${MESES[mes - 1]} ${ano}`}
                   </Typography>
                 </Box>
 

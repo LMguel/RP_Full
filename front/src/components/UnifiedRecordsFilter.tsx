@@ -10,7 +10,6 @@ import {
 import {
   Search as SearchIcon,
   Clear as ClearIcon,
-  CalendarToday as CalendarIcon,
   FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { Filter } from 'lucide-react';
@@ -57,17 +56,6 @@ interface UnifiedRecordsFilterProps {
 }
 
 // Funções utilitárias para datas
-const getFirstDayOfMonth = (yearMonth: string): string => {
-  const [year, month] = yearMonth.split('-').map(Number);
-  return `${year}-${month.toString().padStart(2, '0')}-01`;
-};
-
-const getLastDayOfMonth = (yearMonth: string): string => {
-  const [year, month] = yearMonth.split('-').map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
-  return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
-};
-
 const getCurrentMonth = (): string => {
   const now = new Date();
   const year = now.getFullYear();
@@ -81,7 +69,6 @@ const getMonthFromDate = (dateString: string): string =>
 const UnifiedRecordsFilter: React.FC<UnifiedRecordsFilterProps> = ({
   selectedEmployee,
   onEmployeeChange,
-  selectedMonth,
   onMonthChange,
   dateRange,
   onDateRangeChange,
@@ -135,18 +122,6 @@ const UnifiedRecordsFilter: React.FC<UnifiedRecordsFilterProps> = ({
       setEmployeeInput('');
     }
   }, [selectedEmployee]);
-
-  // Handler para mudança de mês
-  const handleMonthChange = (month: string) => {
-    onMonthChange(month);
-    if (month) {
-      // Quando um mês é selecionado, definir as datas automaticamente
-      onDateRangeChange({
-        start_date: getFirstDayOfMonth(month),
-        end_date: getLastDayOfMonth(month)
-      });
-    }
-  };
 
   // Handler para mudança de datas
   const handleDateRangeChange = (newRange: DateRange) => {
@@ -266,49 +241,17 @@ const UnifiedRecordsFilter: React.FC<UnifiedRecordsFilterProps> = ({
         />
       </Box>
 
-      {/* Segunda linha: Mês e Período de Consulta */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 2fr' }, gap: 3, mb: 3 }}>
-        {/* Mês */}
-        <TextField
-          label="Mês"
-          type="month"
-          value={selectedMonth || ''}
-          onChange={(e) => handleMonthChange(e.target.value)}
-          size="small"
-          InputLabelProps={{ shrink: true }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <CalendarIcon sx={{ fontSize: 18, color: 'rgba(255, 255, 255, 0.7)' }} />
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              color: 'rgba(255, 255, 255, 0.9)',
-              '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-              '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
-              '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
-            },
-            '& .MuiInputLabel-root': {
-              color: 'rgba(255, 255, 255, 0.7)',
-              '&.Mui-focused': { color: '#3b82f6' }
-            },
-          }}
+      {/* Segunda linha: Período de Consulta (mês é controlado pelo navegador grande acima) */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, fontSize: '0.75rem' }}>
+          Período de Consulta
+        </Typography>
+        <DateRangePicker
+          value={dateRange}
+          onChange={handleDateRangeChange}
+          placeholder="Selecionar período dos registros"
+          className="w-full"
         />
-
-        {/* Período de Consulta */}
-        <Box>
-          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1, fontSize: '0.75rem' }}>
-            Período de Consulta
-          </Typography>
-          <DateRangePicker
-            value={dateRange}
-            onChange={handleDateRangeChange}
-            placeholder="Selecionar período dos registros"
-            className="w-full"
-          />
-        </Box>
       </Box>
 
       {/* Terceira linha: Botões */}

@@ -21,10 +21,12 @@ import {
   CardContent,
 } from '@mui/material';
 import UnifiedRecordsFilter from '../components/UnifiedRecordsFilter';
+import MonthNavigator from '../components/MonthNavigator';
 import TimeRecordForm from '../components/TimeRecordForm';
 import { motion } from 'framer-motion';
 import XLSXStyle from 'xlsx-js-style';
 import { useAuth } from '../contexts/AuthContext';
+import { usePeriodo } from '../contexts/PeriodoContext';
 import { apiService } from '../services/api';
 import { Employee, WeeklyScheduleMap, WeekdayKey } from '../types';
 
@@ -109,6 +111,8 @@ const RecordsSummaryPage: React.FC = () => {
   const navigate = useNavigate();
   type EmployeeOption = { id: string; nome: string; cargo?: string };
 
+  const { ano: periodoAno, mes: periodoMes, dataInicio: periodoInicio, dataFim: periodoFim, setPeriodo } = usePeriodo();
+
   const [employeeSummaries, setEmployeeSummaries] = useState<EmployeeSummary[]>([]);
   const [dailyByEmployee, setDailyByEmployee] = useState<Record<string, any[]>>({});
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -121,11 +125,16 @@ const RecordsSummaryPage: React.FC = () => {
   const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
   const currentMonthEnd   = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
-  const [dateRange, setDateRange] = useState({
-    start_date: currentMonthStart.toISOString().split('T')[0],
-    end_date:   currentMonthEnd.toISOString().split('T')[0],
-  });
-  const [selectedMonth, setSelectedMonth] = useState('');
+  // dateRange inicia sincronizado com o período compartilhado (Registros ↔ Correções);
+  // pode ser sobrescrito localmente por um intervalo customizado no filtro avançado.
+  const [dateRange, setDateRange] = useState({ start_date: periodoInicio, end_date: periodoFim });
+  const [selectedMonth, setSelectedMonth] = useState(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+
+  // Mês trocado pelo MonthNavigator (ou pela troca de aba) → refletir no dateRange local.
+  useEffect(() => {
+    setDateRange({ start_date: periodoInicio, end_date: periodoFim });
+    setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+  }, [periodoInicio, periodoFim, periodoAno, periodoMes]);
   const [snackbarOpen, setSnackbarOpen]       = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success'|'error'|'warning'|'info'>('success');
@@ -154,9 +163,6 @@ const RecordsSummaryPage: React.FC = () => {
     return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
   };
 
-  const getFirstDayOfMonth  = (ym: string) => { const [y,m]=ym.split('-').map(Number); return `${y}-${String(m).padStart(2,'0')}-01`; };
-  const getLastDayOfMonth   = (ym: string) => { const [y,m]=ym.split('-').map(Number); const l=new Date(y,m,0).getDate(); return `${y}-${String(m).padStart(2,'0')}-${String(l).padStart(2,'0')}`; };
-  const getCurrentMonth     = () => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`; };
   const getMonthFromDate    = (s: string) => s ? s.substring(0, 7) : '';
   const showSnackbar = (msg: string, sev: typeof snackbarSeverity) => { setSnackbarMessage(msg); setSnackbarSeverity(sev); setSnackbarOpen(true); };
 
@@ -335,22 +341,28 @@ const RecordsSummaryPage: React.FC = () => {
   // ── Filtros ───────────────────────────────────────────────────────────────────
 
   const handleMonthChange = (month: string) => {
-    setSelectedMonth(month);
-    setDateRange(month
-      ? { start_date: getFirstDayOfMonth(month), end_date: getLastDayOfMonth(month) }
-      : { start_date: '', end_date: '' });
+    if (!month) { setSelectedMonth(''); setDateRange({ start_date: '', end_date: '' }); return; }
+    const [y, m] = month.split('-').map(Number);
+    setPeriodo(y, m); // propaga para o contexto compartilhado (Registros ↔ Correções)
   };
   const handleDateRangeChange = (newRange: typeof dateRange) => {
     const n = { start_date: newRange.start_date || '', end_date: newRange.end_date || '' };
     setDateRange(n);
     if (n.start_date && n.end_date) {
       const m1 = getMonthFromDate(n.start_date), m2 = getMonthFromDate(n.end_date);
-      setSelectedMonth(m1 === m2 ? m1 : '');
+      if (m1 === m2 && m1) {
+        const [y, m] = m1.split('-').map(Number);
+        setSelectedMonth(m1);
+        setPeriodo(y, m);
+      } else {
+        setSelectedMonth('');
+      }
     } else setSelectedMonth('');
   };
   const handleClearFilters = () => {
-    setDateRange({ start_date: currentMonthStart.toISOString().split('T')[0], end_date: currentMonthEnd.toISOString().split('T')[0] });
-    setSelectedMonth(''); setSelectedEmployee(null); setStatusFilter('TODOS');
+    setDateRange({ start_date: periodoInicio, end_date: periodoFim });
+    setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+    setSelectedEmployee(null); setStatusFilter('TODOS');
   };
 
   // ── Efeitos ───────────────────────────────────────────────────────────────────
@@ -372,12 +384,6 @@ const RecordsSummaryPage: React.FC = () => {
       setEmpresaNome(user?.empresa_nome || '');
     });
   }, [user]);
-
-  useEffect(() => {
-    const m = getCurrentMonth();
-    setSelectedMonth(m);
-    setDateRange({ start_date: getFirstDayOfMonth(m), end_date: getLastDayOfMonth(m) });
-  }, []);
 
   // ── Formulário ────────────────────────────────────────────────────────────────
 
@@ -676,6 +682,13 @@ const RecordsSummaryPage: React.FC = () => {
               </button>
             )}
           </div>
+        </motion.div>
+
+        {/* Navegador de mês — compartilhado com Correções */}
+        <motion.div initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.4, delay:0.05 }}>
+          <Paper sx={{ borderRadius:2, background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)' }}>
+            <MonthNavigator accentColor="#8b5cf6" />
+          </Paper>
         </motion.div>
 
         {/* Banner — Dia em processamento */}

@@ -164,7 +164,7 @@ const RHPreFolhaPage: React.FC = () => {
       {/* Totalizadores */}
       {items.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mb: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 1, mb: 2 }}>
             {[
               { label: 'Folha Total',   value: fmtBRL(totalFolha),  color: RH_COLOR },
               { label: 'Total Extras',  value: fmtBRL(totalExtras), color: '#34d399' },

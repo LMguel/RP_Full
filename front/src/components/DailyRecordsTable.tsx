@@ -14,6 +14,8 @@ import {
 } from '@mui/material';
 import { AccessTime as AccessTimeIcon } from '@mui/icons-material';
 import UnifiedRecordsFilter from './UnifiedRecordsFilter';
+import MonthNavigator from './MonthNavigator';
+import { usePeriodo } from '../contexts/PeriodoContext';
 import { getDailySummaries, getDayDetails } from '../services/dailySummaryService';
 import { apiService } from '../services/api';
 import * as XLSX from 'xlsx';
@@ -39,25 +41,7 @@ const formatDateLabel = (value?: string): string => {
   return `${d}/${m}/${y}`;
 };
 
-// Funções utilitárias para mês
-const getCurrentMonth = (): string => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  return `${year}-${month.toString().padStart(2, '0')}`;
-};
-
-const getFirstDayOfMonth = (yearMonth: string): string => {
-  const [year, month] = yearMonth.split('-').map(Number);
-  return `${year}-${month.toString().padStart(2, '0')}-01`;
-};
-
-const getLastDayOfMonth = (yearMonth: string): string => {
-  const [year, month] = yearMonth.split('-').map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
-  return `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
-};
-
+// Função utilitária para mês
 const getMonthFromDate = (dateString: string): string => {
   if (!dateString) return '';
   const date = new Date(dateString);
@@ -79,23 +63,28 @@ const minutosPrevistosDia = (horario_entrada: string, horario_saida: string, int
 
 const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }) => {
   const currentDate = new Date();
-  const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-  const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
   const todayISO = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(currentDate.getDate()).padStart(2,'0')}`;
+
+  const { ano: periodoAno, mes: periodoMes, dataInicio: periodoInicio, dataFim: periodoFim, setPeriodo } = usePeriodo();
 
   // Tipo simplificado para filtro
   type EmployeeOption = { id: string; nome: string; cargo?: string };
 
-  const [dateRange, setDateRange] = useState({
-    start_date: formatDateForInput(currentMonthStart),
-    end_date: formatDateForInput(currentMonthEnd),
-  });
-  
+  // dateRange inicia sincronizado com o período compartilhado (Registros ↔ Correções);
+  // pode ser sobrescrito localmente por um intervalo customizado no filtro avançado.
+  const [dateRange, setDateRange] = useState({ start_date: periodoInicio, end_date: periodoFim });
+
   // Estados para filtros unificados
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeOption | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
+  const [selectedMonth, setSelectedMonth] = useState(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+
+  // Mês trocado pelo MonthNavigator (ou pela troca de aba) → refletir no dateRange local.
+  useEffect(() => {
+    setDateRange({ start_date: periodoInicio, end_date: periodoFim });
+    setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
+  }, [periodoInicio, periodoFim, periodoAno, periodoMes]);
 
   const [summaries, setSummaries] = useState<any[]>([]);
   // Mapa employee_id → jornada { horario_entrada, horario_saida, intervalo_min }
@@ -202,8 +191,10 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
     if (newRange.start_date && newRange.end_date) {
       const monthFrom = getMonthFromDate(newRange.start_date);
       const monthTo = getMonthFromDate(newRange.end_date);
-      if (monthFrom === monthTo) {
+      if (monthFrom === monthTo && monthFrom) {
+        const [y, m] = monthFrom.split('-').map(Number);
         setSelectedMonth(monthFrom);
+        setPeriodo(y, m);
       } else {
         setSelectedMonth('');
       }
@@ -211,13 +202,9 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
   };
 
   const handleMonthChange = (month: string) => {
-    setSelectedMonth(month);
-    if (month) {
-      setDateRange({
-        start_date: getFirstDayOfMonth(month),
-        end_date: getLastDayOfMonth(month)
-      });
-    }
+    if (!month) { setSelectedMonth(''); setDateRange({ start_date: '', end_date: '' }); return; }
+    const [y, m] = month.split('-').map(Number);
+    setPeriodo(y, m); // propaga para o contexto compartilhado (Registros ↔ Correções)
   };
 
   const handleEmployeeClick = async (summary: any) => {
@@ -237,9 +224,9 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
   };
 
   const clearFilters = () => {
-    setDateRange({ start_date: formatDateForInput(currentMonthStart), end_date: formatDateForInput(currentMonthEnd) });
+    setDateRange({ start_date: periodoInicio, end_date: periodoFim });
     setSelectedEmployee(null);
-    setSelectedMonth(getCurrentMonth());
+    setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
   };
 
   const getExpectedMinutesForDate = (dateStr: string, sched?: { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }) => {
@@ -297,7 +284,11 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
   };
 
   return (
-    <Paper sx={{ borderRadius: 2, background: 'rgba(255, 255, 255, 0.08)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
+    <>
+      <Paper sx={{ borderRadius: 2, background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', mb: 3 }}>
+        <MonthNavigator accentColor="#8b5cf6" />
+      </Paper>
+      <Paper sx={{ borderRadius: 2, background: 'rgba(255, 255, 255, 0.08)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
       {/* Filtros Unificados */}
       <UnifiedRecordsFilter
         selectedEmployee={selectedEmployee}
@@ -476,7 +467,8 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
           </TableBody>
         </Table>
       </TableContainer>
-    </Paper>
+      </Paper>
+    </>
   );
 };
 

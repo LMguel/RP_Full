@@ -94,6 +94,7 @@ interface RegistroDia {
   atestado_url?: string;
   cor: 'verde' | 'vermelho' | 'laranja' | 'azul' | 'cinza' | 'amarelo';
   registros: TimeRecord[];
+  registros_ativos: TimeRecord[]; // registros excluindo INVALIDADO/AJUSTADO — usado para decidir presença
 }
 
 const dialogFieldSx = {
@@ -109,6 +110,8 @@ const EmployeeRecordsPage: React.FC = () => {
   const { search: locationSearch } = useLocation();
 
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithRecords | null>(null);
+  // Lista de funcionários (ordem alfabética) — permite navegar para o próximo/anterior sem voltar à tabela.
+  const [employeeList, setEmployeeList] = useState<{ id: string; nome: string }[]>([]);
   const [selectedEmployeeRecords, setSelectedEmployeeRecords] = useState<TimeRecord[]>([]);
   // Resumos diários do backend (fonte única de verdade para cálculos)
   const [dailySummaries, setDailySummaries] = useState<Record<string, any>>({});
@@ -167,6 +170,12 @@ const EmployeeRecordsPage: React.FC = () => {
   const [calendarMenuDay, setCalendarMenuDay] = useState<RegistroDia | null>(null);
   const [marcarFolgaSubmitting, setMarcarFolgaSubmitting] = useState(false);
 
+  const [marcarFolgaDialogOpen, setMarcarFolgaDialogOpen] = useState(false);
+  const [marcarFolgaConfig, setMarcarFolgaConfig] = useState<{
+    dataInicio: string;
+    dataFim: string;
+  } | null>(null);
+
   const [novoAtestadoOpen, setNovoAtestadoOpen] = useState(false);
   const [novoAtestadoDay, setNovoAtestadoDay] = useState('');
   const [novoAtestadoDias, setNovoAtestadoDias] = useState(1);
@@ -206,6 +215,16 @@ const EmployeeRecordsPage: React.FC = () => {
   const monthLabel = () => {
     const [y, m] = (selectedMonth || getCurrentMonth()).split('-');
     return new Date(Number(y), Number(m)-1, 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  // Navegação entre funcionários (próximo/anterior) sem precisar voltar à tabela.
+  const employeeIndex = employeeList.findIndex(e => e.id === employeeId);
+  const previousEmployee = employeeIndex > 0 ? employeeList[employeeIndex - 1] : null;
+  const nextEmployee = employeeIndex >= 0 && employeeIndex < employeeList.length - 1 ? employeeList[employeeIndex + 1] : null;
+
+  const goToEmployee = (target: { id: string; nome: string } | null) => {
+    if (!target) return;
+    navigate(`/records/employee/${target.id}/${encodeURIComponent(target.nome)}?month=${selectedMonth || getCurrentMonth()}`);
   };
 
   const showSnackbar = (msg: string, sev: 'success' | 'error' | 'warning' | 'info') => { setSnackbarMessage(msg); setSnackbarSeverity(sev); setSnackbarOpen(true); };
@@ -363,6 +382,7 @@ const EmployeeRecordsPage: React.FC = () => {
       // String formatting direto — sem conversão UTC
       const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const records = grouped[iso] || [];
+      const activeRecords = records.filter(r => !['INVALIDADO','AJUSTADO'].includes((r as any).status || 'ATIVO'));
       const dow = new Date(`${iso}T12:00:00`).getDay();
       const isPast = iso < todayISO;
       const feriadoNome = activeHolidayMap[iso];
@@ -390,7 +410,7 @@ const EmployeeRecordsPage: React.FC = () => {
           horas_trabalhadas: undefined, horas_extras: undefined,
           atraso_min: undefined, saida_antecipada_min: undefined,
           horas_extras_min: undefined, feriado_credit_min: undefined,
-          status: 'EM_PROCESSAMENTO', cor: 'cinza', registros: records,
+          status: 'EM_PROCESSAMENTO', cor: 'cinza', registros: records, registros_ativos: activeRecords,
         });
         continue;
       }
@@ -425,8 +445,12 @@ const EmployeeRecordsPage: React.FC = () => {
         const bancoDia = summary ? Number((summary as any).banco_horas_dia ?? 0) : 0;
         if (bancoDia < 0) { status = 'ATRASO'; cor = 'laranja'; }
         else { status = 'PRESENTE'; cor = 'verde'; }
-      } else if (isWorkday && isPast) {
+      } else if (isWorkday && isPast && activeRecords.length === 0) {
         status = 'FALTA'; cor = 'vermelho';
+      } else if (isWorkday && isPast && activeRecords.length > 0) {
+        // Há batidas ativas mas o motor calculou 0min trabalhado (ex.: registros
+        // fora de ordem cronológica) — trata como pendência a corrigir, não falta.
+        status = 'INCOMPLETO'; cor = 'amarelo';
       }
 
       // Crédito automático para feriados — APENAS jornada fixa.
@@ -459,7 +483,7 @@ const EmployeeRecordsPage: React.FC = () => {
         horas_extras_min: summary ? Number((summary as any).horas_extras_min ?? summary.horas_extras ?? 0) : undefined,
         feriado_credit_min: feriadoCreditMin > 0 ? feriadoCreditMin : undefined,
         atestado_url: atestadoUrl,
-        status, cor, registros: records,
+        status, cor, registros: records, registros_ativos: activeRecords,
       });
     }
     return days;
@@ -470,12 +494,12 @@ const EmployeeRecordsPage: React.FC = () => {
   const diasTrabalhados = calendarDays.filter(d =>
     d.status === 'FERIAS' ||
     d.status === 'ATESTADO' ||
-    d.registros.length > 0 ||
+    d.registros_ativos.length > 0 ||
     d.status === 'INCOMPLETO' ||
     (dailySummaries[d.data] && Number(dailySummaries[d.data].horas_trabalhadas_min || 0) > 0)
   );
   const feriadosAutoCredit = calendarDays.filter(
-    d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros.length === 0
+    d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros_ativos.length === 0
   );
   // Dias de falta: dia útil passado sem registro — aparece na tabela para o gestor
   const _todayForFilter = (() => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
@@ -628,24 +652,41 @@ const EmployeeRecordsPage: React.FC = () => {
     setCalendarMenuAnchor(e.currentTarget);
   };
 
-  const handleMarcarFolga = async () => {
-    if (!calendarMenuDay || !employeeId) return;
+  const handleMarcarFolga = () => {
+    if (!calendarMenuDay) return;
     setCalendarMenuAnchor(null);
+    setMarcarFolgaConfig({
+      dataInicio: calendarMenuDay.data,
+      dataFim: calendarMenuDay.data,
+    });
+    setMarcarFolgaDialogOpen(true);
+    setCalendarMenuDay(null);
+  };
+
+  const handleMarcarFolgaConfirm = async () => {
+    if (!marcarFolgaConfig || !employeeId) return;
     setMarcarFolgaSubmitting(true);
     try {
-      await apiService.registerFerias({
+      const resp = await apiService.registerFerias({
         employee_id: employeeId,
-        data_inicio: calendarMenuDay.data,
-        data_fim: calendarMenuDay.data,
+        data_inicio: marcarFolgaConfig.dataInicio,
+        data_fim: marcarFolgaConfig.dataFim,
         justificativa: 'Folga programada',
       });
-      showSnackbar('Folga marcada com sucesso!', 'success');
+      const pulados = resp?.dias_nao_uteis_pulados?.length || 0;
+      showSnackbar(
+        pulados > 0
+          ? `Folga marcada! ${pulados} dia(s) sem jornada prevista foram ignorados.`
+          : 'Folga marcada com sucesso!',
+        'success'
+      );
+      setMarcarFolgaDialogOpen(false);
+      setMarcarFolgaConfig(null);
       buscarRegistrosFuncionario();
     } catch (err: any) {
       showSnackbar(err?.response?.data?.mensagem || 'Erro ao marcar folga', 'error');
     } finally {
       setMarcarFolgaSubmitting(false);
-      setCalendarMenuDay(null);
     }
   };
 
@@ -943,6 +984,16 @@ const EmployeeRecordsPage: React.FC = () => {
 
   useEffect(() => { if (employeeId) buscarRegistrosFuncionario(); }, [buscarRegistrosFuncionario]);
 
+  // Lista de funcionários (ordem alfabética) — usada para navegar ao próximo/anterior.
+  useEffect(() => {
+    apiService.getEmployees().then((r: any) => {
+      const list = [...(r.funcionarios || [])]
+        .sort((a: any, b: any) => (a.nome || '').localeCompare(b.nome || ''))
+        .map((e: any) => ({ id: e.id, nome: e.nome }));
+      setEmployeeList(list);
+    }).catch(() => {});
+  }, []);
+
   // Carrega feriados ativos da empresa (inclui datas passadas) para o mês/ano selecionado.
   useEffect(() => {
     const loadActiveHolidays = async () => {
@@ -1005,20 +1056,30 @@ const EmployeeRecordsPage: React.FC = () => {
       <Box sx={{ mb: 4 }}>
         <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5 }}>
           <Box sx={{ display:'flex', flexDirection:{ xs:'column', sm:'row' }, alignItems:{ sm:'center' }, justifyContent:'space-between', gap:2 }}>
-            <Box sx={{ display:'flex', alignItems:'center', gap:2 }}>
+            <Box sx={{ display:'flex', alignItems:'center', gap:{ xs:1, sm:2 }, flexWrap:'wrap', minWidth:0 }}>
               <IconButton onClick={() => navigate('/records')} sx={{ backgroundColor:'rgba(255,255,255,0.1)', color:'white', '&:hover':{ backgroundColor:'rgba(255,255,255,0.2)' } }}><ArrowBackIcon /></IconButton>
-              <Box>
-                <Typography variant="h4" sx={{ fontWeight:700, color:'white', fontSize:'28px' }}>{selectedEmployee?.nome || employeeName}</Typography>
+              <Tooltip title={previousEmployee ? `Funcionário anterior: ${previousEmployee.nome}` : ''}>
+                <span>
+                  <IconButton onClick={() => goToEmployee(previousEmployee)} disabled={!previousEmployee} sx={{ color:'white', backgroundColor:'rgba(255,255,255,0.08)', '&:hover':{ backgroundColor:'rgba(255,255,255,0.15)' }, '&.Mui-disabled':{ color:'rgba(255,255,255,0.2)' } }}><ChevronLeftIcon /></IconButton>
+                </span>
+              </Tooltip>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="h4" sx={{ fontWeight:700, color:'white', fontSize:{ xs:'20px', sm:'28px' } }}>{selectedEmployee?.nome || employeeName}</Typography>
                 <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mt:0.5, textTransform:'capitalize' }}>Espelho de ponto</Typography>
               </Box>
+              <Tooltip title={nextEmployee ? `Próximo funcionário: ${nextEmployee.nome}` : ''}>
+                <span>
+                  <IconButton onClick={() => goToEmployee(nextEmployee)} disabled={!nextEmployee} sx={{ color:'white', backgroundColor:'rgba(255,255,255,0.08)', '&:hover':{ backgroundColor:'rgba(255,255,255,0.15)' }, '&.Mui-disabled':{ color:'rgba(255,255,255,0.2)' } }}><ChevronRightIcon /></IconButton>
+                </span>
+              </Tooltip>
             </Box>
-            <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+            <Box sx={{ display:'flex', alignItems:'center', gap:1, flexWrap:'wrap', justifyContent:'center' }}>
               <IconButton onClick={() => shiftMonth(-1)} sx={{ color:'white', backgroundColor:'rgba(255,255,255,0.08)', '&:hover':{ backgroundColor:'rgba(255,255,255,0.15)' } }}><ChevronLeftIcon /></IconButton>
-              <Typography sx={{ color:'white', fontWeight:700, minWidth:160, textAlign:'center', textTransform:'capitalize' }}>{monthLabel()}</Typography>
+              <Typography sx={{ color:'white', fontWeight:700, minWidth:{ xs:120, sm:160 }, textAlign:'center', textTransform:'capitalize', fontSize:{ xs:14, sm:16 } }}>{monthLabel()}</Typography>
               <IconButton onClick={() => shiftMonth(1)} sx={{ color:'white', backgroundColor:'rgba(255,255,255,0.08)', '&:hover':{ backgroundColor:'rgba(255,255,255,0.15)' } }}><ChevronRightIcon /></IconButton>
             </Box>
-            <Box sx={{ display:'flex', gap:1.5 }}>
-              <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportEmployeeHistory} disabled={diasTrabalhados.length===0} sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.8)', '&:hover':{ borderColor:'rgba(255,255,255,0.6)', background:'rgba(255,255,255,0.05)' } }}>Excel</Button>
+            <Box sx={{ display:'flex', gap:1.5, width:{ xs:'100%', sm:'auto' } }}>
+              <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportEmployeeHistory} disabled={diasTrabalhados.length===0} fullWidth sx={{ borderColor:'rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.8)', width:{ xs:'100%', sm:'auto' }, '&:hover':{ borderColor:'rgba(255,255,255,0.6)', background:'rgba(255,255,255,0.05)' } }}>Excel</Button>
             </Box>
           </Box>
         </motion.div>
@@ -1192,7 +1253,7 @@ const EmployeeRecordsPage: React.FC = () => {
                   {/* temTrabalho: verdadeiro se há registros brutos OU summary calculado (hasSummaryOnly) */}
                   {(() => {
                     const isProcessing = day.status === 'EM_PROCESSAMENTO';
-                    const temTrabalho = !isProcessing && (day.registros.length > 0 || day.status === 'PRESENTE' || day.status === 'ATRASO' || day.status === 'INCOMPLETO' || day.status === 'FERIAS' || day.status === 'ATESTADO');
+                    const temTrabalho = !isProcessing && (day.registros_ativos.length > 0 || day.status === 'PRESENTE' || day.status === 'ATRASO' || day.status === 'INCOMPLETO' || day.status === 'FERIAS' || day.status === 'ATESTADO');
                     return (
                       <Box
                         onClick={(e) => day.status !== 'FERIADO' && day.status !== 'EM_PROCESSAMENTO' ? handleCalendarDayClick(day, e) : undefined}
@@ -1256,13 +1317,13 @@ const EmployeeRecordsPage: React.FC = () => {
                   <Typography component="span" sx={{ color:'rgba(255,255,255,0.45)', fontSize:13, ml:1 }}>({diasSorted.length} dias)</Typography>
                 </Typography>
               </Box>
-              <Box sx={{ display:'flex', gap:1, alignItems:'center' }}>
+              <Box sx={{ display:'flex', gap:1, alignItems:'center', flexWrap:'wrap' }}>
                 <Button size="small" startIcon={<AddIcon />} onClick={() => openAddRecord()}
                   sx={{ background:'rgba(59,130,246,0.15)', border:'1px solid rgba(59,130,246,0.35)', color:'#60a5fa', fontWeight:700, fontSize:12, px:1.5, '&:hover':{ background:'rgba(59,130,246,0.25)' } }}>
                   Adicionar
                 </Button>
-                <TextField label="De" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value&&dateTo) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:140, ...dialogFieldSx }} />
-                <TextField label="Ate" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (dateFrom&&e.target.value) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:140, ...dialogFieldSx }} />
+                <TextField label="De" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); if (e.target.value&&dateTo) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:{ xs:130, sm:140 }, ...dialogFieldSx }} />
+                <TextField label="Ate" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); if (dateFrom&&e.target.value) setSelectedMonth(getMonthFromDate(e.target.value)); }} size="small" InputLabelProps={{ shrink:true }} sx={{ width:{ xs:130, sm:140 }, ...dialogFieldSx }} />
                 <IconButton onClick={() => { const c=getCurrentMonth(); setSelectedMonth(c); setDateFrom(getFirstDayOfMonth(c)); setDateTo(getLastDayOfMonth(c)); }} size="small" sx={{ color:'rgba(255,255,255,0.6)' }}><ClearIcon fontSize="small" /></IconButton>
               </Box>
             </Box>
@@ -1888,6 +1949,39 @@ const EmployeeRecordsPage: React.FC = () => {
             disabled={undoSubmitting || !undoConfig?.dataInicio || !undoConfig?.dataFim}
             startIcon={undoSubmitting ? <CircularProgress size={18} color="inherit" /> : <UndoIcon />}>
             {undoSubmitting ? 'Removendo...' : 'Desfazer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DIALOG MARCAR FÉRIAS / FOLGA */}
+      <Dialog open={marcarFolgaDialogOpen} onClose={() => !marcarFolgaSubmitting && setMarcarFolgaDialogOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx:{ borderRadius:2, background:'rgba(15,23,42,0.97)', border:'1px solid rgba(255,255,255,0.1)', color:'white' } }}>
+        <DialogTitle sx={{ fontWeight:700, color:'white', display:'flex', alignItems:'center', gap:1 }}>
+          <BeachAccessIcon sx={{ color:'#a78bfa', fontSize:20 }} />
+          Marcar Férias / Folga
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', mb:2 }}>
+            Os dias no intervalo abaixo serão marcados como <strong style={{ color:'#a78bfa' }}>Férias / Folga</strong>.
+            Dias sem jornada prevista (ex: fim de semana ou folga fixa) são ignorados automaticamente.
+          </Typography>
+          <Box sx={{ display:'flex', gap:2, mt:1 }}>
+            <TextField label="Data início" type="date" value={marcarFolgaConfig?.dataInicio || ''}
+              onChange={e => setMarcarFolgaConfig(p => p ? { ...p, dataInicio: e.target.value } : p)}
+              InputLabelProps={{ shrink:true }} sx={{ flex:1, ...dialogFieldSx }} />
+            <TextField label="Data fim" type="date" value={marcarFolgaConfig?.dataFim || ''}
+              onChange={e => setMarcarFolgaConfig(p => p ? { ...p, dataFim: e.target.value } : p)}
+              InputLabelProps={{ shrink:true }} sx={{ flex:1, ...dialogFieldSx }} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setMarcarFolgaDialogOpen(false); setMarcarFolgaConfig(null); }} disabled={marcarFolgaSubmitting}
+            sx={{ color:'rgba(255,255,255,0.6)' }}>Cancelar</Button>
+          <Button onClick={handleMarcarFolgaConfirm} variant="contained"
+            disabled={marcarFolgaSubmitting || !marcarFolgaConfig?.dataInicio || !marcarFolgaConfig?.dataFim}
+            startIcon={marcarFolgaSubmitting ? <CircularProgress size={18} color="inherit" /> : <BeachAccessIcon />}
+            sx={{ background: '#8b5cf6', '&:hover': { background: '#7c3aed' } }}>
+            {marcarFolgaSubmitting ? 'Marcando...' : 'Marcar Folga'}
           </Button>
         </DialogActions>
       </Dialog>
