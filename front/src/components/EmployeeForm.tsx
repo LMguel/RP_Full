@@ -319,6 +319,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     }));
   };
 
+  const handleCopyMondayToWeekdays = () => {
+    const monday = horariosPorDia.segunda;
+    if (!monday?.entrada || !monday?.saida) return;
+    setHorariosPorDia(prev => {
+      const next = { ...prev };
+      (['terca', 'quarta', 'quinta', 'sexta'] as DiaSemana[]).forEach((d) => {
+        next[d] = { entrada: monday.entrada, saida: monday.saida, ativo: true };
+      });
+      return next;
+    });
+  };
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -437,7 +449,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       open={open}
       onClose={(_, reason) => { if (reason === 'backdropClick' || reason === 'escapeKeyDown') return; handleClose(); }}
       disableEscapeKeyDown
-      maxWidth="sm"
+      maxWidth="lg"
       fullWidth
       PaperProps={{
         sx: {
@@ -462,6 +474,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       <form onSubmit={handleSubmit}>
         <DialogContent sx={{ py: 4 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '320px 1fr' }, gap: 4, alignItems: 'start' }}>
+
+          {/* ── Coluna esquerda: identidade e acesso ── */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
             {/* Photo */}
@@ -534,8 +549,13 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               )}
             </Box>
 
+          </Box>
+
+          {/* ── Coluna direita: horários e intervalos ── */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+
             {/* Horários */}
-            <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
+            <Box>
               <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
                 Horários de Trabalho
               </Typography>
@@ -591,9 +611,31 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </FormControl>
 
                   {/* Per-day schedule grid */}
-                  {errors.horarios && (
-                    <Typography sx={{ color: '#ef4444', fontSize: 12, mb: 1 }}>{errors.horarios}</Typography>
-                  )}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                    {errors.horarios ? (
+                      <Typography sx={{ color: '#ef4444', fontSize: 12 }}>{errors.horarios}</Typography>
+                    ) : (
+                      <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 12 }}>
+                        Marque os dias que o funcionário trabalha e ajuste o horário de cada um.
+                      </Typography>
+                    )}
+                    <Button
+                      size="small"
+                      onClick={handleCopyMondayToWeekdays}
+                      disabled={loading || !horariosPorDia.segunda?.ativo || !horariosPorDia.segunda?.entrada || !horariosPorDia.segunda?.saida}
+                      sx={{
+                        textTransform: 'none',
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: '#93c5fd',
+                        whiteSpace: 'nowrap',
+                        '&:hover': { background: 'rgba(59, 130, 246, 0.1)' },
+                        '&.Mui-disabled': { color: 'rgba(255,255,255,0.25)' },
+                      }}
+                    >
+                      Aplicar Segunda a Sexta
+                    </Button>
+                  </Box>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {WEEK_DAYS_WITH_LABELS.map(({ key: dayKey, label }) => {
                       const dayData = horariosPorDia[dayKey];
@@ -671,8 +713,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   Sobrepõe a configuração da empresa apenas para este funcionário. Deixe marcado "Utilizar configuração da empresa" para manter o comportamento padrão.
                 </Typography>
 
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 2, alignItems: 'start' }}>
+
                 {/* Intervalo Padrão */}
-                <Box sx={{ p: 2, borderRadius: '10px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', mb: 2 }}>
+                <Box sx={{ p: 2, borderRadius: '10px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, mb: 1 }}>
                     Intervalo Padrão
                   </Typography>
@@ -752,11 +796,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     </>
                   )}
                 </Box>
+
+                </Box>
+                {/* fim grid intervalo / entrada antecipada */}
               </Box>
             )}
 
+          </Box>
+          {/* fim coluna direita */}
 
           </Box>
+          {/* fim grid de duas colunas */}
         </DialogContent>
 
         <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>

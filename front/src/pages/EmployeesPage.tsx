@@ -229,10 +229,9 @@ const EmployeesPage: React.FC = () => {
     setSelectedEmployee(null);
   };
 
-  const handleEdit = () => {
-    setEditingEmployee(selectedEmployee);
+  const handleEdit = (employee: Employee) => {
+    setEditingEmployee(employee);
     setFormOpen(true);
-    handleMenuClose();
   };
 
   const handleDelete = () => {
@@ -359,6 +358,11 @@ const EmployeesPage: React.FC = () => {
               <Table>
                 <TableHead>
                   <TableRow>
+                    {!isViewer && (
+                      <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600, width: 90 }}>
+                        Editar
+                      </TableCell>
+                    )}
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Funcionário
                     </TableCell>
@@ -393,6 +397,34 @@ const EmployeesPage: React.FC = () => {
                     filteredEmployees.map((employee) => {
                       return (
                         <TableRow key={employee.id} hover>
+                        {!isViewer && (
+                          <TableCell align="center">
+                            <Button
+                              onClick={() => handleEdit(employee)}
+                              size="small"
+                              startIcon={<EditIcon sx={{ fontSize: 16 }} />}
+                              sx={{
+                                textTransform: 'none',
+                                fontWeight: 600,
+                                fontSize: 13,
+                                color: '#60a5fa',
+                                background: 'rgba(59, 130, 246, 0.12)',
+                                border: '1px solid rgba(59, 130, 246, 0.35)',
+                                borderRadius: '10px',
+                                px: 1.5,
+                                py: 0.5,
+                                transition: 'all 0.15s ease',
+                                '&:hover': {
+                                  background: 'rgba(59, 130, 246, 0.25)',
+                                  borderColor: 'rgba(59, 130, 246, 0.6)',
+                                  transform: 'translateY(-1px)',
+                                },
+                              }}
+                            >
+                              Editar
+                            </Button>
+                          </TableCell>
+                        )}
                         <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar
@@ -519,7 +551,7 @@ const EmployeesPage: React.FC = () => {
                    : (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={isViewer ? 9 : 10}
                         align="center"
                         sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                       >
@@ -574,13 +606,6 @@ const EmployeesPage: React.FC = () => {
           }
         }}
       >
-        <MenuItem onClick={handleEdit} sx={{ color: '#111827' }}>
-          <ListItemIcon>
-            <EditIcon fontSize="small" sx={{ color: '#374151' }} />
-          </ListItemIcon>
-          <ListItemText primaryTypographyProps={{ sx: { color: '#111827' } }}>Editar</ListItemText>
-        </MenuItem>
-
         <MenuItem onClick={handleDelete} sx={{ color: '#ef4444' }}>
           <ListItemIcon>
             <DeleteIcon fontSize="small" sx={{ color: '#ef4444' }} />

@@ -1818,6 +1818,17 @@ const EmployeeRecordsPage: React.FC = () => {
           </MenuItem>
         )}
 
+        {/* Adicionar registro — para qualquer dia que não seja férias/folga ou atestado */}
+        {calendarMenuDay && calendarMenuDay.status !== 'FERIAS' && calendarMenuDay.status !== 'ATESTADO' && (
+          <MenuItem
+            onClick={() => { setCalendarMenuAnchor(null); openAddRecord(calendarMenuDay.data); setCalendarMenuDay(null); }}
+            sx={{ py: 1, gap: 1.5, '&:hover': { background: 'rgba(37,99,235,0.12)' } }}
+          >
+            <ListItemIcon sx={{ minWidth: 0 }}><AddIcon sx={{ fontSize: 16, color: '#60a5fa' }} /></ListItemIcon>
+            <ListItemText primary="Adicionar Registro" primaryTypographyProps={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }} />
+          </MenuItem>
+        )}
+
         {/* Marcar folga — para dias sem registro, falta, ou com trabalho */}
         {calendarMenuDay && calendarMenuDay.status !== 'FERIAS' && calendarMenuDay.status !== 'ATESTADO' && (
           <MenuItem onClick={handleMarcarFolga} disabled={marcarFolgaSubmitting}
