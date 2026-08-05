@@ -523,6 +523,7 @@ const EmployeeRecordsPage: React.FC = () => {
     // banco > 0 vira Horas Extras, banco < 0 vira Atrasos (mesma fonte da tabela).
     Object.entries(dailySummaries).forEach(([iso, s]) => {
       if (iso >= todayISO) return; // hoje = EM_PROCESSAMENTO — não contabilizar
+      if ((s as any).status === 'FERIAS') return; // folga: não conta em nada (nem trabalhado, nem previsto)
       totalMinTrabalhados += Number(s.horas_trabalhadas_min || 0);
       totalMinPrevistos   += Number(s.horas_previstas_min  || 0);
       const bancoDia = Number((s as any).banco_horas_dia ?? 0);
@@ -565,9 +566,11 @@ const EmployeeRecordsPage: React.FC = () => {
     const displayAtrasos    = totalMinAtrasos;
     const displayTrabalhado = totalMinTrabalhados;
 
+    // Folga/férias NÃO é presença nem falta — é excluída do numerador e do
+    // denominador, então não interfere na % de presença/cumprimento.
     const presentes = calendarDays.filter(d => {
       if (d.status === 'PRESENTE' || d.status === 'ATRASO' || d.status === 'INCOMPLETO') return true;
-      if (d.status === 'FERIAS' || d.status === 'ATESTADO') return true;
+      if (d.status === 'ATESTADO') return true;
       if (d.status === 'FERIADO' && d.data <= todayISO && (d.feriado_credit_min ?? 0) > 0) return true;
       return false;
     }).length;
@@ -578,6 +581,7 @@ const EmployeeRecordsPage: React.FC = () => {
 
     const diasUteisPrevistosAteHoje = calendarDays.filter(d => {
       if (d.data >= todayISO) return false; // hoje = EM_PROCESSAMENTO
+      if (d.status === 'FERIAS') return false; // folga não conta como dia útil esperado
       if (d.status === 'FERIADO') return (d.feriado_credit_min ?? 0) > 0;
       return !!(d.horas_previstas && d.horas_previstas !== '00:00');
     }).length;
@@ -904,6 +908,13 @@ const EmployeeRecordsPage: React.FC = () => {
           `FERIADO${day.feriado_nome ? ': ' + day.feriado_nome : ''}`, '', '', '',
           day.horas_trabalhadas || toHHMM(day.feriado_credit_min ?? 0),
           day.horas_previstas || '-',
+        ]);
+      } else if (day.status === 'FERIAS') {
+        // Aparece na planilha para auditoria, mas não entra nos totais do resumo.
+        aoa.push([
+          day.data.split('-').reverse().join('-'),
+          day.dia_semana.toUpperCase(),
+          'FÉRIAS/FOLGA', '', '', '', '-', '-',
         ]);
       } else {
         aoa.push([

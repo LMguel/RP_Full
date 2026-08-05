@@ -79,6 +79,46 @@ function calcDiasEsperados(emp: Employee, start: string, end: string, holidays: 
 
 const _parseHHMM = (s: string) => { const [h, m] = (s || '').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
 
+/**
+ * Minutos previstos (previsto) para dias úteis esperados que NÃO têm nenhum
+ * registro (nem sequer um dia de folga/férias) — ou seja, faltas reais.
+ * Mesma regra usada no espelho individual (EmployeeRecordsPage): dia sem
+ * registro conta previsto + déficit total no banco de horas.
+ * `diasComRegistro` são datas (YYYY-MM-DD) já cobertas por algum summary_obj
+ * (presente, incompleto, folga, atestado etc.) — não entram aqui de novo.
+ */
+function calcPrevistoFaltas(
+  emp: Employee,
+  start: string,
+  end: string,
+  holidays: Set<string>,
+  todayISO: string,
+  diasComRegistro: Set<string>,
+): number {
+  if (!emp.horario_entrada || !emp.horario_saida) return 0;
+  const intervalo = (emp.intervalo_padrao_minutos != null) ? Number(emp.intervalo_padrao_minutos) : 60;
+  const sDate = new Date(start + 'T12:00:00');
+  const eDate = new Date(end + 'T12:00:00');
+  let total = 0;
+  for (const d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if (iso >= todayISO) continue; // hoje/futuro = EM_PROCESSAMENTO
+    if (holidays.has(iso)) continue;
+    if (diasComRegistro.has(iso)) continue; // já contabilizado via summary_obj
+    const key = _DOW_KEYS[d.getDay()];
+    let entrada = emp.horario_entrada, saida = emp.horario_saida;
+    if (emp.custom_schedule) {
+      const ds = (emp.custom_schedule as WeeklyScheduleMap)[key];
+      if (!ds || ds.active === false || !ds.start || !ds.end) continue;
+      entrada = ds.start; saida = ds.end;
+    } else if (d.getDay() < 1 || d.getDay() > 5) {
+      continue;
+    }
+    total += Math.max(0, _parseHHMM(saida!) - _parseHHMM(entrada!) - intervalo);
+  }
+  return total;
+}
+
 /** Calcula crédito de minutos para feriados que caem em dias úteis do funcionário. */
 function calcFeriadosCredit(emp: Employee, start: string, end: string, holidays: Set<string>): number {
   if (!emp.horario_entrada || !emp.horario_saida || holidays.size === 0) return 0;
@@ -248,14 +288,24 @@ const RecordsSummaryPage: React.FC = () => {
           const variavel = !emp.horario_entrada || !emp.horario_saida;
 
           let minTrabalhados = 0, minPrevistos = 0, minExtras = 0, minAtrasos = 0;
-          let presentes = 0, atrasosCount = 0, incompletos = 0;
+          let presentes = 0, atrasosCount = 0, incompletos = 0, folgaDias = 0;
 
           for (const d of days) {
+            // Folga/férias: não é presença nem falta, e não entra em nenhum
+            // total (trabalhado, previsto, extra, atraso) — só é contada à
+            // parte para descontar do denominador de dias esperados abaixo.
+            // Mesma regra usada no espelho individual (EmployeeRecordsPage).
+            if (d.status === 'FERIAS') { folgaDias++; continue; }
             const trabMin = Number(d.horas_trabalhadas_min || 0);
             minTrabalhados += trabMin;
             minPrevistos   += Number(d.horas_previstas_min  || 0);
-            minExtras      += Number(d.horas_extras_min ?? d.horas_extras ?? 0);
-            minAtrasos     += Number(d.atraso_minutos || 0) + Number(d.saida_antecipada_minutos || 0);
+            // Extras/Atrasos derivados de banco_horas_dia — mesma fonte usada
+            // no espelho individual (EmployeeRecordsPage), não de
+            // atraso_minutos/saida_antecipada_minutos (métricas CLT
+            // separadas, que podem divergir do banco simétrico atual).
+            const bancoDia = Number(d.banco_horas_dia ?? 0);
+            if (bancoDia > 0) minExtras  += bancoDia;
+            else if (bancoDia < 0) minAtrasos += Math.abs(bancoDia);
             if (trabMin > 0 || (d.n_punches || 0) > 0) {
               presentes++;
               if (d.status === 'INCOMPLETO') incompletos++;
@@ -275,14 +325,34 @@ const RecordsSummaryPage: React.FC = () => {
             minPrevistos   += ferCredit;
           }
 
-          // Dias esperados e estimativa de faltas (excluindo feriados)
-          const diasEsperados = variavel ? 0 : calcDiasEsperados(
+          // Déficit de dias sem NENHUM registro (falta real): mesma regra do
+          // espelho individual — conta previsto + déficit total no banco,
+          // para o previsto total bater com o espelho (não só o count de dias).
+          if (!variavel) {
+            const diasComRegistro = new Set(days.map(d => String(d.data || d.date || '')));
+            const previstoFaltasMin = calcPrevistoFaltas(
+              emp,
+              dateRange.start_date || currentMonthStart.toISOString().split('T')[0],
+              dateRange.end_date   || currentMonthEnd.toISOString().split('T')[0],
+              holidaySet,
+              todayISO,
+              diasComRegistro,
+            );
+            minPrevistos += previstoFaltasMin;
+            minAtrasos   += previstoFaltasMin;
+          }
+
+          // Dias esperados e estimativa de faltas (excluindo feriados e,
+          // igual ao espelho individual, excluindo dias de folga/férias —
+          // folga não é um dia que "deveria" ter sido trabalhado).
+          const diasEsperadosBruto = variavel ? 0 : calcDiasEsperados(
             emp,
             dateRange.start_date || currentMonthStart.toISOString().split('T')[0],
             dateRange.end_date   || currentMonthEnd.toISOString().split('T')[0],
             holidaySet,
             todayISO,
           );
+          const diasEsperados = Math.max(0, diasEsperadosBruto - folgaDias);
           const faltas = variavel ? 0 : Math.max(0, diasEsperados - presentes);
 
           // Tolerância mensal (segue a configuração da empresa)
