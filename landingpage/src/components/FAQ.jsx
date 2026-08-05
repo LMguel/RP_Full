@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Minus } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
 
 const faqs = [
   {
@@ -49,11 +50,22 @@ const faqs = [
   },
 ]
 
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqs.map((f) => ({
+    '@type': 'Question',
+    name: f.q,
+    acceptedAnswer: { '@type': 'Answer', text: f.a },
+  })),
+}
+
 export default function FAQ() {
   const [open, setOpen] = useState(null)
 
   return (
     <section id="faq" className="py-24 bg-rp-bg relative overflow-hidden">
+      <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>
       <div className="absolute inset-0 bg-dot-grid opacity-50" />
 
       <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -87,6 +99,7 @@ export default function FAQ() {
               href="https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20uma%20d%C3%BAvida%20sobre%20o%20REGISTRA.PONTO."
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackWhatsAppClick('faq_header')}
               className="text-[#1847D6] hover:text-[#1035BC] transition-colors underline underline-offset-2"
             >
               Fale pelo WhatsApp

@@ -1,6 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { Check, ArrowRight } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
 
 const WA_BASE = 'https://wa.me/5524992272778?text='
 
@@ -93,6 +94,7 @@ export default function Showcase({ id, label, title, description, image, imageAl
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackWhatsAppClick(`showcase_${id}`)}
               whileHover={{ x: 2 }}
               transition={{ duration: 0.15 }}
               className="btn-secondary group"

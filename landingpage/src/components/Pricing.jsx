@@ -1,18 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { Check, Star, ArrowRight, MessageCircle, Package, Sparkles, Monitor, Tablet } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
+import { buildWaUrl, BASE_FEATURES, PLANS, START_PLAN, PLUS_MODULE_PRICE } from '../data/plans'
 
-const WA_BASE = 'https://wa.me/5524992272778?text='
-const WA_IMPL = `${WA_BASE}${encodeURIComponent('Olá! Gostaria de solicitar um orçamento para a Implantação + Tablet do REGISTRA.PONTO.')}`
+const WA_IMPL = buildWaUrl('Olá! Gostaria de solicitar um orçamento para a Implantação + Tablet do REGISTRA.PONTO.')
 
-const baseFeatures = [
-  'Reconhecimento facial',
-  'Dashboard web',
-  'Relatórios de ponto',
-  'Gestão de funcionários',
-  'Exportação Excel',
-  'Suporte técnico',
-]
+const baseFeatures = BASE_FEATURES
 
 const startImplItems = [
   'Configuração inicial',
@@ -21,54 +15,16 @@ const startImplItems = [
   'Sistema pronto para operar',
 ]
 
-const plans = [
-  {
-    id: 'plano10',
-    name: 'Plano 10',
-    employees: 'Até 10 funcionários',
-    price: 179,
-    roi: '≈ R$6/dia por até 10 funcionários',
-    popular: true,
-    tabletNote: 'Tablet opcional — use dispositivo da empresa ou receba tablet dedicado.',
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 10 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
-    features: baseFeatures,
-  },
-  {
-    id: 'plano20',
-    name: 'Plano 20',
-    employees: 'Até 20 funcionários',
-    price: 239,
-    roi: '= R$8/dia — menos que uma multa trabalhista',
-    popular: false,
-    tabletNote: 'Tablet dedicado recomendado para maior fluidez operacional.',
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 20 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
-    features: [...baseFeatures, 'Suporte prioritário'],
-  },
-  {
-    id: 'plano30',
-    name: 'Plano 30',
-    employees: 'Até 30 funcionários',
-    price: 299,
-    roi: '≈ R$10/dia para equipes de até 30 pessoas',
-    popular: false,
-    tabletNote: 'Tablet dedicado recomendado para maior fluidez operacional.',
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano 30 do REGISTRA.PONTO. Poderia me dar mais informações?')}`,
-    features: [...baseFeatures, 'Suporte prioritário', 'Treinamento operacional'],
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    employees: '31+ funcionários',
-    price: null,
-    roi: null,
-    popular: false,
-    description: 'Implantação personalizada',
-    ctaLabel: 'Solicitar orçamento',
-    ctaGreen: true,
-    waUrl: `${WA_BASE}${encodeURIComponent('Olá! Gostaria de solicitar um orçamento para o plano Enterprise do REGISTRA.PONTO.')}`,
-    features: [],
-  },
-]
+const plans = PLANS.map((p) => ({
+  ...p,
+  waUrl: buildWaUrl(
+    p.id === 'enterprise'
+      ? 'Olá! Gostaria de solicitar um orçamento para o plano Enterprise do REGISTRA.PONTO.'
+      : `Olá! Tenho interesse no ${p.name} do REGISTRA.PONTO. Poderia me dar mais informações?`
+  ),
+  ctaLabel: p.id === 'enterprise' ? 'Solicitar orçamento' : undefined,
+  ctaGreen: p.id === 'enterprise',
+}))
 
 const implantationItems = [
   'Tablet incluso',
@@ -110,10 +66,10 @@ export default function Pricing() {
   const inView = useInView(ref, { once: true, margin: '-60px' })
   const [regMethod, setRegMethod] = useState('device')
 
-  const price119 = useCountUp(119, 1000, inView)
-  const price179 = useCountUp(179, 1100, inView)
-  const price239 = useCountUp(239, 1200, inView)
-  const price299 = useCountUp(299, 1300, inView)
+  const price119 = useCountUp(START_PLAN.price, 1000, inView)
+  const price179 = useCountUp(plans.find((p) => p.id === 'plano10').price, 1100, inView)
+  const price239 = useCountUp(plans.find((p) => p.id === 'plano20').price, 1200, inView)
+  const price299 = useCountUp(plans.find((p) => p.id === 'plano30').price, 1300, inView)
 
   const priceOf = (plan) => {
     if (plan.id === 'plano10') return price179
@@ -264,20 +220,15 @@ export default function Pricing() {
                     Implantação Start
                   </p>
                   <div className="mb-4">
-                    <div className="flex items-baseline gap-1.5 mb-1">
-                      <span className="text-xs text-[#4D5E7A] font-medium">12x de</span>
-                      <span
-                        className="text-3xl font-black text-[#0C1A38] leading-none tracking-tight"
-                        style={{ fontFamily: 'Outfit, sans-serif' }}
-                      >
-                        R$49
-                      </span>
-                    </div>
+                    <span
+                      className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2"
+                      style={{ background: 'rgba(24,71,214,0.08)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.18)' }}
+                    >
+                      Sob consulta
+                    </span>
                     <p className="text-sm text-[#4D5E7A]">
-                      ou{' '}
-                      <span className="font-semibold text-[#0C1A38]">R$399 à vista</span>
+                      Taxa única, calculada conforme a sua necessidade.
                     </p>
-                    <p className="text-[11px] text-[#8FA0BE] mt-0.5">Pagamento único.</p>
                   </div>
 
                   <div className="h-px mb-4" style={{ background: 'rgba(24,71,214,0.07)' }} />
@@ -290,7 +241,18 @@ export default function Pricing() {
                       </li>
                     ))}
                   </ul>
-                  <p className="text-[11px] text-[#8FA0BE]">Sem tablet dedicado.</p>
+                  <p className="text-[11px] text-[#8FA0BE] mb-3">Sem tablet dedicado.</p>
+                  <a
+                    href={buildWaUrl('Olá! Gostaria de solicitar um orçamento para a Implantação do Plano Start do REGISTRA.PONTO.')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => trackWhatsAppClick('pricing_start_implantacao')}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold"
+                    style={{ color: '#1847D6' }}
+                  >
+                    Solicitar orçamento da implantação
+                    <ArrowRight size={12} />
+                  </a>
                 </div>
               </div>
 
@@ -298,9 +260,10 @@ export default function Pricing() {
               <div className="px-6 pb-6">
                 <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.07)' }} />
                 <a
-                  href={`${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no Plano Start do REGISTRA.PONTO. Poderia me dar mais informações?')}`}
+                  href={buildWaUrl('Olá! Tenho interesse no Plano Start do REGISTRA.PONTO. Poderia me dar mais informações?')}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={() => trackWhatsAppClick('pricing_start')}
                   className="btn-secondary w-full py-3"
                 >
                   Começar agora
@@ -418,6 +381,7 @@ export default function Pricing() {
                     href={plan.waUrl}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() => trackWhatsAppClick(`pricing_${plan.id}`)}
                     className={`w-full mt-auto py-3 ${
                       plan.popular ? 'btn-primary' : plan.ctaGreen ? 'btn-green' : 'btn-secondary'
                     }`}
@@ -515,18 +479,19 @@ export default function Pricing() {
                         className="text-5xl font-black text-white leading-none tracking-tight"
                         style={{ fontFamily: 'Outfit, sans-serif' }}
                       >
-                        89
+                        {Math.floor(PLUS_MODULE_PRICE)}
                       </span>
                       <div className="flex flex-col self-end mb-0.5">
-                        <span className="text-white font-bold text-lg leading-none">,90</span>
+                        <span className="text-white font-bold text-lg leading-none">,{String(Math.round((PLUS_MODULE_PRICE % 1) * 100)).padStart(2, '0')}</span>
                         <span className="text-purple-300 text-xs leading-none">/mês</span>
                       </div>
                     </div>
                   </div>
                   <a
-                    href={`${WA_BASE}${encodeURIComponent('Olá! Tenho interesse no módulo RH & Folha (Plus) do REGISTRA.PONTO. Poderia me dar mais informações?')}`}
+                    href={buildWaUrl('Olá! Tenho interesse no módulo RH & Folha (Plus) do REGISTRA.PONTO. Poderia me dar mais informações?')}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() => trackWhatsAppClick('pricing_plus')}
                     className="inline-flex items-center justify-center gap-2 font-semibold text-sm py-3 px-6 rounded-xl transition-all duration-200 whitespace-nowrap"
                     style={{
                       background: 'rgba(255,255,255,0.15)',
@@ -556,7 +521,7 @@ export default function Pricing() {
                 }}
               >
                 <img
-                  src="/image/folha.png"
+                  src="/image/folha.webp"
                   alt="Módulo RH & Folha — REGISTRA.PONTO Plus"
                   className="w-full block"
                   loading="lazy"
@@ -663,16 +628,15 @@ export default function Pricing() {
               </div>
 
               <div className="mb-5">
-                <div className="flex items-baseline gap-1.5 mb-1">
-                  <span className="text-3xl font-black text-[#0C1A38] tracking-tight leading-none" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                    R$399
-                  </span>
-                  <span className="text-sm text-[#4D5E7A] font-medium">à vista</span>
-                </div>
+                <span
+                  className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2"
+                  style={{ background: 'rgba(14,165,233,0.09)', color: '#0EA5E9', border: '1px solid rgba(14,165,233,0.22)' }}
+                >
+                  Sob consulta
+                </span>
                 <p className="text-sm text-[#4D5E7A]">
-                  ou <span className="font-semibold text-[#0C1A38]">12x de R$49</span>
+                  Taxa única de implantação. Valor calculado conforme a sua empresa.
                 </p>
-                <p className="text-[11px] text-[#8FA0BE] mt-1">Pagamento único.</p>
               </div>
 
               <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.07)' }} />
@@ -695,12 +659,13 @@ export default function Pricing() {
               <p className="text-[11px] text-[#8FA0BE] mb-5">Sem tablet incluso.</p>
 
               <a
-                href={`${WA_BASE}${encodeURIComponent('Olá! Tenho interesse na Implantação Remota do REGISTRA.PONTO. Poderia me dar mais informações?')}`}
+                href={buildWaUrl('Olá! Gostaria de solicitar um orçamento para a Implantação Remota do REGISTRA.PONTO.')}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackWhatsAppClick('pricing_impl_remota')}
                 className="btn-secondary w-full py-3 mt-auto"
               >
-                Começar agora
+                Solicitar orçamento
                 <ArrowRight size={14} />
               </a>
             </motion.div>
@@ -741,16 +706,15 @@ export default function Pricing() {
               </div>
 
               <div className="mb-5">
-                <div className="flex items-baseline gap-1.5 mb-1">
-                  <span className="text-3xl font-black text-[#0C1A38] tracking-tight leading-none" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                    R$1.599
-                  </span>
-                  <span className="text-sm text-[#4D5E7A] font-medium">à vista</span>
-                </div>
+                <span
+                  className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2"
+                  style={{ background: 'rgba(24,71,214,0.09)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.22)' }}
+                >
+                  Sob consulta
+                </span>
                 <p className="text-sm text-[#4D5E7A]">
-                  ou <span className="font-semibold text-[#0C1A38]">12x de R$149</span>
+                  Taxa única de implantação, com o tablet incluso. Valor calculado conforme a sua empresa.
                 </p>
-                <p className="text-[11px] text-[#8FA0BE] mt-1">Pagamento único.</p>
               </div>
 
               <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.10)' }} />
@@ -789,9 +753,10 @@ export default function Pricing() {
                 href={WA_IMPL}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackWhatsAppClick('pricing_impl_tablet')}
                 className="btn-primary w-full py-3 mt-auto"
               >
-                Solicitar demonstração
+                Solicitar orçamento
                 <ArrowRight size={14} />
               </a>
             </motion.div>

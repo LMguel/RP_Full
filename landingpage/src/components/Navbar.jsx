@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
 
 const WA_CONSULTOR = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Gostaria%20de%20falar%20com%20um%20consultor%20do%20REGISTRA.PONTO.'
 
@@ -50,7 +51,7 @@ export default function Navbar() {
             {/* Logo */}
             <a href="#" className="flex items-center gap-3 select-none group">
               <img
-                src="/image/logo.png"
+                src="/image/logo.webp"
                 alt="REGISTRA.PONTO"
                 className="h-14 w-auto object-contain block flex-shrink-0"
                 draggable={false}
@@ -86,6 +87,7 @@ export default function Navbar() {
                 href={WA_CONSULTOR}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackWhatsAppClick('navbar_desktop')}
                 className="btn-primary text-sm px-5 py-2.5"
               >
                 Falar com consultor
@@ -129,7 +131,7 @@ export default function Navbar() {
                 href={WA_CONSULTOR}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => setMobileOpen(false)}
+                onClick={() => { trackWhatsAppClick('navbar_mobile'); setMobileOpen(false) }}
                 className="btn-primary mt-2 w-full"
               >
                 Falar com consultor

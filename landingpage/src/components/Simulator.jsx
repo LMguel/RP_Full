@@ -1,29 +1,23 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Users, Monitor, Tablet, BrainCircuit, Check, ArrowRight, MessageCircle, RotateCcw, ArrowLeft } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
+import { buildWaUrl, EMPLOYEE_RANGES, getPlanById, IMPLANTATION, PLUS_MODULE_PRICE } from '../data/plans'
 
-const WA_BASE = 'https://wa.me/5524992272778?text='
+const employeeOptions = EMPLOYEE_RANGES.map((r) => ({
+  id: r.id,
+  label: r.label,
+  sub: getPlanById(r.planId).name,
+}))
 
-const employeeOptions = [
-  { id: 'up5',   label: 'Até 5',   sub: 'Plano Start'  },
-  { id: '6-10',  label: '6 – 10',  sub: 'Plano 10'     },
-  { id: '11-20', label: '11 – 20', sub: 'Plano 20'     },
-  { id: '21-30', label: '21 – 30', sub: 'Plano 30'     },
-  { id: '31+',   label: '31+',     sub: 'Enterprise'   },
-]
+const planMap = Object.fromEntries(
+  EMPLOYEE_RANGES.map((r) => {
+    const plan = getPlanById(r.planId)
+    return [r.id, { name: plan.name, price: plan.price }]
+  })
+)
 
-const planMap = {
-  'up5':   { name: 'Start',      price: 119  },
-  '6-10':  { name: 'Plano 10',   price: 179  },
-  '11-20': { name: 'Plano 20',   price: 239  },
-  '21-30': { name: 'Plano 30',   price: 299  },
-  '31+':   { name: 'Enterprise', price: null },
-}
-
-const implMap = {
-  device: { label: 'Dispositivo da empresa', cash: 399,  installV: 49,  installN: 12 },
-  tablet: { label: 'Tablet incluso',         cash: 1599, installV: 149, installN: 12 },
-}
+const implMap = IMPLANTATION
 
 const STEPS = 4
 
@@ -107,7 +101,7 @@ export default function Simulator() {
   const impl          = regMethod ? implMap[regMethod] : null
   const tabletOptional = employees === 'up5' || employees === '6-10'
   const isEnterprise  = employees === '31+'
-  const mensalidade   = plan?.price != null ? plan.price + (plusModule ? 89.90 : 0) : null
+  const mensalidade   = plan?.price != null ? plan.price + (plusModule ? PLUS_MODULE_PRICE : 0) : null
 
   function goTo(n) {
     setDir(n > step ? 1 : -1)
@@ -135,15 +129,13 @@ export default function Simulator() {
       `Funcionários: ${empLabel}`,
       `Registro: ${impl?.label ?? 'A definir'}`,
       `Plano: ${plan?.name ?? '-'}`,
-      `Módulo Folha de Pagamento Plus: ${plusModule ? 'Sim (+R$89,90/mês)' : 'Não'}`,
+      `Módulo Folha de Pagamento Plus: ${plusModule ? `Sim (+R$${fmtBRL(PLUS_MODULE_PRICE)}/mês)` : 'Não'}`,
       `Mensalidade: ${mensalidade != null ? `R$${fmtBRL(mensalidade)}/mês` : 'A consultar'}`,
-      impl
-        ? `Implantação: R$${fmtBRL(impl.cash)} à vista ou ${impl.installN}x de R$${fmtBRL(impl.installV)}`
-        : 'Implantação: A consultar',
+      'Implantação: sob consulta (taxa única)',
       '',
-      'Gostaria de receber uma demonstração.',
+      'Gostaria de receber um orçamento da implantação.',
     ].join('\n')
-    return `${WA_BASE}${encodeURIComponent(msg)}`
+    return buildWaUrl(msg)
   }
 
   return (
@@ -311,7 +303,7 @@ export default function Simulator() {
                             className="whitespace-nowrap text-[11px] font-bold px-2 py-1 rounded-full flex-shrink-0"
                             style={{ background: 'rgba(109,40,217,0.09)', color: '#6D28D9', border: '1px solid rgba(109,40,217,0.20)' }}
                           >
-                            +R$89,90/mês
+                            +R${fmtBRL(PLUS_MODULE_PRICE)}/mês
                           </span>
                         </div>
                         <p className="text-xs text-[#4D5E7A] leading-relaxed">
@@ -361,7 +353,7 @@ export default function Simulator() {
                               <span className="text-xs text-[#8FA0BE] font-medium ml-0.5">/mês</span>
                             </div>
                             {plusModule && (
-                              <p className="text-[11px] text-[#6D28D9] mt-1 font-semibold">Inclui módulo Folha de Pagamento +R$89,90</p>
+                              <p className="text-[11px] text-[#6D28D9] mt-1 font-semibold">Inclui módulo Folha de Pagamento +R${fmtBRL(PLUS_MODULE_PRICE)}</p>
                             )}
                           </>
                         ) : (
@@ -379,18 +371,14 @@ export default function Simulator() {
                         </p>
                         {impl ? (
                           <>
-                            <div className="flex items-baseline gap-0.5">
-                              <span className="text-xs text-[#4D5E7A] font-medium">R$</span>
-                              <span
-                                className="text-3xl font-black text-[#0C1A38] leading-none tracking-tight"
-                                style={{ fontFamily: 'Outfit, sans-serif' }}
-                              >
-                                {fmtBRL(impl.cash)}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-[#4D5E7A] mt-1">
-                              ou {impl.installN}x de{' '}
-                              <span className="font-semibold text-[#0C1A38]">R${fmtBRL(impl.installV)}</span>
+                            <span
+                              className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider"
+                              style={{ background: 'rgba(14,165,233,0.09)', color: '#0EA5E9', border: '1px solid rgba(14,165,233,0.22)' }}
+                            >
+                              Sob consulta
+                            </span>
+                            <p className="text-[11px] text-[#4D5E7A] mt-2">
+                              Taxa única. Valor calculado no orçamento.
                             </p>
                           </>
                         ) : (
@@ -433,6 +421,7 @@ export default function Simulator() {
                       href={buildWAUrl()}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => trackWhatsAppClick('simulator_result')}
                       className="btn-green w-full py-3.5 text-base"
                     >
                       <MessageCircle size={18} />

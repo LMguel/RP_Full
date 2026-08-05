@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { ArrowRight, CheckCircle2, Shield, Clock, BarChart3, MessageCircle } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
 
 const WA_URL  = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 const WA_DEMO = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Gostaria%20de%20ver%20uma%20demonstra%C3%A7%C3%A3o%20do%20REGISTRA.PONTO.'
@@ -56,9 +57,11 @@ export default function Hero() {
       {/* ── Full-bleed background image ── */}
       <div className="absolute inset-0 pointer-events-none">
         <img
-          src="/image/banner.png"
+          src="/image/banner.webp"
           alt=""
           aria-hidden="true"
+          fetchPriority="high"
+          decoding="async"
           className="w-full h-full object-cover [object-position:82%_center] sm:[object-position:75%_center] lg:[object-position:60%_center]"
           draggable={false}
         />
@@ -140,11 +143,13 @@ export default function Hero() {
               className="flex flex-wrap gap-3 mb-7"
             >
               <a href={WA_DEMO} target="_blank" rel="noopener noreferrer"
+                 onClick={() => trackWhatsAppClick('hero_demo')}
                  className="btn-primary px-6 py-3.5 text-sm lg:text-base lg:px-8 lg:py-4">
                 Ver demonstração
                 <ArrowRight size={15} />
               </a>
               <a href={WA_URL} target="_blank" rel="noopener noreferrer"
+                 onClick={() => trackWhatsAppClick('hero_whatsapp')}
                  className="btn-green px-6 py-3.5 text-sm lg:text-base lg:px-8 lg:py-4">
                 <MessageCircle size={15} />
                 WhatsApp

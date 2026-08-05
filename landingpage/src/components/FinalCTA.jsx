@@ -1,6 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight, Clock, Shield, Headphones, MessageCircle } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
 
 const WA_URL  = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 const WA_DEMO = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Gostaria%20de%20ver%20uma%20demonstra%C3%A7%C3%A3o%20do%20REGISTRA.PONTO.'
@@ -70,11 +71,13 @@ export default function FinalCTA() {
           className="flex flex-col sm:flex-row gap-3 justify-center mb-10 sm:mb-12"
         >
           <a href={WA_DEMO} target="_blank" rel="noopener noreferrer"
+             onClick={() => trackWhatsAppClick('final_cta_demo')}
              className="btn-primary w-full sm:w-auto px-8 py-3.5 sm:py-4 text-base">
             Solicitar demonstração
             <ArrowRight size={18} />
           </a>
           <a href={WA_URL} target="_blank" rel="noopener noreferrer"
+             onClick={() => trackWhatsAppClick('final_cta_whatsapp')}
              className="btn-green w-full sm:w-auto px-8 py-3.5 sm:py-4 text-base">
             <MessageCircle size={18} />
             Falar no WhatsApp

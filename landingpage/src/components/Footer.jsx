@@ -1,6 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { MessageCircle, Instagram } from 'lucide-react'
+import { trackWhatsAppClick } from '../lib/analytics'
 
 const WA_URL = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 const IG_URL = 'https://www.instagram.com/lmetech/'
@@ -43,7 +44,7 @@ export default function Footer() {
           <div className="sm:col-span-2">
             <a href="#" className="flex items-center gap-2.5 mb-4">
               <img
-                src="/image/logo.png"
+                src="/image/logo.webp"
                 alt="REGISTRA.PONTO"
                 className="h-12 w-auto object-contain block flex-shrink-0"
                 draggable={false}
@@ -67,6 +68,7 @@ export default function Footer() {
                 href={WA_URL}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackWhatsAppClick('footer_brand')}
                 className="flex items-center gap-2 text-sm text-[#4D5E7A] hover:text-[#0C1A38] transition-colors group w-fit"
               >
                 <MessageCircle size={14} className="text-emerald-500 group-hover:text-emerald-600" />
@@ -93,6 +95,7 @@ export default function Footer() {
                   <li key={item.label}>
                     <a
                       href={item.href}
+                      onClick={item.href.startsWith('https://wa.me') ? () => trackWhatsAppClick('footer_link') : undefined}
                       className="text-sm text-[#8FA0BE] hover:text-[#0C1A38] transition-colors duration-150"
                     >
                       {item.label}
@@ -130,6 +133,7 @@ export default function Footer() {
               href={WA_URL}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackWhatsAppClick('footer_bottom_bar')}
               className="flex items-center gap-1 text-[#8FA0BE] hover:text-[#0C1A38] transition-colors duration-150 group"
               aria-label="WhatsApp"
             >

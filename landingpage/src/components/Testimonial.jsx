@@ -1,13 +1,11 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { GraduationCap, ShoppingBag, UtensilsCrossed, Building2, Wrench } from 'lucide-react'
+import { GraduationCap, ShoppingBag, UtensilsCrossed, CheckCircle2 } from 'lucide-react'
 
 const sectors = [
-  { icon: GraduationCap, label: 'Escolas e faculdades',     desc: 'Registro integrado para docentes e funcionários administrativos.' },
-  { icon: ShoppingBag,   label: 'Comércios locais',         desc: 'Visibilidade em tempo real da equipe de vendas e estoque.' },
-  { icon: UtensilsCrossed, label: 'Restaurantes e buffets', desc: 'Controle de jornada em ambientes com alta rotatividade de turno.' },
-  { icon: Building2,     label: 'Empresas de serviços',     desc: 'Gestão centralizada de equipes internas e externas.' },
-  { icon: Wrench,        label: 'Oficinas e indústrias',    desc: 'Ponto preciso por setor, pronto para o departamento pessoal.' },
+  { icon: GraduationCap,   label: 'Escola',       desc: 'Registro integrado para docentes e funcionários administrativos.' },
+  { icon: UtensilsCrossed, label: 'Restaurante',  desc: 'Controle de jornada em ambiente com alta rotatividade de turno.' },
+  { icon: ShoppingBag,     label: 'Comércio',     desc: 'Visibilidade em tempo real da equipe de vendas e estoque.' },
 ]
 
 export default function Testimonial() {
@@ -39,9 +37,20 @@ export default function Testimonial() {
               className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#0C1A38] tracking-tight mt-2 mb-5"
               style={{ textWrap: 'balance' }}
             >
-              Empresas de diferentes setores registram ponto{' '}
-              <span className="gradient-text">todo dia com o sistema</span>
+              Já em uso em{' '}
+              <span className="gradient-text">Angra dos Reis e região</span>
             </motion.h2>
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.14 }}
+              className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 mb-5"
+              style={{ background: 'rgba(24,71,214,0.06)', border: '1px solid rgba(24,71,214,0.16)' }}
+            >
+              <CheckCircle2 size={14} style={{ color: '#1847D6' }} />
+              <span className="text-xs font-semibold text-[#1847D6]">3 empresas registram ponto todos os dias pelo sistema</span>
+            </motion.div>
             <motion.p
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}

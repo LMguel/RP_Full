@@ -3,10 +3,7 @@ import fs from "fs";
 const today = new Date().toISOString().split("T")[0];
 
 const urls = [
-  { path: "/",                  priority: "1.0", changefreq: "weekly" },
-  { path: "/#funcionalidades",  priority: "0.8", changefreq: "monthly" },
-  { path: "/#planos",           priority: "0.9", changefreq: "weekly" },
-  { path: "/#faq",              priority: "0.6", changefreq: "monthly" },
+  { path: "/", priority: "1.0", changefreq: "weekly" },
 ];
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
