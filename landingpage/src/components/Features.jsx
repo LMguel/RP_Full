@@ -88,36 +88,34 @@ export default function Features() {
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-        {/* Header — left-aligned, split layout */}
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-14">
-          <div>
-            <motion.span
-              initial={{ opacity: 0, y: 10 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4 }}
-              className="section-label"
-            >
-              Funcionalidades
-            </motion.span>
-            <motion.h2
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-              className="text-2xl sm:text-4xl lg:text-5xl font-bold text-[#0C1A38] tracking-tight mt-2"
-              style={{ textWrap: 'balance' }}
-            >
-              Tudo que você precisa,{' '}
-              <span className="gradient-text">numa plataforma só</span>
-            </motion.h2>
-          </div>
+        {/* Header — centered */}
+        <div className="text-center mb-14 max-w-2xl mx-auto">
+          <motion.span
+            initial={{ opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.4 }}
+            className="section-label"
+          >
+            Funcionalidades
+          </motion.span>
+          <motion.h2
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+            className="text-2xl sm:text-4xl lg:text-5xl font-bold text-[#0C1A38] tracking-tight mt-2 mb-4"
+            style={{ textWrap: 'balance' }}
+          >
+            Tudo que você precisa,{' '}
+            <span className="gradient-text">numa plataforma só</span>
+          </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="text-[#4D5E7A] text-base lg:max-w-xs lg:text-right lg:pb-1 shrink-0"
+            className="text-[#4D5E7A] text-base lg:text-lg"
           >
             Sistema completo, fácil de usar e com suporte local para empresas de qualquer porte.
           </motion.p>

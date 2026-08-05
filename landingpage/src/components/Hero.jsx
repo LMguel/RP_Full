@@ -62,16 +62,16 @@ export default function Hero() {
           aria-hidden="true"
           fetchPriority="high"
           decoding="async"
-          className="w-full h-full object-cover [object-position:82%_center] sm:[object-position:75%_center] lg:[object-position:60%_center]"
+          className="w-full h-full object-cover [object-position:75%_center] lg:[object-position:65%_center]"
           draggable={false}
         />
 
-        {/* Left fade — makes text readable against the scene */}
+        {/* Uniform veil — keeps centered text legible over the whole scene */}
         <div
           className="absolute inset-0"
           style={{
             background:
-              'linear-gradient(to right, rgba(255,255,255,0.99) 0%, rgba(255,255,255,0.97) 38%, rgba(255,255,255,0.88) 54%, rgba(255,255,255,0.40) 70%, rgba(255,255,255,0.08) 82%, transparent 92%)',
+              'radial-gradient(ellipse 60% 55% at 50% 38%, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.93) 45%, rgba(255,255,255,0.82) 70%, rgba(255,255,255,0.62) 100%)',
           }}
         />
 
@@ -95,14 +95,14 @@ export default function Hero() {
         />
       </div>
 
-      {/* ── Content overlay ── */}
+      {/* ── Content overlay — centered ── */}
       <div
-        className="relative z-10 px-6 sm:px-10 lg:px-16 xl:px-24 flex flex-col"
+        className="relative z-10 px-6 sm:px-10 lg:px-16 flex flex-col items-center"
         style={{ minHeight: 'calc(100dvh - 68px)' }}
       >
-        {/* Main content — vertically centered */}
-        <div className="flex-1 flex flex-col justify-center py-10 sm:py-14">
-          <div className="max-w-[520px] lg:max-w-[660px] xl:max-w-[740px]">
+        {/* Main content — vertically & horizontally centered */}
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-10 sm:py-14 w-full">
+          <div className="max-w-[620px] lg:max-w-[760px] mx-auto">
 
             <motion.p
               initial={{ opacity: 0, y: 12 }}
@@ -118,7 +118,7 @@ export default function Hero() {
               initial={{ opacity: 0, y: 22 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.65, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-              className="text-[2rem] sm:text-[2.6rem] lg:text-[3.8rem] xl:text-[4.6rem] font-bold text-[#0C1A38] leading-[1.06] tracking-tight mb-5"
+              className="text-[2rem] sm:text-[2.6rem] lg:text-[3.6rem] xl:text-[4.2rem] font-bold text-[#0C1A38] leading-[1.06] tracking-tight mb-5"
               style={{ textWrap: 'balance' }}
             >
               Feche a folha sem conflito.{' '}
@@ -130,7 +130,7 @@ export default function Hero() {
               initial={{ opacity: 0, y: 22 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="text-base lg:text-lg xl:text-xl text-[#4D5E7A] leading-relaxed mb-8 max-w-[480px] lg:max-w-[540px]"
+              className="text-base lg:text-lg xl:text-xl text-[#4D5E7A] leading-relaxed mb-8 max-w-[560px] mx-auto"
             >
               Reconhecimento facial no tablet, acompanhamento em tempo real e exportação
               pronta para simplificar o controle da empresa.
@@ -140,7 +140,7 @@ export default function Hero() {
               initial={{ opacity: 0, y: 22 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              className="flex flex-wrap gap-3 mb-7"
+              className="flex flex-wrap justify-center gap-3 mb-7"
             >
               <a href={WA_DEMO} target="_blank" rel="noopener noreferrer"
                  onClick={() => trackWhatsAppClick('hero_demo')}
@@ -160,7 +160,7 @@ export default function Hero() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.42 }}
-              className="flex flex-wrap gap-x-5 gap-y-2"
+              className="flex flex-wrap justify-center gap-x-5 gap-y-2"
             >
               {trust.map((t) => (
                 <div key={t} className="flex items-center gap-1.5 text-xs lg:text-sm text-[#4D5E7A]">
@@ -172,13 +172,13 @@ export default function Hero() {
           </div>
         </div>
 
-        {/* ── Stats band — bottom of section ── */}
+        {/* ── Stats band — bottom of section, centered ── */}
         <motion.div
           ref={statsRef}
           variants={statContainer}
           initial="hidden"
           animate={statsInView ? 'visible' : 'hidden'}
-          className="pb-8 grid grid-cols-3 gap-2 sm:gap-3 max-w-md lg:max-w-lg"
+          className="pb-8 grid grid-cols-3 gap-2 sm:gap-3 max-w-md lg:max-w-lg mx-auto"
         >
           {stats.map(({ icon: Icon, value, numeric, label }) => (
             <motion.div
