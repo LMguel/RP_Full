@@ -44,7 +44,25 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5199/)",
-      "PowerShell(Get-ChildItem \"C:\\\\RP_Full\\\\landingpage\\\\public\" -Recurse | Where-Object { $_.Extension -match \"\\\\.\\(png|jpg|svg|ico\\)\" })"
+      "PowerShell(Get-ChildItem \"C:\\\\RP_Full\\\\landingpage\\\\public\" -Recurse | Where-Object { $_.Extension -match \"\\\\.\\(png|jpg|svg|ico\\)\" })",
+      "Artifact",
+      "Bash(python3 -c \"import PIL; print\\(PIL.__version__\\)\")",
+      "Bash(npm ls *)",
+      "Bash(npm view *)",
+      "Bash(git rm *)",
+      "Bash(npm install *)",
+      "Bash(node scripts/optimize-images.mjs)",
+      "Bash(sed -i \"s#/image/captura\\\\.png#/image/captura.webp#; s#/image/dashboard\\\\.png#/image/dashboard.webp#; s#/image/chatbot_rh\\\\.png#/image/chatbot_rh.webp#; s#/image/espelho\\\\.png#/image/espelho.webp#; s#/image/excel\\\\.png#/image/excel.webp#\" src/App.jsx)",
+      "Bash(sed -i \"s#/image/logo\\\\.png#/image/logo.webp#\" src/components/Footer.jsx src/components/Navbar.jsx)",
+      "Bash(sed -i \"s#/image/folha\\\\.png#/image/folha.webp#\" src/components/Pricing.jsx)",
+      "Bash(sed -i \"s#/image/banner\\\\.png#/image/banner.webp#\" src/components/Hero.jsx)",
+      "Bash(node scripts/generate-favicons.mjs)",
+      "Bash(node scripts/generate-og-image.mjs)",
+      "Bash(node scripts/generate-sitemap.js)",
+      "Bash(pkill -f \"vite preview\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(grep -rn \"399\\\\|R\\\\$49\\\\|12x\\\\|1\\\\.599\\\\|R\\\\$149\\\\|installV\\\\|installN\\\\|\\\\.cash\\\\b\" src/)"
     ]
   }
 }
