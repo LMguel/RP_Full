@@ -1,14 +1,16 @@
 import React from 'react'
 import { renderToString } from 'react-dom/server'
-import { MotionConfig } from 'framer-motion'
+import { StaticRouter } from 'react-router-dom/server'
 import App from './App'
 
-export function render() {
+export { SEGMENTS } from './data/segments'
+
+export function render(url = '/') {
   return renderToString(
     <React.StrictMode>
-      <MotionConfig reducedMotion="always">
+      <StaticRouter location={url}>
         <App />
-      </MotionConfig>
+      </StaticRouter>
     </React.StrictMode>
   )
 }

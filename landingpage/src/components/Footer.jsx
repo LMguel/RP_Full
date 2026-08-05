@@ -1,7 +1,9 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { Link, useLocation } from 'react-router-dom'
 import { MessageCircle, Instagram } from 'lucide-react'
 import { trackWhatsAppClick } from '../lib/analytics'
+import { SEGMENTS } from '../data/segments'
 
 const WA_URL = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 const IG_URL = 'https://www.instagram.com/lmetech/'
@@ -15,6 +17,10 @@ const links = [
       { label: 'Planos e preços', href: '#planos' },
       { label: 'Implantação',     href: '#implantacao' },
     ],
+  },
+  {
+    title: 'Segmentos',
+    items: SEGMENTS.map((s) => ({ label: s.label, href: s.path, internal: true })),
   },
   {
     title: 'Suporte',
@@ -33,16 +39,19 @@ const links = [
 ]
 
 export default function Footer() {
+  const { pathname } = useLocation()
+  const isHome = pathname === '/'
+
   return (
     <footer
       className="bg-rp-bg"
       style={{ borderTop: '1px solid rgba(24,71,214,0.09)' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 sm:gap-12 mb-10 sm:mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-8 sm:gap-12 mb-10 sm:mb-12">
           {/* Brand */}
           <div className="sm:col-span-2">
-            <a href="#" className="flex items-center gap-2.5 mb-4">
+            <Link to="/" className="flex items-center gap-2.5 mb-4">
               <img
                 src="/image/logo.webp"
                 alt="REGISTRA.PONTO"
@@ -55,7 +64,7 @@ export default function Footer() {
               >
                 REGISTRA<span style={{ color: '#1847D6' }}>.</span>PONTO
               </span>
-            </a>
+            </Link>
             <p className="text-sm text-[#8FA0BE] leading-relaxed max-w-xs mb-1">
               Sistema de controle de ponto eletrônico com reconhecimento facial para empresas modernas.
             </p>
@@ -93,13 +102,22 @@ export default function Footer() {
               <ul className="space-y-3">
                 {col.items.map((item) => (
                   <li key={item.label}>
-                    <a
-                      href={item.href}
-                      onClick={item.href.startsWith('https://wa.me') ? () => trackWhatsAppClick('footer_link') : undefined}
-                      className="text-sm text-[#8FA0BE] hover:text-[#0C1A38] transition-colors duration-150"
-                    >
-                      {item.label}
-                    </a>
+                    {item.internal ? (
+                      <Link
+                        to={item.href}
+                        className="text-sm text-[#8FA0BE] hover:text-[#0C1A38] transition-colors duration-150"
+                      >
+                        {item.label}
+                      </Link>
+                    ) : (
+                      <a
+                        href={item.href.startsWith('#') && !isHome ? `/${item.href}` : item.href}
+                        onClick={item.href.startsWith('https://wa.me') ? () => trackWhatsAppClick('footer_link') : undefined}
+                        className="text-sm text-[#8FA0BE] hover:text-[#0C1A38] transition-colors duration-150"
+                      >
+                        {item.label}
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>

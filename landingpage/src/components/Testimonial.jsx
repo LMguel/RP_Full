@@ -1,10 +1,11 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { Link } from 'react-router-dom'
 import { GraduationCap, ShoppingBag, UtensilsCrossed, CheckCircle2 } from 'lucide-react'
 
 const sectors = [
-  { icon: GraduationCap,   label: 'Escola',       desc: 'Registro integrado para docentes e funcionários administrativos.' },
-  { icon: UtensilsCrossed, label: 'Restaurante',  desc: 'Controle de jornada em ambiente com alta rotatividade de turno.' },
+  { icon: GraduationCap,   label: 'Escola',       desc: 'Registro integrado para docentes e funcionários administrativos.', path: '/escolas' },
+  { icon: UtensilsCrossed, label: 'Restaurante',  desc: 'Controle de jornada em ambiente com alta rotatividade de turno.', path: '/restaurantes' },
   { icon: ShoppingBag,     label: 'Comércio',     desc: 'Visibilidade em tempo real da equipe de vendas e estoque.' },
 ]
 
@@ -101,26 +102,39 @@ export default function Testimonial() {
           }}
           className="grid sm:grid-cols-3 gap-5 max-w-3xl mx-auto"
         >
-          {sectors.map(({ icon: Icon, label, desc }) => (
-            <motion.div
-              key={label}
-              variants={{
-                hidden:  { opacity: 0, y: 20 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
-              }}
-              whileHover={{ y: -3 }}
-              className="card-dark p-6 text-center flex flex-col items-center transition-transform duration-200"
-            >
-              <div
-                className="w-11 h-11 rounded-xl flex items-center justify-center mb-4"
-                style={{ background: 'rgba(24,71,214,0.07)', border: '1px solid rgba(24,71,214,0.14)' }}
+          {sectors.map(({ icon: Icon, label, desc, path }) => {
+            const content = (
+              <>
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center mb-4"
+                  style={{ background: 'rgba(24,71,214,0.07)', border: '1px solid rgba(24,71,214,0.14)' }}
+                >
+                  <Icon size={20} style={{ color: '#1847D6' }} />
+                </div>
+                <p className="text-sm font-semibold text-[#0C1A38] mb-1.5">{label}</p>
+                <p className="text-xs text-[#8FA0BE] leading-relaxed">{desc}</p>
+              </>
+            )
+            return (
+              <motion.div
+                key={label}
+                variants={{
+                  hidden:  { opacity: 0, y: 20 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+                }}
+                whileHover={{ y: -3 }}
+                className="card-dark p-6 text-center flex flex-col items-center transition-transform duration-200"
               >
-                <Icon size={20} style={{ color: '#1847D6' }} />
-              </div>
-              <p className="text-sm font-semibold text-[#0C1A38] mb-1.5">{label}</p>
-              <p className="text-xs text-[#8FA0BE] leading-relaxed">{desc}</p>
-            </motion.div>
-          ))}
+                {path ? (
+                  <Link to={path} className="flex flex-col items-center">
+                    {content}
+                  </Link>
+                ) : (
+                  content
+                )}
+              </motion.div>
+            )
+          })}
         </motion.div>
 
       </div>

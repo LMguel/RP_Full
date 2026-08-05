@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Link, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { trackWhatsAppClick } from '../lib/analytics'
 
@@ -14,6 +15,8 @@ const links = [
 export default function Navbar() {
   const [scrolled,   setScrolled]   = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { pathname } = useLocation()
+  const isHome = pathname === '/'
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20)
@@ -23,7 +26,11 @@ export default function Navbar() {
 
   function handleMobileLink(href) {
     setMobileOpen(false)
-    setTimeout(() => document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' }), 100)
+    if (isHome) {
+      setTimeout(() => document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' }), 100)
+    } else {
+      window.location.href = `/${href}`
+    }
   }
 
   return (
@@ -49,7 +56,7 @@ export default function Navbar() {
           <div className="flex items-center justify-between h-[68px]">
 
             {/* Logo */}
-            <a href="#" className="flex items-center gap-3 select-none group">
+            <Link to="/" className="flex items-center gap-3 select-none group">
               <img
                 src="/image/logo.webp"
                 alt="REGISTRA.PONTO"
@@ -62,14 +69,14 @@ export default function Navbar() {
               >
                 REGISTRA<span style={{ color: '#1847D6' }}>.</span>PONTO
               </span>
-            </a>
+            </Link>
 
             {/* Desktop nav */}
             <nav className="hidden md:flex items-center gap-8">
               {links.map((l) => (
                 <a
                   key={l.href}
-                  href={l.href}
+                  href={isHome ? l.href : `/${l.href}`}
                   className="relative text-sm font-medium text-[#4D5E7A] hover:text-[#0C1A38] transition-colors duration-150 group py-1"
                 >
                   {l.label}

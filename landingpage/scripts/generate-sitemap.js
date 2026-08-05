@@ -1,9 +1,11 @@
 import fs from "fs";
+import { SEGMENTS } from "../src/data/segments.js";
 
 const today = new Date().toISOString().split("T")[0];
 
 const urls = [
   { path: "/", priority: "1.0", changefreq: "weekly" },
+  ...SEGMENTS.map((s) => ({ path: s.path, priority: "0.8", changefreq: "monthly" })),
 ];
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
