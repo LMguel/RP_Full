@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getCachedEmployees } from '../../../services/offline/employeeCache';
+import { getCachedEmployees, refreshEmployeeCache } from '../../../services/offline/employeeCache';
 import { queueOfflineRecord } from '../../../services/offline/offlineQueue';
 import { getSaoPauloTimeString, getSaoPauloDateString } from '../../../utils/time';
 import type { CachedEmployee } from '../../../services/offline/db';
+import { kioskLog } from '../../../services/kioskLogger';
 import KioskClock from './KioskClock';
 
 interface Props {
@@ -16,6 +17,8 @@ type Step = 'list' | 'confirm' | 'success';
 
 export default function KioskOfflineMode({ companyId, onBack, onRecordQueued }: Props) {
   const [employees, setEmployees] = useState<CachedEmployee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<CachedEmployee | null>(null);
   const [step, setStep] = useState<Step>('list');
@@ -23,8 +26,30 @@ export default function KioskOfflineMode({ companyId, onBack, onRecordQueued }: 
   const [registeredTime, setRegisteredTime] = useState('');
 
   useEffect(() => {
-    getCachedEmployees(companyId).then(setEmployees);
+    if (!companyId) {
+      // sessão ainda restaurando — evita consultar o cache com chave vazia
+      // (retornaria sempre 0, mascarando um cache que na verdade existe)
+      setLoading(true);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    getCachedEmployees(companyId).then(list => {
+      if (cancelled) return;
+      setEmployees(list);
+      setLoading(false);
+      if (list.length === 0) kioskLog('EMPLOYEE_CACHE_EMPTY', `company=${companyId.slice(0, 8)}`);
+    });
+    return () => { cancelled = true; };
   }, [companyId]);
+
+  const handleReload = async () => {
+    if (!companyId || reloading) return;
+    setReloading(true);
+    const count = await refreshEmployeeCache(companyId);
+    if (count > 0) setEmployees(await getCachedEmployees(companyId));
+    setReloading(false);
+  };
 
   const filtered = useMemo(() => {
     if (!search.trim()) return employees;
@@ -203,13 +228,28 @@ export default function KioskOfflineMode({ companyId, onBack, onRecordQueued }: 
       {/* Employee list */}
       <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
         <AnimatePresence mode="wait">
-          {employees.length === 0 ? (
+          {loading ? (
+            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16 text-slate-500">
+              <svg className="animate-spin w-10 h-10 mx-auto mb-4 text-slate-600" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <p className="text-lg font-medium">Carregando funcionários…</p>
+            </motion.div>
+          ) : employees.length === 0 ? (
             <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16 text-slate-500">
               <svg className="w-16 h-16 mx-auto mb-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
               <p className="text-lg font-medium">Nenhum funcionário em cache</p>
               <p className="text-sm mt-1">Conecte-se à internet e faça login novamente</p>
+              <button
+                onClick={handleReload}
+                disabled={reloading}
+                className="mt-5 px-6 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-sm font-medium disabled:opacity-50 transition-colors"
+              >
+                {reloading ? 'Tentando recarregar…' : 'Tentar recarregar'}
+              </button>
             </motion.div>
           ) : filtered.length === 0 ? (
             <motion.div key="no-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8 text-slate-500">

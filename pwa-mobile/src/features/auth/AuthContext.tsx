@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, ReactNode } from 'react';
 import apiService from '../../services/api';
-import { cacheEmployees, clearEmployeeCache } from '../../services/offline/employeeCache';
+import { refreshEmployeeCache, clearEmployeeCache } from '../../services/offline/employeeCache';
 import { useSessionTimeout, renewSession } from '../../hooks/useSessionTimeout';
 import type { FuncionarioUser, EmpresaUser, UserType } from '../../types';
 
@@ -138,10 +138,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserType('empresa');
     renewSession('empresa');
 
-    // Cache offline de funcionários (fire-and-forget)
-    apiService.getEmployees().then(employees => {
-      cacheEmployees(employees, res.company_id).catch(() => {});
-    }).catch(() => {});
+    // Cache offline de funcionários (fire-and-forget, com telemetria de sucesso/falha)
+    refreshEmployeeCache(res.company_id);
 
     return empresaData;
   }

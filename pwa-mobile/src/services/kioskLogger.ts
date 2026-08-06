@@ -32,7 +32,20 @@ export type KioskEvent =
   | 'REGISTER_FAILED'
   | 'TENANT_MISMATCH'
   | 'SYNC_FAILED'
-  | 'SW_UPDATED';
+  | 'SW_UPDATED'
+  // modo repouso
+  | 'KIOSK_SLEEP_ENTER'
+  | 'KIOSK_SLEEP_WAKE'
+  // modo offline / cache de funcionários
+  | 'OFFLINE_MODE_ENTER'
+  | 'OFFLINE_MODE_EXIT'
+  | 'EMPLOYEE_CACHE_OK'
+  | 'EMPLOYEE_CACHE_FAILED'
+  | 'EMPLOYEE_CACHE_EMPTY'
+  | 'EMPLOYEE_CACHE_EMPTY_RESPONSE'
+  // sessão
+  | 'TOKEN_REFRESH_OK'
+  | 'TOKEN_REFRESH_SKIPPED_OFFLINE';
 
 export interface KioskLogEntry {
   ts: number;

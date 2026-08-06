@@ -4,10 +4,13 @@ import { useEffect } from 'react';
  * Solicita o Screen Wake Lock para impedir que o display durma durante o kiosk.
  * Re-adquire automaticamente quando a aba volta a ficar visível (o sistema pode
  * liberar o lock ao minimizar ou ao travar a tela).
+ *
+ * `enabled=false` libera o lock e deixa o display dormir normalmente — usado no
+ * modo repouso do kiosk (fora do horário de expediente) para poupar tela/bateria.
  */
-export function useWakeLock() {
+export function useWakeLock(enabled: boolean = true) {
   useEffect(() => {
-    if (!('wakeLock' in navigator)) return;
+    if (!enabled || !('wakeLock' in navigator)) return;
 
     let lock: WakeLockSentinel | null = null;
 
@@ -28,5 +31,5 @@ export function useWakeLock() {
       document.removeEventListener('visibilitychange', onVisibility);
       lock?.release().catch(() => {});
     };
-  }, []);
+  }, [enabled]);
 }

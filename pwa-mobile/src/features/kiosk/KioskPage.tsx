@@ -7,6 +7,7 @@ import { useFullscreen } from '../../hooks/useFullscreen';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { useKioskHealth } from '../../hooks/useKioskHealth';
+import { useKioskSleep } from '../../hooks/useKioskSleep';
 import { pingBackend } from '../../hooks/useBackendStatus';
 import { renewSession } from '../../hooks/useSessionTimeout';
 import { getSaoPauloTimeString } from '../../utils/time';
@@ -16,6 +17,7 @@ import type { RecognitionResult, RegisterPointResult } from '../../types';
 import { kioskLog } from '../../services/kioskLogger';
 import { kioskUpdateCoordinator } from '../../services/kioskUpdateCoordinator';
 import { kioskTelemetry } from '../../services/kioskTelemetry';
+import { refreshEmployeeCache, getCacheAgeMs, getCachedEmployeeCount } from '../../services/offline/employeeCache';
 
 const CAMERA_STREAM_MAX_MS = 30 * 60 * 1000; // reinicia stream após 30min
 const LAST_BOOT_DATE_KEY = '@kiosk:last_boot_date';
@@ -31,6 +33,18 @@ type ConfirmData = {
 };
 
 type SuccessData = { nome: string; tipo: string; tipo_label: string; horario: string };
+
+/** Fallback quando sessionCompanyId ainda não restaurou (ex.: logo após um reload
+ *  diário) — evita consultar o cache de funcionários com chave vazia, que sempre
+ *  retorna 0 e mascara um cache que na verdade existe. */
+function getStoredCompanyId(): string | null {
+  try {
+    const raw = localStorage.getItem('@app:user');
+    return raw ? JSON.parse(raw)?.company_id || null : null;
+  } catch {
+    return null;
+  }
+}
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -62,6 +76,28 @@ export default function KioskPage() {
   const showOfflineMode = !isOnline || !backendAvailable;
 
   const sessionCompanyId = (userType === 'empresa' && (user as any)?.company_id) || null;
+  const sessionCompanyIdRef = useRef(sessionCompanyId);
+  useEffect(() => { sessionCompanyIdRef.current = sessionCompanyId; }, [sessionCompanyId]);
+
+  // Cache de funcionários (para o modo offline) — atualizado no boot, ao reconectar e
+  // diariamente às 6h (antes da abertura), nunca em paralelo consigo mesmo.
+  const cacheRefreshLockRef = useRef(false);
+  const attemptEmployeeCacheRefresh = useCallback(async (_reason: string) => {
+    const companyId = sessionCompanyIdRef.current;
+    if (!companyId || cacheRefreshLockRef.current || !backendAvailableRef.current) return;
+    cacheRefreshLockRef.current = true;
+    try {
+      await refreshEmployeeCache(companyId);
+    } finally {
+      cacheRefreshLockRef.current = false;
+    }
+  }, []);
+
+  // Repouso fora do horário de expediente (câmera parada, wake lock liberado) —
+  // acorda automaticamente ao toque e volta a dormir sozinho após inatividade.
+  const { asleep, wake } = useKioskSleep({
+    onMorningWake: () => attemptEmployeeCacheRefresh('morning-wake'),
+  });
 
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -163,8 +199,8 @@ export default function KioskPage() {
   // Fullscreen persistente: re-entra automaticamente se o usuário sair
   useFullscreen({ persistent: true });
 
-  // Impede o display de dormir enquanto o kiosk estiver ativo
-  useWakeLock();
+  // Impede o display de dormir enquanto o kiosk estiver ativo — liberado durante o repouso
+  useWakeLock(!asleep);
 
   // Kiosk persistence flag — usado para auto-retorno após reload/update
   useEffect(() => {
@@ -185,36 +221,90 @@ export default function KioskPage() {
   }, []);
 
   // Renova o JWT real da empresa a cada 6h para evitar expiração em tablets 24/7.
+  // Só tenta com internet de verdade (navigator.onLine + ping de backend) — tentar
+  // offline só gera uma falha 401 em cascata que limpa a sessão local sem necessidade.
   // refreshEmpresaToken() chama POST /api/auth/refresh → novo JWT 12h.
   // renewSession() atualiza apenas o timer local como fallback.
-  useEffect(() => {
-    const doRefresh = () => {
-      if (localStorage.getItem('@kiosk:active') !== 'true') return;
-      refreshEmpresaToken().then(ok => {
-        if (!ok) renewSession('empresa'); // fallback: pelo menos estende o timer local
-      });
-    };
-    doRefresh(); // refresh imediato ao montar (caso o tablet ficou offline e voltou)
-    const id = setInterval(doRefresh, 6 * 60 * 60 * 1000);
-    return () => clearInterval(id);
+  const doTokenRefresh = useCallback(() => {
+    if (localStorage.getItem('@kiosk:active') !== 'true') return;
+    if (!navigator.onLine || !backendAvailableRef.current) {
+      kioskLog('TOKEN_REFRESH_SKIPPED_OFFLINE');
+      renewSession('empresa'); // fallback: pelo menos estende o timer local
+      return;
+    }
+    refreshEmpresaToken().then(ok => {
+      if (ok) kioskLog('TOKEN_REFRESH_OK');
+      else renewSession('empresa');
+    });
   }, []);
+
+  useEffect(() => {
+    doTokenRefresh(); // tentativa imediata ao montar (caso o tablet ficou offline e voltou)
+    const id = setInterval(doTokenRefresh, 6 * 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [doTokenRefresh]);
 
   // Keep stale-closure refs in sync with current state
   useEffect(() => { backendAvailableRef.current = backendAvailable; }, [backendAvailable]);
   useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
   useEffect(() => { pendingCountRef.current = pendingCount; }, [pendingCount]);
 
-  // Camera lifecycle: start/stop based on online mode.
+  // Ao reconectar (backend volta a responder), renova a sessão e o cache de
+  // funcionários na hora em vez de esperar o próximo ciclo de 6h — garante que o
+  // modo offline tenha uma lista atualizada assim que a internet voltar.
+  const prevBackendAvailableRef = useRef(backendAvailable);
+  useEffect(() => {
+    if (backendAvailable && !prevBackendAvailableRef.current) {
+      doTokenRefresh();
+      attemptEmployeeCacheRefresh('reconnect');
+    }
+    prevBackendAvailableRef.current = backendAvailable;
+  }, [backendAvailable, doTokenRefresh, attemptEmployeeCacheRefresh]);
+
+  // Telemetria de entrada/saída do modo offline — hoje não existia nenhum log disso,
+  // o que impedia diagnosticar à distância se/quando ele foi ativado e com quantos
+  // funcionários em cache. Fica registrado para diagnosticar futuras reclamações.
+  const prevShowOfflineRef = useRef(showOfflineMode);
+  useEffect(() => {
+    if (showOfflineMode && !prevShowOfflineRef.current) {
+      const reason = !isOnline ? 'no-network' : 'backend-down';
+      const companyId = sessionCompanyIdRef.current;
+      (companyId ? getCachedEmployeeCount(companyId) : Promise.resolve(0)).then(count => {
+        kioskLog('OFFLINE_MODE_ENTER', `reason=${reason} cache=${count}`);
+      });
+    } else if (!showOfflineMode && prevShowOfflineRef.current) {
+      kioskLog('OFFLINE_MODE_EXIT');
+    }
+    prevShowOfflineRef.current = showOfflineMode;
+  }, [showOfflineMode, isOnline]);
+
+  // Camera lifecycle: start/stop based on online mode e repouso.
   // stopCamera uses cameraStreamRef so cleanup is never stale.
   useEffect(() => {
-    if (showOfflineMode) {
+    if (asleep) {
+      stopCamera();
+    } else if (showOfflineMode) {
       console.log('[Kiosk] switching to offline mode');
       stopCamera();
     } else {
       startCamera();
     }
     return () => stopCamera();
-  }, [showOfflineMode]); // startCamera/stopCamera are stable (useCallback with no deps)
+  }, [showOfflineMode, asleep]); // startCamera/stopCamera are stable (useCallback with no deps)
+
+  // Boot: garante que o cache de funcionários exista e não esteja velho demais
+  // (kiosks ficam logados por semanas — o cache só era escrito uma vez, no login).
+  useEffect(() => {
+    (async () => {
+      const companyId = sessionCompanyIdRef.current;
+      if (!companyId) return;
+      const count = await getCachedEmployeeCount(companyId);
+      if (count === 0 || getCacheAgeMs() > 6 * 60 * 60 * 1000) {
+        attemptEmployeeCacheRefresh('boot');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reconnect stream to video element when returning from confirm/success screens
   useEffect(() => {
@@ -382,6 +472,7 @@ export default function KioskPage() {
       if (result.reconhecido) {
         errorCountRef.current = 0;
         markActivity();
+        wake('activity');
         kioskLog('FACE_MATCH', result.funcionario?.funcionario_id?.slice(0, 8));
         if (!result.funcionario?.funcionario_id) { setError('Erro: ID do funcionário não encontrado.'); return; }
 
@@ -523,6 +614,7 @@ export default function KioskPage() {
       if (res.success) {
         renewSession('empresa'); // timer local — o refresh real acontece no interval de 6h
         markActivity();
+        wake('activity');
         kioskLog('REGISTER_SUCCESS', `${confirmData.tipo}:${confirmData.id?.slice(0, 8)}`);
         if (capturedUrl) URL.revokeObjectURL(capturedUrl);
         setCapturedUrl(null);
@@ -561,11 +653,26 @@ export default function KioskPage() {
     }
   };
 
+  // ─── Repouso (fora do horário de expediente) ─────────────────────────────────
+  if (asleep) {
+    return (
+      <div
+        className="fixed inset-0 bg-black flex flex-col items-center justify-center cursor-pointer select-none"
+        onClick={() => wake('touch')}
+        onTouchStart={() => wake('touch')}
+      >
+        <div className="mb-10 opacity-70"><KioskClock /></div>
+        <p className="text-white/30 text-lg font-medium">Fora do horário de funcionamento</p>
+        <p className="text-white/20 text-sm mt-2">Toque na tela para registrar o ponto</p>
+      </div>
+    );
+  }
+
   // ─── Offline / backend-down mode ─────────────────────────────────────────────
   if (showOfflineMode) {
     return (
       <KioskOfflineMode
-        companyId={sessionCompanyId || ''}
+        companyId={sessionCompanyId || getStoredCompanyId() || ''}
         onBack={() => navigate('/empresa')}
         onRecordQueued={refreshPendingCount}
       />

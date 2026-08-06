@@ -89,6 +89,7 @@ export class KioskHealthMonitor {
   private rafId: number | null = null;
   private cameraRecovering = false;
   private lastFrameMs = 0; // marcado por markFrameReceived() ou pelo rAF loop
+  private unhealthyStreak = 0; // ciclos consecutivos de stream-unhealthy — evita reagir a um blip isolado
 
   constructor(providers: HealthStateProviders, config: Partial<KioskHealthConfig> = {}) {
     this.providers = providers;
@@ -204,11 +205,29 @@ export class KioskHealthMonitor {
       frozenMs > this.config.cameraLiveTimeoutMs;
 
     if (stream && (!snap.cameraHealthy || cameraFrozen) && !this.cameraRecovering) {
-      const reason = cameraFrozen ? `frame-frozen-${Math.round(frozenMs / 1000)}s` : 'stream-unhealthy';
-      kioskLog('KIOSK_CAMERA_RECOVERY', reason);
-      this.emit({ type: 'CAMERA_RECOVERY', reason });
-      return; // ação escalada ao componente; próximo ciclo verifica resultado
+      // frame-frozen é um sinal confiável (sem frame novo há N segundos) — age na hora.
+      // stream-unhealthy (readyState/dimensões) pode ser um blip momentâneo do driver de
+      // câmera do tablet; exige 2 ciclos consecutivos antes de reiniciar o stream, para não
+      // ficar reiniciando a câmera à toa (visível ao usuário como "a câmera entra e sai").
+      if (cameraFrozen) {
+        this.unhealthyStreak = 0;
+        const reason = `frame-frozen-${Math.round(frozenMs / 1000)}s`;
+        kioskLog('KIOSK_CAMERA_RECOVERY', reason);
+        this.emit({ type: 'CAMERA_RECOVERY', reason });
+        return; // ação escalada ao componente; próximo ciclo verifica resultado
+      }
+
+      this.unhealthyStreak++;
+      if (this.unhealthyStreak >= 2) {
+        const reason = `stream-unhealthy-x${this.unhealthyStreak}`;
+        this.unhealthyStreak = 0;
+        kioskLog('KIOSK_CAMERA_RECOVERY', reason);
+        this.emit({ type: 'CAMERA_RECOVERY', reason });
+        return;
+      }
+      return; // 1º ciclo ruim — aguarda confirmação no próximo antes de agir
     }
+    this.unhealthyStreak = 0;
 
     // 1.5 Refresh diário proativo — evita que o kiosk chegue na abertura da escola
     // com uma câmera travada durante a madrugada (uptime/idle longo demais para
