@@ -1,7 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-import { GraduationCap, ShoppingBag, UtensilsCrossed, CheckCircle2 } from 'lucide-react'
+import { GraduationCap, ShoppingBag, UtensilsCrossed } from 'lucide-react'
 
 const sectors = [
   { icon: GraduationCap,   label: 'Escola',       desc: 'Registro integrado para docentes e funcionários administrativos.', path: '/escolas' },
@@ -10,7 +10,6 @@ const sectors = [
 ]
 
 const stats = [
-  { value: '48h',  label: 'da assinatura ao primeiro registro' },
   { value: 'R$6',  label: 'por dia para 10 funcionários' },
   { value: '0',    label: 'cartão ou senha necessário' },
 ]
@@ -46,17 +45,6 @@ export default function Testimonial() {
             Já em uso em{' '}
             <span className="gradient-text">Angra dos Reis e região</span>
           </motion.h2>
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.14 }}
-            className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 mb-5"
-            style={{ background: 'rgba(24,71,214,0.06)', border: '1px solid rgba(24,71,214,0.16)' }}
-          >
-            <CheckCircle2 size={14} style={{ color: '#1847D6' }} />
-            <span className="text-xs font-semibold text-[#1847D6]">3 empresas registram ponto todos os dias pelo sistema</span>
-          </motion.div>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
