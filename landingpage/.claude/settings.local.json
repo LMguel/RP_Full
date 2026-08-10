@@ -62,7 +62,12 @@
       "Bash(pkill -f \"vite preview\")",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(grep -rn \"399\\\\|R\\\\$49\\\\|12x\\\\|1\\\\.599\\\\|R\\\\$149\\\\|installV\\\\|installN\\\\|\\\\.cash\\\\b\" src/)"
+      "Bash(grep -rn \"399\\\\|R\\\\$49\\\\|12x\\\\|1\\\\.599\\\\|R\\\\$149\\\\|installV\\\\|installN\\\\|\\\\.cash\\\\b\" src/)",
+      "Bash(git push *)",
+      "Bash(node scripts/prerender.mjs)",
+      "Bash(pkill -f \"node.*vite\")",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-CimInstance *)"
     ]
   }
 }
