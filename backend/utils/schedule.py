@@ -70,21 +70,42 @@ def pt_schedule_to_weekly(horarios_pt: Dict) -> Dict[str, Dict[str, Optional[str
     return weekly
 
 
-def get_schedule_for_date(
-    employee: Dict,
-    target_date: date,
-    company_config: Optional[Dict] = None
-) -> Tuple[Optional[str], Optional[str]]:
-    weekday = DAYS_EN[target_date.weekday()]
+def _select_schedule_period(employee: Dict, target_date: date) -> Dict:
+    """Escolhe qual "versão" do horário do funcionário vale para target_date.
 
-    if isinstance(employee, dict):
-        custom_schedule = employee.get("custom_schedule") or {}
-        day_schedule = custom_schedule.get(weekday)
-        if day_schedule:
-            active = day_schedule.get("active", True)
-            if active is False:
-                return None, None
-            return day_schedule.get("start"), day_schedule.get("end")
+    schedule_history guarda períodos já encerrados: cada item tem
+    effective_until (data em que o horário NOVO passou a valer) e uma cópia
+    do horário que estava em vigor até ali. O período mais antigo cujo
+    effective_until ainda é posterior a target_date é o que se aplica;
+    se nenhum cobrir a data (ela é posterior à última troca), usa os campos
+    atuais do funcionário (o horário vigente).
+    """
+    history = employee.get("schedule_history")
+    if not history or not isinstance(history, list):
+        return employee
+
+    target_str = target_date.isoformat()
+    candidates = [h for h in history if isinstance(h, dict) and h.get("effective_until")]
+    for period in sorted(candidates, key=lambda h: h["effective_until"]):
+        if target_str < period["effective_until"]:
+            return period
+
+    return employee
+
+
+def _resolve_from_source(
+    source: Dict,
+    weekday: str,
+    target_date: date,
+    company_config: Optional[Dict]
+) -> Tuple[Optional[str], Optional[str]]:
+    custom_schedule = source.get("custom_schedule") or {}
+    day_schedule = custom_schedule.get(weekday)
+    if day_schedule:
+        active = day_schedule.get("active", True)
+        if active is False:
+            return None, None
+        return day_schedule.get("start"), day_schedule.get("end")
 
     if company_config:
         weekly_schedule = company_config.get("weekly_schedule") or {}
@@ -95,11 +116,22 @@ def get_schedule_for_date(
                 return None, None
             return day_schedule.get("start"), day_schedule.get("end")
 
+    # Legacy fallback: apply only for Mon-Fri (standard work week).
+    # Companies that work on weekends must configure weekly_schedule explicitly.
+    if target_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        return None, None
+    return source.get("horario_entrada"), source.get("horario_saida")
+
+
+def get_schedule_for_date(
+    employee: Dict,
+    target_date: date,
+    company_config: Optional[Dict] = None
+) -> Tuple[Optional[str], Optional[str]]:
+    weekday = DAYS_EN[target_date.weekday()]
+
     if isinstance(employee, dict):
-        # Legacy fallback: apply only for Mon-Fri (standard work week).
-        # Companies that work on weekends must configure weekly_schedule explicitly.
-        if target_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
-            return None, None
-        return employee.get("horario_entrada"), employee.get("horario_saida")
+        period = _select_schedule_period(employee, target_date)
+        return _resolve_from_source(period, weekday, target_date, company_config)
 
     return None, None

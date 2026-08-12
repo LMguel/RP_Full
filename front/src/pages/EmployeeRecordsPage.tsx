@@ -197,6 +197,7 @@ const EmployeeRecordsPage: React.FC = () => {
     intervalo_min: number;
   }>({ horario_entrada: '08:00', horario_saida: '17:00', intervalo_min: 60 });
   const [customSchedule, setCustomSchedule] = useState<WeeklyScheduleMap | null>(null);
+  const [scheduleHistory, setScheduleHistory] = useState<any[]>([]);
   const [companyWeeklySchedule, setCompanyWeeklySchedule] = useState<WeeklyScheduleMap | null>(null);
   const [toleranciaEmpresa, setToleranciaEmpresa] = useState<number>(5);
 
@@ -235,17 +236,39 @@ const EmployeeRecordsPage: React.FC = () => {
     return `${sign}${String(Math.floor(abs/60)).padStart(2,'0')}:${String(abs%60).padStart(2,'0')}`;
   };
 
+  // Vigência: se o funcionário trocou de horário a partir de uma data, schedule_history guarda
+  // o horário antigo (effective_until = data em que o novo passou a valer). Datas anteriores a
+  // essa data devem usar o horário antigo, senão dias já registrados mudam de "previsto" só
+  // porque o cadastro atual foi atualizado.
+  const resolveScheduleForDate = (dateISO?: string): { horario_entrada: string; horario_saida: string; custom_schedule: WeeklyScheduleMap | null } => {
+    if (dateISO && scheduleHistory.length > 0) {
+      const period = scheduleHistory
+        .filter((h: any) => h?.effective_until && dateISO < h.effective_until)
+        .sort((a: any, b: any) => String(a.effective_until).localeCompare(String(b.effective_until)))[0];
+      if (period) {
+        return {
+          horario_entrada: period.horario_entrada,
+          horario_saida: period.horario_saida,
+          custom_schedule: period.custom_schedule || null,
+        };
+      }
+    }
+    return { horario_entrada: funcionarioSchedule.horario_entrada, horario_saida: funcionarioSchedule.horario_saida, custom_schedule: customSchedule };
+  };
+
   // Calcula minutos previstos por dia. Usado APENAS como fallback para dias sem resumo do backend.
   // Prioridade: custom_schedule do funcionário > weekly_schedule da empresa > padrão Seg-Sex.
   // descontarIntervalo: true = jornada líquida (falta, feriado, tooltip); false = janela bruta.
   const minutosPrevistosDia = (schedule: typeof funcionarioSchedule, dateISO?: string, descontarIntervalo: boolean = true): number => {
     const parseHHMM = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0); };
-    let entrada = schedule.horario_entrada;
-    let saida = schedule.horario_saida;
+    const effective = resolveScheduleForDate(dateISO);
+    let entrada = effective.horario_entrada;
+    let saida = effective.horario_saida;
 
     if (dateISO) {
       const dow = new Date(dateISO + 'T12:00:00').getDay(); // 0=Dom, 6=Sab
       const dayKey = (['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const)[dow];
+      const customSchedule = effective.custom_schedule;
 
       if (customSchedule) {
         // 1. Horário específico do funcionário
@@ -1055,6 +1078,7 @@ const EmployeeRecordsPage: React.FC = () => {
         : Number(emp?.intervalo_emp ?? emp?.duracao_intervalo ?? 60);
       setFuncionarioSchedule({ horario_entrada: entrada, horario_saida: saida, intervalo_min: intervalo });
       setCustomSchedule(emp?.custom_schedule || null);
+      setScheduleHistory(Array.isArray(emp?.schedule_history) ? emp.schedule_history : []);
       setCargaHorariaMensal(emp?.carga_horaria_mensal ? Number(emp.carga_horaria_mensal) : null);
     }).catch(() => {});
   }, [employeeId]);

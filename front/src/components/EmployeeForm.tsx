@@ -184,6 +184,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   );
   const [selectedPreset, setSelectedPreset] = useState<string>('');
   const [horariosPorDia, setHorariosPorDia] = useState<Record<DiaSemana, HorarioDiaConfig>>(buildDefaultSchedule());
+  // Snapshot do horário como veio do funcionário, para detectar se foi alterado nesta edição.
+  const [horarioOriginal, setHorarioOriginal] = useState<{ tipo: 'fixo' | 'variavel'; horarios: Record<DiaSemana, HorarioDiaConfig> } | null>(null);
+  const [vigenciaDialogOpen, setVigenciaDialogOpen] = useState(false);
+  const [vigenciaModo, setVigenciaModo] = useState<'retroativo' | 'futuro'>('futuro');
+  const [vigenciaData, setVigenciaData] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
 
   const allCargos = [...new Set(existingCargos)].sort();
 
@@ -237,14 +243,21 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setSelectedPreset(predHora);
       setNomeHorario(predHora);
 
+      let horariosCarregados: Record<DiaSemana, HorarioDiaConfig>;
       if (employee.custom_schedule && Object.keys(employee.custom_schedule).length > 0) {
-        setHorariosPorDia(buildScheduleFromCustom(employee.custom_schedule));
+        horariosCarregados = buildScheduleFromCustom(employee.custom_schedule);
       } else if (employee.horario_entrada && employee.horario_saida) {
-        setHorariosPorDia(buildScheduleFromLegacy(employee.horario_entrada, employee.horario_saida));
+        horariosCarregados = buildScheduleFromLegacy(employee.horario_entrada, employee.horario_saida);
       } else {
-        setHorariosPorDia(buildDefaultSchedule());
+        horariosCarregados = buildDefaultSchedule();
       }
+      setHorariosPorDia(horariosCarregados);
+      setHorarioOriginal({
+        tipo: employee.horario_entrada ? 'fixo' : 'variavel',
+        horarios: horariosCarregados,
+      });
     } else {
+      setHorarioOriginal(null);
       setFormData({ nome: '', cargo: '', senha: '', confirmarSenha: '' });
       setPhoto(null);
       setPhotoPreview(null);
@@ -410,7 +423,37 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       usarEmpresaEntradaAntecipada ? '' : (entradaAntecipadaExtra ? 'true' : 'false')
     );
 
+    // Se está editando um funcionário que já tinha horário fixo e o horário foi
+    // alterado, pergunta se a mudança vale para todo o histórico (retroativo)
+    // ou só a partir de uma data — para não recalcular dias já trabalhados.
+    const horarioFoiAlterado =
+      !!employee &&
+      horarioOriginal?.tipo === 'fixo' &&
+      tipoHorario === 'fixo' &&
+      JSON.stringify(horarioOriginal.horarios) !== JSON.stringify(horariosPorDia);
+
+    if (horarioFoiAlterado) {
+      setPendingFormData(formDataToSend);
+      setVigenciaModo('futuro');
+      setVigenciaData(new Date().toISOString().slice(0, 10));
+      setVigenciaDialogOpen(true);
+      return;
+    }
+
+    formDataToSend.append('vigencia_modo', 'retroativo');
     await onSubmit(formDataToSend);
+  };
+
+  const handleConfirmVigencia = async () => {
+    if (!pendingFormData) return;
+    pendingFormData.append('vigencia_modo', vigenciaModo);
+    if (vigenciaModo === 'futuro') {
+      pendingFormData.append('vigencia_data', vigenciaData);
+    }
+    setVigenciaDialogOpen(false);
+    const dataToSend = pendingFormData;
+    setPendingFormData(null);
+    await onSubmit(dataToSend);
   };
 
   const handleClose = () => {
@@ -445,6 +488,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   };
 
   return (
+    <>
     <Dialog
       open={open}
       onClose={(_, reason) => { if (reason === 'backdropClick' || reason === 'escapeKeyDown') return; handleClose(); }}
@@ -821,6 +865,88 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         </DialogActions>
       </form>
     </Dialog>
+
+    <Dialog
+      open={vigenciaDialogOpen}
+      onClose={() => setVigenciaDialogOpen(false)}
+      maxWidth="xs"
+      fullWidth
+      PaperProps={{
+        sx: {
+          background: 'rgba(15, 23, 42, 0.97)',
+          backdropFilter: 'blur(20px)',
+          borderRadius: '16px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        },
+      }}
+    >
+      <DialogTitle sx={{ color: 'white', fontWeight: 600 }}>
+        O horário deste funcionário foi alterado
+      </DialogTitle>
+      <DialogContent>
+        <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 14, mb: 2 }}>
+          Como o novo horário deve ser aplicado?
+        </Typography>
+
+        <Box
+          onClick={() => setVigenciaModo('futuro')}
+          sx={{
+            p: 2, mb: 1.5, borderRadius: '10px', cursor: 'pointer',
+            background: vigenciaModo === 'futuro' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+            border: `1px solid ${vigenciaModo === 'futuro' ? '#3b82f6' : 'rgba(255, 255, 255, 0.08)'}`,
+          }}
+        >
+          <Typography sx={{ color: 'white', fontWeight: 500, fontSize: 14 }}>
+            A partir de uma data específica
+          </Typography>
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mt: 0.5 }}>
+            Os registros e cálculos anteriores a essa data continuam usando o horário antigo.
+          </Typography>
+          {vigenciaModo === 'futuro' && (
+            <TextField
+              type="date"
+              size="small"
+              value={vigenciaData}
+              onChange={(e) => setVigenciaData(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              InputLabelProps={{ shrink: true }}
+              sx={{ mt: 1.5, ...timeInputSx }}
+              fullWidth
+            />
+          )}
+        </Box>
+
+        <Box
+          onClick={() => setVigenciaModo('retroativo')}
+          sx={{
+            p: 2, borderRadius: '10px', cursor: 'pointer',
+            background: vigenciaModo === 'retroativo' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+            border: `1px solid ${vigenciaModo === 'retroativo' ? '#3b82f6' : 'rgba(255, 255, 255, 0.08)'}`,
+          }}
+        >
+          <Typography sx={{ color: 'white', fontWeight: 500, fontSize: 14 }}>
+            Retroativamente (todo o histórico)
+          </Typography>
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13, mt: 0.5 }}>
+            Recalcula também os dias já registrados com o novo horário.
+          </Typography>
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ p: 3, pt: 1 }}>
+        <Button onClick={() => setVigenciaDialogOpen(false)} sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+          Cancelar
+        </Button>
+        <Button
+          onClick={handleConfirmVigencia}
+          variant="contained"
+          disabled={vigenciaModo === 'futuro' && !vigenciaData}
+          sx={{ background: '#2563eb', color: 'white', fontWeight: 600, '&:hover': { background: '#1d4ed8' } }}
+        >
+          Confirmar
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 

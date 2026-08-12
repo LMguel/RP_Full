@@ -395,6 +395,8 @@ def atualizar_funcionario(payload, funcionario_id):
         tipo_horario = request.form.get('tipo_horario')
         horarios_json_str = request.form.get('horarios_json')  # Horários por dia em JSON (DiaSemana format)
         home_office = request.form.get('home_office', 'false').lower() == 'true'
+        vigencia_modo = request.form.get('vigencia_modo', 'retroativo')  # 'retroativo' ou 'futuro'
+        vigencia_data = request.form.get('vigencia_data')  # YYYY-MM-DD, obrigatório se modo == 'futuro'
 
         if not nome or not cargo:
             return jsonify({'error': 'Nome e cargo são obrigatórios'}), 400
@@ -535,6 +537,14 @@ def atualizar_funcionario(payload, funcionario_id):
             else:
                 funcionario['intervalo_automatico'] = ia_val.strip().lower() == 'true'
 
+        # Snapshot do horário vigente antes de aplicar as mudanças abaixo — usado
+        # para preservar o cálculo dos dias antigos quando vigencia_modo == 'futuro'.
+        horario_antigo = {
+            'custom_schedule': funcionario.get('custom_schedule'),
+            'horario_entrada': funcionario.get('horario_entrada'),
+            'horario_saida': funcionario.get('horario_saida'),
+        }
+
         # Aplicar regras de horário por dia
         if tipo_horario == 'variavel':
             funcionario.pop('horario_entrada', None)
@@ -576,6 +586,25 @@ def atualizar_funcionario(payload, funcionario_id):
                 # Manter horário existente; apenas atualizar nome se fornecido
                 if nome_horario:
                     funcionario['pred_hora'] = nome_horario
+
+        # Vigência: se o horário mudou e o admin pediu para valer só a partir de
+        # uma data futura, guarda o horário antigo em schedule_history com o
+        # limite de até quando ele vale — dias anteriores a essa data continuam
+        # sendo calculados com o horário antigo (ver utils/schedule.py).
+        horario_mudou = (
+            horario_antigo['custom_schedule'] != funcionario.get('custom_schedule')
+            or horario_antigo['horario_entrada'] != funcionario.get('horario_entrada')
+            or horario_antigo['horario_saida'] != funcionario.get('horario_saida')
+        )
+        if horario_mudou and vigencia_modo == 'futuro' and vigencia_data:
+            historico = funcionario.get('schedule_history') or []
+            historico.append({
+                'effective_until': vigencia_data,
+                'custom_schedule': horario_antigo['custom_schedule'],
+                'horario_entrada': horario_antigo['horario_entrada'],
+                'horario_saida': horario_antigo['horario_saida'],
+            })
+            funcionario['schedule_history'] = historico
 
         tabela_funcionarios.put_item(Item=funcionario)
         return jsonify({'message': 'Funcionário atualizado com sucesso!'}), 200
@@ -1971,6 +2000,7 @@ def listar_funcionarios(payload):
                 'early_entry_overtime': f.get('early_entry_overtime'),
                 'tolerancia_atraso': f.get('tolerancia_atraso'),
                 'custom_schedule': f.get('custom_schedule'),
+                'schedule_history': f.get('schedule_history'),
                 'pred_hora': f.get('pred_hora'),
                 'horario_variavel': f.get('horario_variavel', False),
             }

@@ -74,3 +74,53 @@ class TestWeeklyScheduleDaEmpresa:
         employee = {'horario_entrada': '07:00', 'horario_saida': '17:00'}
         company_config = {'weekly_schedule': {'mon': {'active': False}}}
         assert get_schedule_for_date(employee, MONDAY, company_config) == (None, None)
+
+
+class TestScheduleHistoryVigencia:
+    """schedule_history preserva o cálculo dos dias anteriores a uma troca de horário."""
+
+    def test_data_antes_da_vigencia_usa_horario_antigo(self):
+        employee = {
+            'horario_entrada': '12:50', 'horario_saida': '17:30',
+            'schedule_history': [
+                {'effective_until': '2026-08-06', 'horario_entrada': '07:30', 'horario_saida': '17:30'},
+            ],
+        }
+        assert get_schedule_for_date(employee, date(2026, 8, 5), {}) == ('07:30', '17:30')
+
+    def test_data_a_partir_da_vigencia_usa_horario_novo(self):
+        employee = {
+            'horario_entrada': '12:50', 'horario_saida': '17:30',
+            'schedule_history': [
+                {'effective_until': '2026-08-06', 'horario_entrada': '07:30', 'horario_saida': '17:30'},
+            ],
+        }
+        assert get_schedule_for_date(employee, date(2026, 8, 6), {}) == ('12:50', '17:30')
+
+    def test_custom_schedule_no_periodo_historico_e_respeitado(self):
+        employee = {
+            'custom_schedule': {'mon': {'active': True, 'start': '12:50', 'end': '17:30'}},
+            'schedule_history': [
+                {
+                    'effective_until': '2026-08-06',
+                    'custom_schedule': {'mon': {'active': True, 'start': '07:30', 'end': '17:30'}},
+                },
+            ],
+        }
+        assert get_schedule_for_date(employee, MONDAY, {}) == ('07:30', '17:30')
+
+    def test_multiplas_trocas_escolhe_o_periodo_correto(self):
+        employee = {
+            'horario_entrada': '12:50', 'horario_saida': '17:30',
+            'schedule_history': [
+                {'effective_until': '2026-06-01', 'horario_entrada': '06:00', 'horario_saida': '15:00'},
+                {'effective_until': '2026-08-06', 'horario_entrada': '07:30', 'horario_saida': '17:30'},
+            ],
+        }
+        assert get_schedule_for_date(employee, date(2026, 5, 1), {}) == ('06:00', '15:00')
+        assert get_schedule_for_date(employee, date(2026, 7, 1), {}) == ('07:30', '17:30')
+        assert get_schedule_for_date(employee, date(2026, 9, 1), {}) == ('12:50', '17:30')
+
+    def test_sem_schedule_history_comportamento_inalterado(self):
+        employee = {'horario_entrada': '07:00', 'horario_saida': '17:00', 'schedule_history': []}
+        assert get_schedule_for_date(employee, MONDAY, {}) == ('07:00', '17:00')

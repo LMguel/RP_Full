@@ -61,6 +61,30 @@ const minutosPrevistosDia = (horario_entrada: string, horario_saida: string, int
   return Math.max(0, parseHHMM(horario_saida) - parseHHMM(horario_entrada) - intervalo_min);
 };
 
+// Vigência: se o funcionário trocou de horário a partir de uma data, schedule_history guarda
+// o horário antigo (effective_until = data em que o novo passou a valer). Datas anteriores a
+// essa data devem usar o horário antigo, senão o histórico de dias já registrados muda de valor
+// só porque o cadastro atual mudou.
+const resolveScheduleForDate = (
+  sched: { horario_entrada: string; horario_saida: string; custom_schedule?: any; schedule_history?: any[] },
+  dateStr: string
+): { horario_entrada: string; horario_saida: string; custom_schedule?: any } => {
+  const history = sched.schedule_history;
+  if (history && history.length > 0 && dateStr) {
+    const period = history
+      .filter((h: any) => h?.effective_until && dateStr < h.effective_until)
+      .sort((a: any, b: any) => String(a.effective_until).localeCompare(String(b.effective_until)))[0];
+    if (period) {
+      return {
+        horario_entrada: period.horario_entrada,
+        horario_saida: period.horario_saida,
+        custom_schedule: period.custom_schedule,
+      };
+    }
+  }
+  return { horario_entrada: sched.horario_entrada, horario_saida: sched.horario_saida, custom_schedule: sched.custom_schedule };
+};
+
 const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }) => {
   const currentDate = new Date();
   const todayISO = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}-${String(currentDate.getDate()).padStart(2,'0')}`;
@@ -88,7 +112,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
 
   const [summaries, setSummaries] = useState<any[]>([]);
   // Mapa employee_id → jornada { horario_entrada, horario_saida, intervalo_min }
-  const [scheduleMap, setScheduleMap] = useState<Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }>>({});
+  const [scheduleMap, setScheduleMap] = useState<Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any; schedule_history?: any[] }>>({});
   const [loading, setLoading] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -107,7 +131,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
       );
       setEmployees(sortedEmployees);
       // Montar mapa de jornada por funcionário
-      const map: Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }> = {};
+      const map: Record<string, { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any; schedule_history?: any[] }> = {};
       employeesList.forEach((emp: any) => {
         const id = emp.id || emp.funcionario_id;
         if (id) {
@@ -116,6 +140,7 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
             horario_saida: emp.horario_saida || '17:00',
             intervalo_min: Number(emp.intervalo_emp ?? emp.duracao_intervalo ?? 60),
             custom_schedule: emp.custom_schedule,
+            schedule_history: emp.schedule_history,
           };
         }
       });
@@ -229,16 +254,17 @@ const DailyRecordsTable: React.FC<DailyRecordsTableProps> = ({ reloadToken = 0 }
     setSelectedMonth(`${periodoAno}-${String(periodoMes).padStart(2, '0')}`);
   };
 
-  const getExpectedMinutesForDate = (dateStr: string, sched?: { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any }) => {
+  const getExpectedMinutesForDate = (dateStr: string, sched?: { horario_entrada: string; horario_saida: string; intervalo_min: number; custom_schedule?: any; schedule_history?: any[] }) => {
     if (!sched || !dateStr) return null;
+    const effective = resolveScheduleForDate(sched, dateStr);
     const dayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date(dateStr + 'T12:00:00').getDay()];
-    const daySchedule = sched.custom_schedule?.[dayKey];
+    const daySchedule = effective.custom_schedule?.[dayKey];
     const active = daySchedule?.active;
     if (active === false) {
       return 0;
     }
-    const entrada = daySchedule?.start || sched.horario_entrada;
-    const saida = daySchedule?.end || sched.horario_saida;
+    const entrada = daySchedule?.start || effective.horario_entrada;
+    const saida = daySchedule?.end || effective.horario_saida;
     if (!entrada || !saida) return 0;
     return minutosPrevistosDia(entrada, saida, sched.intervalo_min);
   };

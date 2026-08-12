@@ -407,6 +407,7 @@ def get_daily_summaries():
                             'horario_entrada': emp.get('horario_entrada'),
                             'horario_saida': emp.get('horario_saida'),
                             'custom_schedule': emp.get('custom_schedule'),
+                            'schedule_history': emp.get('schedule_history'),
                             'intervalo_padrao_minutos': intervalo_padrao,
                             'intervalo_automatico': emp.get('intervalo_automatico'),
                             'early_entry_overtime': emp.get('early_entry_overtime'),

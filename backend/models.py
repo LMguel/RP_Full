@@ -218,6 +218,12 @@ class Employee:
     
     # Horário customizado (sobrescreve horário da empresa)
     custom_schedule: Optional[WeeklySchedule] = None
+
+    # Histórico de horários encerrados (vigência): cada item é
+    # {"effective_until": "YYYY-MM-DD", "custom_schedule": {...}, "horario_entrada": ..., "horario_saida": ...}
+    # usado por utils/schedule.get_schedule_for_date para não recalcular dias
+    # antigos quando o horário atual do funcionário muda a partir de uma data.
+    schedule_history: Optional[List[Dict]] = None
     
     # Regras de localização customizadas
     custom_location_rules: Optional[Dict] = None
