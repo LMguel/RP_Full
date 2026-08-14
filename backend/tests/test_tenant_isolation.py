@@ -2,7 +2,10 @@
 Testes de isolamento multi-tenant — Fase 2 Segurança RegistraPonto.
 
 Valida que:
-  - Login de funcionário exige company_id (FIX 3)
+  - Login de funcionário busca via GSI id-index e desambigua por senha entre
+    tenants com id colidindo, sem exigir company_id do cliente nem usar scan
+    como caminho primário (substituiu o antigo FIX 3, que exigia company_id
+    no body mas nunca era enviado pelo app — login ficava quebrado)
   - /recalcular rejeita employee_id de outro tenant (HIGH-4)
   - require_company_scope rejeita tokens sem company_id
   - get_item isola por tenant (sem leitura cross-tenant)
@@ -97,18 +100,22 @@ class TestRequireCompanyScope:
         assert r.get_json()['company_id'] == COMPANY_A
 
 
-# ── 2. Login funcionário — company_id obrigatório ────────────────────────────
+# ── 2. Login funcionário — via GSI id-index, sem exigir company_id ───────────
+#
+# Histórico: login exigia company_id no body (FIX 3), mas o formulário do app
+# nunca enviava isso — login estava quebrado em produção. Substituído por busca
+# via GSI id-index (mesmo padrão já usado no login de empresa, user_id-index),
+# com desambiguação por senha quando dois tenants têm o mesmo id de funcionário
+# (o dedup de login só é único DENTRO de uma empresa, não globalmente).
 
-class TestFuncionarioLoginCompanyIdRequired:
+class TestFuncionarioLoginViaGsi:
     """
-    Testa a lógica de validação no login_funcionario de routes/api.py.
+    Testa a lógica de busca/autenticação no login_funcionario de routes/api.py.
     Importa apenas a função e injeta mocks — sem subir o app Flask completo.
     """
 
     def _call_login(self, body: dict, mock_table=None):
         """Invoca login_funcionario via test client de um app mínimo."""
-        from utils.auth import verify_token as _vt, hash_password
-
         app = Flask('test_login')
         app.config['TESTING'] = True
 
@@ -129,37 +136,60 @@ class TestFuncionarioLoginCompanyIdRequired:
                 content_type='application/json',
             )
 
-    def test_sem_company_id_retorna_400(self):
-        r = self._call_login({'funcionario_id': EMPLOYEE_A, 'senha': 'x'})
-        assert r.status_code == 400
-        assert 'company_id' in r.get_json().get('error', '').lower()
-
-    def test_company_id_vazio_retorna_400(self):
-        r = self._call_login({'funcionario_id': EMPLOYEE_A, 'senha': 'x', 'company_id': '  '})
-        assert r.status_code == 400
-
-    def test_employee_nao_existe_no_tenant_retorna_401(self):
+    def test_sem_company_id_no_body_funciona(self):
+        """company_id não é mais exigido no request — é o próprio bug que motivou a mudança."""
+        from utils.auth import hash_password
         mock_table = MagicMock()
-        mock_table.get_item.return_value = {}  # sem Item
-        r = self._call_login(
-            {'funcionario_id': EMPLOYEE_B, 'senha': 'x', 'company_id': COMPANY_A},
-            mock_table=mock_table,
-        )
+        mock_table.query.return_value = {'Items': [{
+            'id': EMPLOYEE_A, 'company_id': COMPANY_A, 'nome': 'João',
+            'senha_hash': hash_password('correta'), 'is_active': True,
+        }]}
+        r = self._call_login({'funcionario_id': EMPLOYEE_A, 'senha': 'correta'}, mock_table=mock_table)
+        assert r.status_code == 200
+        assert r.get_json()['funcionario']['id'] == EMPLOYEE_A
+
+    def test_nenhum_candidato_retorna_401(self):
+        mock_table = MagicMock()
+        mock_table.query.return_value = {'Items': []}
+        r = self._call_login({'funcionario_id': EMPLOYEE_B, 'senha': 'x'}, mock_table=mock_table)
         assert r.status_code == 401
 
-    def test_get_item_chamado_com_company_id_correto(self):
-        """Garante que get_item usa company_id do request, não um scan global."""
+    def test_query_usa_gsi_id_index_nao_scan(self):
+        """Garante que a busca primária é via GSI (query), não um scan global."""
         mock_table = MagicMock()
-        mock_table.get_item.return_value = {}
-        self._call_login(
-            {'funcionario_id': EMPLOYEE_A, 'senha': 'pw', 'company_id': COMPANY_A},
-            mock_table=mock_table,
-        )
-        mock_table.get_item.assert_called_once_with(
-            Key={'company_id': COMPANY_A, 'id': EMPLOYEE_A}
-        )
-        # Confirma que scan() NÃO foi chamado
+        mock_table.query.return_value = {'Items': []}
+        self._call_login({'funcionario_id': EMPLOYEE_A, 'senha': 'pw'}, mock_table=mock_table)
+        assert mock_table.query.call_args.kwargs.get('IndexName') == 'id-index'
         mock_table.scan.assert_not_called()
+
+    def test_senha_errada_retorna_401_mesmo_com_candidato_existente(self):
+        from utils.auth import hash_password
+        mock_table = MagicMock()
+        mock_table.query.return_value = {'Items': [{
+            'id': EMPLOYEE_A, 'company_id': COMPANY_A, 'nome': 'João',
+            'senha_hash': hash_password('correta'), 'is_active': True,
+        }]}
+        r = self._call_login({'funcionario_id': EMPLOYEE_A, 'senha': 'errada'}, mock_table=mock_table)
+        assert r.status_code == 401
+
+    def test_id_colidindo_entre_duas_empresas_desambigua_por_senha(self):
+        """Duas empresas diferentes podem ter um funcionário com o mesmo id (dedup
+        é só por empresa). Login deve autenticar contra a conta cuja senha bate,
+        e o token resultante deve carregar o company_id CORRETO (não o outro tenant)."""
+        from utils.auth import hash_password
+        mock_table = MagicMock()
+        mock_table.query.return_value = {'Items': [
+            {'id': EMPLOYEE_A, 'company_id': COMPANY_A, 'nome': 'João de A',
+             'senha_hash': hash_password('senha-empresa-a'), 'is_active': True},
+            {'id': EMPLOYEE_A, 'company_id': COMPANY_B, 'nome': 'João de B',
+             'senha_hash': hash_password('senha-empresa-b'), 'is_active': True},
+        ]}
+        r = self._call_login({'funcionario_id': EMPLOYEE_A, 'senha': 'senha-empresa-b'}, mock_table=mock_table)
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['funcionario']['nome'] == 'João de B'
+        decoded = jwt.decode(body['token'], SECRET, algorithms=['HS256'])
+        assert decoded['company_id'] == COMPANY_B
 
 
 # ── 3. /recalcular — validação de tenant ─────────────────────────────────────

@@ -26,13 +26,16 @@ import {
   Close as CloseIcon,
   PhotoCamera as PhotoCameraIcon,
   Person as PersonIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
   Schedule as ScheduleIcon,
   AccessTime as AccessTimeIcon,
+  ContentCopy as ContentCopyIcon,
+  Check as CheckIcon,
+  VpnKey as VpnKeyIcon,
+  Block as BlockIcon,
 } from '@mui/icons-material';
 import { DiaSemana, Employee, HorarioDiaConfig, HorarioPreset, WeeklyScheduleMap } from '../types';
 import { config } from '../config';
+import { apiService } from '../services/api';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,6 +137,9 @@ interface EmployeeFormProps {
   loading?: boolean;
   existingCargos?: string[];
   companySettings?: any;
+  /** Disparado ao confirmar "Desativar" dentro do modal — o dialog de confirmação
+   *  em si vive em EmployeesPage (reaproveitado), este form só pede pra abrir. */
+  onRequestDeactivate?: (employee: Employee) => void;
 }
 
 const EmployeeForm: React.FC<EmployeeFormProps> = ({
@@ -144,12 +150,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   loading = false,
   existingCargos = [],
   companySettings,
+  onRequestDeactivate,
 }) => {
   const [formData, setFormData] = useState({
     nome: employee?.nome || '',
     cargo: employee?.cargo || '',
-    senha: '',
-    confirmarSenha: '',
   });
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(employee?.foto_url || null);
@@ -157,8 +162,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [horariosPreset, setHorariosPreset] = useState<HorarioPreset[]>([]);
   const [loadingHorarios, setLoadingHorarios] = useState(false);
   const [nomeHorario, setNomeHorario] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  // Acesso ao app mobile: senha temporária só existe em memória, enquanto o
+  // modal está aberto — nunca persiste em texto puro (ver LGPD/senha_original
+  // já removido deste projeto antes). Fechar o modal ou recarregar a página
+  // apaga; o RH gera de novo se esquecer de copiar.
+  const [tempCredentials, setTempCredentials] = useState<{ login: string; senha_temporaria: string } | null>(null);
+  const [generatingSenha, setGeneratingSenha] = useState(false);
+  const [senhaError, setSenhaError] = useState('');
+  const [copiedField, setCopiedField] = useState<'login' | 'senha' | null>(null);
   const [intervaloPersonalizado, setIntervaloPersonalizado] = useState<boolean>(employee?.intervalo_personalizado || false);
   const [intervaloEmp, setIntervaloEmp] = useState<string>(employee?.intervalo_emp?.toString() || '');
   // Intervalo padrão (minutos). 0 é válido. Default 60 para novos com horário fixo.
@@ -220,8 +231,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   // Populate form when employee data changes
   React.useEffect(() => {
+    setTempCredentials(null);
+    setSenhaError('');
     if (employee) {
-      setFormData({ nome: employee.nome, cargo: employee.cargo, senha: '', confirmarSenha: '' });
+      setFormData({ nome: employee.nome, cargo: employee.cargo });
       setPhotoPreview(employee.foto_url);
       setIntervaloPersonalizado(!!employee.intervalo_personalizado);
       setIntervaloEmp(employee.intervalo_emp ? employee.intervalo_emp.toString() : '');
@@ -258,7 +271,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       });
     } else {
       setHorarioOriginal(null);
-      setFormData({ nome: '', cargo: '', senha: '', confirmarSenha: '' });
+      setFormData({ nome: '', cargo: '' });
       setPhoto(null);
       setPhotoPreview(null);
       setNomeHorario('');
@@ -358,10 +371,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const newErrors: Record<string, string> = {};
     if (!formData.nome.trim()) newErrors.nome = 'Nome é obrigatório';
     if (!formData.cargo.trim()) newErrors.cargo = 'Cargo é obrigatório';
-    if (formData.senha?.trim()) {
-      if (formData.senha.length < 6) newErrors.senha = 'Senha deve ter no mínimo 6 caracteres';
-      if (formData.senha !== formData.confirmarSenha) newErrors.confirmarSenha = 'As senhas não coincidem';
-    }
     if (!employee && !photo) newErrors.photo = 'Foto é obrigatória para novos funcionários';
     if (tipoHorario === 'fixo') {
       const hasActiveDay = WEEK_DAYS_KEYS.some(d => horariosPorDia[d]?.ativo);
@@ -379,17 +388,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     formDataToSend.append('nome', formData.nome);
     formDataToSend.append('cargo', formData.cargo);
 
-    // Generate login/id only for new employees — never change it on edit
-    if (!employee) {
-      let firstName = formData.nome.trim().split(' ')[0]?.toLowerCase() || 'user';
-      firstName = firstName.normalize('NFD').replace(/[^a-z0-9_]/g, '');
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const login = `${firstName}_${randomNum}`;
-      formDataToSend.append('login', login);
-      formDataToSend.append('id', login);
-    }
-
-    if (formData.senha?.trim()) formDataToSend.append('senha', formData.senha);
+    // Login/id são gerados pelo backend (nome.sobrenome, com dedup) — não enviar
+    // nada daqui, tanto na criação quanto na edição.
     if (photo) formDataToSend.append('foto', photo);
 
     formDataToSend.append('intervalo_personalizado', intervaloPersonalizado ? 'true' : 'false');
@@ -457,7 +457,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   };
 
   const handleClose = () => {
-    setFormData({ nome: '', cargo: '', senha: '', confirmarSenha: '' });
+    setFormData({ nome: '', cargo: '' });
     setPhoto(null);
     setPhotoPreview(null);
     setNomeHorario('');
@@ -470,7 +470,34 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     setUsarEmpresaEntradaAntecipada(true);
     setEntradaAntecipadaExtra(false);
     setErrors({});
+    setTempCredentials(null);
+    setSenhaError('');
     onClose();
+  };
+
+  const handleCopy = async (field: 'login' | 'senha', value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(prev => (prev === field ? null : prev)), 2000);
+    } catch {
+      // Clipboard indisponível (ex: contexto não-seguro) — falha silenciosa,
+      // o valor continua selecionável/copiável manualmente na tela.
+    }
+  };
+
+  const handleGerarSenhaTemporaria = async () => {
+    if (!employee) return;
+    setGeneratingSenha(true);
+    setSenhaError('');
+    try {
+      const result = await apiService.redefinirSenhaFuncionario(employee.id);
+      setTempCredentials(result);
+    } catch (err: any) {
+      setSenhaError(err.response?.data?.error || 'Erro ao gerar senha temporária');
+    } finally {
+      setGeneratingSenha(false);
+    }
   };
 
   // Format preset summary for dropdown
@@ -554,44 +581,101 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               ListboxProps={{ sx: { background: 'rgba(15, 23, 42, 0.95)', color: 'white', '& .MuiAutocomplete-option': { '&.Mui-focused': { backgroundColor: 'rgba(59, 130, 246, 0.35)' } } } }}
             />
 
-            {/* Password */}
+            {/* Acesso ao App Mobile */}
             <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
               <Typography variant="subtitle2" sx={{ color: 'white', fontWeight: 600, mb: 2 }}>
-                Acesso ao App Mobile (Opcional)
+                Acesso ao App Mobile
               </Typography>
-              <TextField
-                fullWidth
-                label={employee ? 'Nova Senha (deixe em branco para não alterar)' : 'Senha'}
-                name="senha"
-                type={showPassword ? 'text' : 'password'}
-                value={formData.senha}
-                onChange={handleChange}
-                error={!!errors.senha}
-                helperText={errors.senha || (employee ? 'Preencha apenas se quiser redefinir. Mínimo 6 caracteres.' : 'Mínimo 6 caracteres. Deixe em branco para não dar acesso ao app.')}
-                disabled={loading}
-                variant="outlined"
-                autoComplete="new-password"
-                InputProps={{ endAdornment: formData.senha && (<InputAdornment position="end"><IconButton onClick={() => setShowPassword(!showPassword)} edge="end" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>{showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}</IconButton></InputAdornment>) }}
-                sx={inputSx}
-              />
-              {formData.senha && (
-                <TextField
-                  fullWidth
-                  label="Confirmar Senha"
-                  name="confirmarSenha"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={formData.confirmarSenha}
-                  onChange={handleChange}
-                  error={!!errors.confirmarSenha}
-                  helperText={errors.confirmarSenha}
-                  disabled={loading}
-                  variant="outlined"
-                  autoComplete="new-password"
-                  InputProps={{ endAdornment: formData.confirmarSenha && (<InputAdornment position="end"><IconButton onClick={() => setShowConfirmPassword(!showConfirmPassword)} edge="end" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>{showConfirmPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}</IconButton></InputAdornment>) }}
-                  sx={{ mt: 2, ...inputSx }}
-                />
+
+              {employee ? (
+                <>
+                  <TextField
+                    fullWidth
+                    label="Login"
+                    value={employee.login || employee.id}
+                    disabled
+                    variant="outlined"
+                    sx={inputSx}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => handleCopy('login', employee.login || employee.id)}
+                            edge="end"
+                            sx={{ color: copiedField === 'login' ? '#34d399' : 'rgba(255, 255, 255, 0.7)' }}
+                          >
+                            {copiedField === 'login' ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    onClick={handleGerarSenhaTemporaria}
+                    disabled={loading || generatingSenha}
+                    startIcon={generatingSenha ? <CircularProgress size={16} color="inherit" /> : <VpnKeyIcon />}
+                    sx={{ mt: 2, borderColor: 'rgba(255, 255, 255, 0.3)', color: 'rgba(255, 255, 255, 0.85)', '&:hover': { borderColor: 'rgba(255, 255, 255, 0.5)', background: 'rgba(255, 255, 255, 0.05)' } }}
+                  >
+                    {generatingSenha ? 'Gerando...' : 'Gerar Senha Temporária'}
+                  </Button>
+                  {senhaError && <Typography variant="caption" sx={{ color: '#ef4444', display: 'block', mt: 1 }}>{senhaError}</Typography>}
+
+                  {tempCredentials && (
+                    <Box sx={{ mt: 2, p: 2, borderRadius: '10px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                      <Typography variant="caption" sx={{ color: '#6ee7b7', fontWeight: 600, display: 'block', mb: 1 }}>
+                        Senha temporária gerada — copie agora, ela só aparece uma vez
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography sx={{ color: 'white', fontFamily: 'monospace', fontSize: 18, fontWeight: 700, letterSpacing: 1 }}>
+                          {tempCredentials.senha_temporaria}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleCopy('senha', tempCredentials.senha_temporaria)}
+                          sx={{ color: copiedField === 'senha' ? '#34d399' : 'rgba(255, 255, 255, 0.7)' }}
+                        >
+                          {copiedField === 'senha' ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                        </IconButton>
+                      </Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mt: 1 }}>
+                        Peça pro funcionário trocar essa senha no primeiro acesso ao app.
+                      </Typography>
+                    </Box>
+                  )}
+                </>
+              ) : (
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 13 }}>
+                  O login é gerado automaticamente (nome.sobrenome) ao salvar. Depois de cadastrado, reabra aqui pra gerar a senha temporária de acesso.
+                </Typography>
               )}
             </Box>
+
+            {/* Desativar funcionário */}
+            {employee && employee.ativo !== false && (
+              <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  color="error"
+                  onClick={() => onRequestDeactivate?.(employee)}
+                  disabled={loading}
+                  startIcon={<BlockIcon />}
+                  sx={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', '&:hover': { borderColor: '#ef4444', background: 'rgba(239, 68, 68, 0.08)' } }}
+                >
+                  Desativar Funcionário
+                </Button>
+              </Box>
+            )}
+            {employee && employee.ativo === false && (
+              <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', pt: 3 }}>
+                <Typography variant="body2" sx={{ color: '#f87171', fontSize: 13, fontWeight: 600 }}>
+                  Funcionário desativado
+                </Typography>
+              </Box>
+            )}
 
           </Box>
 

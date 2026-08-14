@@ -35,6 +35,8 @@ export interface Employee {
   ativo?: boolean;
   foto_url?: string;
   face_id?: string;
+  /** Backend nunca envia face_id de verdade (dado biométrico sensível) — usar este sinal derivado. */
+  tem_biometria_facial?: boolean;
   horario_entrada?: string;
   horario_saida?: string;
   intervalo_emp?: number;
@@ -181,6 +183,8 @@ export interface RegisterPointResult {
   ponto_completo?: boolean;
   error?: string;
   too_soon?: boolean;
+  /** Código da falha (ex: 'rosto_nao_confere', 'nenhum_rosto') — nunca inclui status de raio, isso não é exposto ao funcionário. */
+  motivo?: string;
 }
 
 export interface CredenciaisFuncionario {

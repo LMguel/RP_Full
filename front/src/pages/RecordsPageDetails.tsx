@@ -1110,6 +1110,12 @@ const RecordsDetailedPage: React.FC = () => {
                                 bgColor = 'rgba(139, 92, 246, 0.2)';
                                 textColor = '#a78bfa';
                                 borderColor = 'rgba(139, 92, 246, 0.3)';
+                              } else if (method === 'FACIAL_GPS') {
+                                label = 'Facial + GPS';
+                                icon = '📷';
+                                bgColor = 'rgba(139, 92, 246, 0.2)';
+                                textColor = '#a78bfa';
+                                borderColor = 'rgba(139, 92, 246, 0.3)';
                               } else if (method === 'LOCATION' || method === 'LOCALIZACAO' || method === 'GPS') {
                                 label = 'Localização';
                                 icon = '📍';
@@ -1123,24 +1129,42 @@ const RecordsDetailedPage: React.FC = () => {
                                 textColor = '#fbbf24';
                                 borderColor = 'rgba(251, 191, 36, 0.3)';
                               }
-                              
+
                               const methodHasJustificativa = method === 'AJUSTE' && !!(record as any).justificativa;
+                              // Fora do raio: nunca bloqueia o registro (Portaria 671/2021), só sinaliza
+                              // pro RH aqui no painel — nunca exibido no PWA do funcionário.
+                              const foraDoRaio = (record as any).fora_do_raio === true;
+                              const distancia = (record as any).distance_from_company;
                               return (
-                                <Chip
-                                  label={`${icon} ${label}`}
-                                  size="small"
-                                  onClick={methodHasJustificativa ? (e) => {
-                                    setJustificativaTexto((record as any).justificativa);
-                                    setJustificativaAnchorEl(e.currentTarget);
-                                  } : undefined}
-                                  sx={{ 
-                                    background: bgColor,
-                                    color: textColor,
-                                    border: `1px solid ${borderColor}`,
-                                    fontSize: '0.75rem',
-                                    cursor: methodHasJustificativa ? 'pointer' : 'default',
-                                  }}
-                                />
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-start' }}>
+                                  <Chip
+                                    label={`${icon} ${label}`}
+                                    size="small"
+                                    onClick={methodHasJustificativa ? (e) => {
+                                      setJustificativaTexto((record as any).justificativa);
+                                      setJustificativaAnchorEl(e.currentTarget);
+                                    } : undefined}
+                                    sx={{
+                                      background: bgColor,
+                                      color: textColor,
+                                      border: `1px solid ${borderColor}`,
+                                      fontSize: '0.75rem',
+                                      cursor: methodHasJustificativa ? 'pointer' : 'default',
+                                    }}
+                                  />
+                                  {foraDoRaio && (
+                                    <Chip
+                                      label={`⚠️ Fora do raio${typeof distancia === 'number' ? ` (${Math.round(distancia)}m)` : ''}`}
+                                      size="small"
+                                      sx={{
+                                        background: 'rgba(251, 191, 36, 0.15)',
+                                        color: '#fbbf24',
+                                        border: '1px solid rgba(251, 191, 36, 0.3)',
+                                        fontSize: '0.7rem',
+                                      }}
+                                    />
+                                  )}
+                                </Box>
                               );
                             })()}
                           </TableCell>

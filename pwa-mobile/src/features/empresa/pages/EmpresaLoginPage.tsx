@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../auth/AuthContext';
+import { useFullscreen } from '../../../hooks/useFullscreen';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 
@@ -34,6 +35,10 @@ export default function EmpresaLoginPage() {
   const navigate       = useNavigate();
   const location       = useLocation();
   const { signInEmpresa } = useAuth();
+
+  // Fullscreen a partir daqui (não na home) — persiste através da navegação
+  // client-side até o kiosk, que mantém sozinho (persistent: true).
+  useFullscreen();
 
   const [usuario,    setUsuario]    = useState('');
   const [senha,      setSenha]      = useState('');

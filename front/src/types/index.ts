@@ -78,6 +78,9 @@ export interface Employee {
   is_active?: boolean;
   ativo?: boolean;
   login?: string;
+  must_change_password?: boolean;
+  /** Backend nunca envia face_id de verdade (dado biométrico sensível) — usar este sinal derivado. */
+  tem_biometria_facial?: boolean;
   tolerancia_atraso?: number;
   intervalo_personalizado?: boolean;
   intervalo_emp?: number;
@@ -136,8 +139,14 @@ export interface TimeRecord {
   tipo?: 'dia_inteiro' | 'entrada' | 'saída' | 'saida_almoco' | 'retorno_almoco' | 'ferias_folga' | 'atestado';
   type?: 'entrada' | 'saida' | 'saída' | 'saida_almoco' | 'retorno_almoco' | 'ferias_folga' | 'atestado';
   atestado_url?: string;
-  method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL' | 'AJUSTE';  // Método de registro
+  method?: 'CAMERA' | 'LOCATION' | 'MANUAL' | 'FACIAL' | 'FACIAL_GPS' | 'AJUSTE';  // Método de registro
   status?: RecordStatus;  // ATIVO, AJUSTADO, INVALIDADO
+  // Geolocalização (registro por localização ou facial+GPS do funcionário).
+  // Não-bloqueante: fora do raio nunca impede o registro (Portaria 671/2021),
+  // só é sinalizado aqui pro RH avaliar — nunca exibido no PWA do funcionário.
+  fora_do_raio?: boolean | null;
+  distance_from_company?: number;
+  gps_status?: 'ok' | 'indisponivel' | 'nao_exigido' | 'empresa_sem_localizacao_configurada' | 'coordenadas_invalidas';
   empresa_id: string;   // mantém compatibilidade
   company_id?: string;  // novo schema DynamoDB
   empresa_nome: string;

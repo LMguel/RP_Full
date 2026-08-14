@@ -349,7 +349,7 @@ def buscar_funcionario(payload, funcionario_id):
         item = resp.get('Item')
         if not item:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
-        return jsonify(item)
+        return jsonify(sanitize_employee(item))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -615,6 +615,12 @@ def atualizar_funcionario(payload, funcionario_id):
 @routes.route('/funcionarios/<funcionario_id>/foto', methods=['PUT'])
 @token_required
 def atualizar_foto_funcionario(payload, funcionario_id):
+    # Posse: um funcionário só pode recadastrar a própria foto. Tokens de
+    # empresa/RH (payload sem tipo=='funcionario') seguem liberados a trocar
+    # a foto de qualquer funcionário da própria empresa, como já era.
+    if payload.get('tipo') == 'funcionario' and payload.get('funcionario_id') != funcionario_id:
+        return jsonify({'error': 'Você só pode alterar a própria foto.'}), 403
+
     if 'foto' not in request.files:
         return jsonify({"error": "Nenhuma foto enviada"}), 400
     foto = request.files['foto']
@@ -899,15 +905,30 @@ def cadastrar_funcionario(payload):
             from utils.auth import hash_password
             senha_hash = hash_password(senha)
         
-        # Criar ID único para o funcionário: primeiro nome (sem acentos, minúsculo) + número aleatório
-        primeiro_nome = nome.strip().split(' ')[0]
-        primeiro_nome_normalizado = normalizar_string(primeiro_nome.lower())
-        funcionario_id = f"{primeiro_nome_normalizado}_{uuid.uuid4().hex[:4]}"
-        print(f"[CADASTRO] Nome original: {nome}, Primeiro nome normalizado: {primeiro_nome_normalizado}, ID: {funcionario_id}")
-        
         # Dados da empresa a partir do token
         empresa_nome = payload.get('empresa_nome')
         empresa_id = payload.get('company_id')
+
+        # Login/ID único e fácil: nome.sobrenome (normalizado, sem acento, minúsculo).
+        # Colisão dentro da empresa -> sufixo numérico incremental (joao.silva, joao.silva2, ...).
+        # get_item é ponto único (não scan) — mantém a regra do projeto de nunca escanear a tabela.
+        partes_nome = [p for p in nome.strip().split(' ') if p]
+        primeiro_nome_normalizado = normalizar_string(partes_nome[0].lower()) if partes_nome else 'user'
+        if len(partes_nome) > 1:
+            ultimo_nome_normalizado = normalizar_string(partes_nome[-1].lower())
+            login_base = f"{primeiro_nome_normalizado}.{ultimo_nome_normalizado}"
+        else:
+            login_base = primeiro_nome_normalizado
+
+        funcionario_id = login_base
+        sufixo = 1
+        while True:
+            existente = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': funcionario_id}).get('Item')
+            if not existente:
+                break
+            sufixo += 1
+            funcionario_id = f"{login_base}{sufixo}"
+        print(f"[CADASTRO] Nome original: {nome}, Login gerado: {funcionario_id}")
         
         foto_s3_key = None
         face_id = None
@@ -976,8 +997,10 @@ def cadastrar_funcionario(payload):
         if nome_horario:
             funcionario_item['pred_hora'] = nome_horario
             print(f'[CADASTRO] pred_hora salva: {nome_horario}')
-        if login:
-            funcionario_item['login'] = login
+        # login sempre igual ao id gerado acima — é o que o funcionário usa pra entrar no
+        # app (login_funcionario autentica pelo id). Ignora qualquer 'login' enviado pelo
+        # cliente; o backend é a autoridade sobre esse valor.
+        funcionario_item['login'] = funcionario_id
         if senha_hash:
             funcionario_item['senha_hash'] = senha_hash
         
@@ -3098,12 +3121,42 @@ def refresh_token():
     if not payload:
         return jsonify({'error': 'Token inválido ou expirado — faça login novamente'}), 401
 
-    if payload.get('tipo') != 'empresa':
-        return jsonify({'error': 'Refresh disponível apenas para contas de empresa'}), 403
+    tipo = payload.get('tipo')
+    if tipo not in ('empresa', 'funcionario'):
+        return jsonify({'error': 'Refresh disponível apenas para contas de empresa ou funcionário'}), 403
 
-    # Emite novo JWT preservando todos os claims originais
     secret_key = get_secret_key()
     new_jti = str(uuid.uuid4())
+
+    if tipo == 'funcionario':
+        # Reconsulta o funcionário (não confia só no JWT antigo) — pega
+        # must_change_password/is_active atualizados, evita renovar sessão de
+        # quem foi desativado ou teve a senha redefinida pelo RH nesse meio-tempo.
+        funcionario_id = payload.get('funcionario_id')
+        company_id = payload.get('company_id')
+        resp_item = tabela_funcionarios.get_item(Key={'company_id': company_id, 'id': funcionario_id})
+        funcionario = resp_item.get('Item')
+        if not funcionario:
+            return jsonify({'error': 'Funcionário não encontrado — faça login novamente'}), 401
+        if not funcionario.get('is_active', funcionario.get('ativo', True)):
+            return jsonify({'error': 'Funcionário inativo. Contate o RH.'}), 403
+
+        new_token = jwt.encode({
+            'funcionario_id': funcionario['id'],
+            'nome':           funcionario['nome'],
+            'empresa_nome':   funcionario.get('empresa_nome', ''),
+            'company_id':     funcionario['company_id'],
+            'cargo':          funcionario.get('cargo', ''),
+            'tipo':           'funcionario',
+            'jti':            new_jti,
+            'exp':            datetime.utcnow() + timedelta(hours=24),
+        }, secret_key, algorithm="HS256")
+
+        resp = jsonify({'token': new_token, 'must_change_password': funcionario.get('must_change_password', False)})
+        resp.set_cookie('session_token', value=new_token, **cookie_kwargs(max_age=24 * 3600))
+        return resp
+
+    # tipo == 'empresa' — emite novo JWT preservando todos os claims originais
     new_token = jwt.encode({
         'usuario_id':   payload.get('usuario_id', ''),
         'user_id':      payload.get('user_id', ''),
@@ -3254,22 +3307,39 @@ def login_funcionario():
         data = request.get_json()
         if not data:
             return jsonify({'error': 'JSON inválido ou ausente'}), 400
-        
+
         funcionario_id = (data.get('funcionario_id') or data.get('id') or '').strip()
         senha = data.get('senha') or ''
-        company_id_login = (data.get('company_id') or '').strip()
 
-        if not funcionario_id or not senha or not company_id_login:
-            return jsonify({'error': 'ID do funcionário, company_id e senha são obrigatórios'}), 400
+        if not funcionario_id or not senha:
+            return jsonify({'error': 'ID do funcionário e senha são obrigatórios'}), 400
 
+        # Busca via GSI id-index (O(1), sem precisar que o app saiba a empresa —
+        # o formulário de login do funcionário só pede ID+senha). O 'id' é único
+        # DENTRO de cada empresa (dedup na criação), mas duas empresas diferentes
+        # podem ter funcionários com o mesmo id (ex: "joao.silva" nas duas) — por
+        # isso a GSI pode retornar mais de um candidato, e desambiguamos pela senha.
+        candidatos = []
         try:
-            resp = tabela_funcionarios.get_item(
-                Key={'company_id': company_id_login, 'id': funcionario_id}
+            gsi_resp = tabela_funcionarios.query(
+                IndexName='id-index',
+                KeyConditionExpression=Key('id').eq(funcionario_id),
             )
-            funcionario = resp.get('Item')
+            candidatos = gsi_resp.get('Items', [])
         except Exception as e:
-            logger.error(f"[LOGIN FUNC] Erro ao buscar funcionário: {type(e).__name__}")
-            funcionario = None
+            logger.error(f"[LOGIN FUNC] GSI id-index indisponível, usando scan: {type(e).__name__}")
+            try:
+                scan_resp = tabela_funcionarios.scan(FilterExpression=Attr('id').eq(funcionario_id))
+                candidatos = scan_resp.get('Items', [])
+            except Exception as e2:
+                logger.error(f"[LOGIN FUNC] Erro ao buscar funcionário: {type(e2).__name__}")
+                candidatos = []
+
+        funcionario = None
+        for candidato in candidatos:
+            if verify_password(senha, candidato.get('senha_hash', '')):
+                funcionario = candidato
+                break
 
         if not funcionario:
             return jsonify({'error': 'ID ou senha inválidos'}), 401
@@ -3283,10 +3353,8 @@ def login_funcionario():
         if not funcionario.get('senha_hash'):
             return jsonify({'error': 'Funcionário não tem acesso configurado. Contate o RH.'}), 403
 
-        # Verificar senha
-        if not verify_password(senha, funcionario['senha_hash']):
-            return jsonify({'error': 'ID ou senha inválidos'}), 401
-        
+        # Senha já validada no loop de desambiguação de candidatos acima.
+
         # Gerar token JWT
         from utils.auth import cookie_kwargs
         secret_key = get_secret_key()
@@ -3310,7 +3378,8 @@ def login_funcionario():
                 'cargo': funcionario.get('cargo', ''),
                 'email': funcionario.get('email', ''),
                 'horario_entrada': funcionario.get('horario_entrada', ''),
-                'horario_saida': funcionario.get('horario_saida', '')
+                'horario_saida': funcionario.get('horario_saida', ''),
+                'must_change_password': funcionario.get('must_change_password', False),
             }
         })
         resp.set_cookie('session_token', value=token, **cookie_kwargs(max_age=24 * 3600))
@@ -4254,14 +4323,11 @@ def registrar_ponto_localizacao(payload):
             
             print(f"[REGISTRO LOCATION] Distância: {distance}m, Raio permitido: {raio_permitido}m")
             print(f"[REGISTRO LOCATION] Dentro do raio: {location_valid}")
-            
-            if not location_valid:
-                return jsonify({
-                    'success': False,
-                    'error': f'Você está fora da área permitida. Distância: {formatar_distancia(distance)}',
-                    'distance': distance,
-                    'raio_permitido': raio_permitido
-                }), 403
+
+            # Portaria 671/2021: o sistema NÃO pode impedir o registro de ponto.
+            # Fora do raio nunca bloqueia — grava normalmente e sinaliza pro
+            # painel administrativo avaliar (fora_do_raio/dentro_do_raio),
+            # nunca exibido no app do funcionário.
         
         # Buscar dados do funcionário usando chave composta
         try:
@@ -4334,6 +4400,8 @@ def registrar_ponto_localizacao(payload):
             'user_lng': Decimal(str(user_lng)),
             'distance_from_company': Decimal(str(distance)) if distance is not None else Decimal('0'),
             'dentro_do_raio': location_valid,
+            'fora_do_raio': (not location_valid) if exigir_localizacao else None,
+            'gps_status': 'ok' if exigir_localizacao else 'nao_exigido',
             'provider': 'gps',
         }
 

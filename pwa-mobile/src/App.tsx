@@ -1,7 +1,6 @@
 import React, { Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
-import { useFullscreen } from './hooks/useFullscreen';
 import KioskErrorBoundary from './components/KioskErrorBoundary';
 import SwUpdateToast from './components/SwUpdateToast';
 
@@ -15,6 +14,11 @@ import KioskPage from './features/kiosk/KioskPage';
 const FuncionarioDashboardPage = React.lazy(() => import('./features/funcionario/pages/FuncionarioDashboardPage'));
 const EspelhoPontoPage         = React.lazy(() => import('./features/funcionario/pages/EspelhoPontoPage'));
 const FuncionarioConfigPage    = React.lazy(() => import('./features/funcionario/pages/FuncionarioConfigPage'));
+const CadastroFotoPage         = React.lazy(() => import('./features/funcionario/pages/CadastroFotoPage'));
+const RegistrarPontoPage       = React.lazy(() => import('./features/funcionario/pages/RegistrarPontoPage'));
+const TrocarSenhaObrigatoriaPage = React.lazy(() => import('./features/funcionario/pages/TrocarSenhaObrigatoriaPage'));
+const RequireFotoCadastrada    = React.lazy(() => import('./features/funcionario/components/RequireFotoCadastrada'));
+const RequireSenhaAtualizada   = React.lazy(() => import('./features/funcionario/components/RequireSenhaAtualizada'));
 const EmpresaDashboardPage     = React.lazy(() => import('./features/empresa/pages/EmpresaDashboardPage'));
 const FuncionariosPage         = React.lazy(() => import('./features/empresa/pages/FuncionariosPage'));
 const FuncionarioFormPage      = React.lazy(() => import('./features/empresa/pages/FuncionarioFormPage'));
@@ -83,11 +87,26 @@ function EmpresaLayout() {
   );
 }
 
+/**
+ * Layout route do funcionário: exige auth + gate de senha atualizada.
+ * Encadeado com RequireFotoCadastrada como layout route aninhada nas rotas
+ * abaixo (senha antes de foto — segurança da conta antes de cadastro de
+ * biometria). `/funcionario/trocar-senha` e `/funcionario/cadastro-foto`
+ * ficam FORA desses layouts (só RequireAuth) para não criar loop de redirect.
+ */
+function FuncionarioLayout() {
+  return (
+    <RequireAuth requiredType="funcionario">
+      <RequireSenhaAtualizada />
+    </RequireAuth>
+  );
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function AppRoutes() {
-  useFullscreen();
-
+  // Fullscreen NÃO é global — só entra ao acessar como empresa (EmpresaLoginPage)
+  // e no kiosk (KioskPage, modo persistente). Home e funcionário ficam no navegador normal.
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
@@ -96,10 +115,17 @@ function AppRoutes() {
         <Route path="/funcionario/login" element={<RedirectIfSigned><FuncionarioLoginPage /></RedirectIfSigned>} />
         <Route path="/empresa/login" element={<RedirectIfSigned><EmpresaLoginPage /></RedirectIfSigned>} />
 
-        {/* Funcionário portal */}
-        <Route path="/funcionario" element={<RequireAuth requiredType="funcionario"><FuncionarioDashboardPage /></RequireAuth>} />
-        <Route path="/funcionario/espelho" element={<RequireAuth requiredType="funcionario"><EspelhoPontoPage /></RequireAuth>} />
-        <Route path="/funcionario/configuracoes" element={<RequireAuth requiredType="funcionario"><FuncionarioConfigPage /></RequireAuth>} />
+        {/* Funcionário portal — gates encadeados: auth -> senha atualizada -> foto cadastrada */}
+        <Route element={<FuncionarioLayout />}>
+          <Route element={<RequireFotoCadastrada />}>
+            <Route path="/funcionario" element={<FuncionarioDashboardPage />} />
+            <Route path="/funcionario/espelho" element={<EspelhoPontoPage />} />
+            <Route path="/funcionario/configuracoes" element={<FuncionarioConfigPage />} />
+            <Route path="/funcionario/registrar-ponto" element={<RegistrarPontoPage />} />
+          </Route>
+        </Route>
+        <Route path="/funcionario/trocar-senha" element={<RequireAuth requiredType="funcionario"><TrocarSenhaObrigatoriaPage /></RequireAuth>} />
+        <Route path="/funcionario/cadastro-foto" element={<RequireAuth requiredType="funcionario"><CadastroFotoPage /></RequireAuth>} />
 
         {/* Empresa portal — KioskAutoReturn em todas as rotas via layout route */}
         <Route element={<EmpresaLayout />}>

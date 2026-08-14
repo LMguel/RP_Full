@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../auth/AuthContext';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Modal from '../../../components/ui/Modal';
-
+import { saveFuncionarioCredentials, loadFuncionarioCredentials } from '../savedCredentials';
 
 export default function FuncionarioLoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { signInFuncionario } = useAuth();
   const [funcionarioId, setFuncionarioId] = useState('');
   const [senha, setSenha] = useState('');
@@ -16,6 +17,43 @@ export default function FuncionarioLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [helpModal, setHelpModal] = useState(false);
+  const [autoLogin, setAutoLogin] = useState(false);
+
+  // Refs estáveis para não incluir signInFuncionario/navigate como deps do effect de mount
+  const signInRef = useRef(signInFuncionario);
+  signInRef.current = signInFuncionario;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
+  // Credenciais salvas (mesmo esquema do EmpresaLoginPage/kiosk) -> abre direto
+  // na home do funcionário sem pedir login de novo a cada vez que o app abre.
+  // Exceção: se veio de um "Sair" explícito, só pré-preenche, não auto-loga.
+  useEffect(() => {
+    const saved = loadFuncionarioCredentials();
+    if (!saved) return;
+
+    setFuncionarioId(saved.id);
+    setSenha(saved.senha);
+
+    if ((location.state as any)?.fromLogout) return;
+
+    setAutoLogin(true);
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        await signInRef.current(saved.id, saved.senha);
+        navigateRef.current('/funcionario');
+      } catch {
+        // Senha salva ficou inválida (trocada, conta desativada, etc.) — cai
+        // pro formulário normal, já pré-preenchido, sem mostrar erro assustador.
+        setAutoLogin(false);
+      } finally {
+        setLoading(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +64,7 @@ export default function FuncionarioLoginPage() {
     setLoading(true);
     try {
       await signInFuncionario(id, senha);
+      saveFuncionarioCredentials(id, senha);
       navigate('/funcionario');
     } catch (err: any) {
       setError(err?.response?.data?.error || 'ID ou senha inválidos.');
@@ -33,6 +72,34 @@ export default function FuncionarioLoginPage() {
       setLoading(false);
     }
   };
+
+  // ── Tela de auto-login (credenciais salvas sendo usadas) ──────────────────────
+  if (autoLogin && !error) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 select-none">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.35 }}
+          className="flex flex-col items-center gap-6 text-center"
+        >
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-600/30">
+            <div className="w-6 h-6 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+          </div>
+          <div>
+            <p className="text-white text-xl font-black">Entrando…</p>
+            <p className="text-slate-400 text-sm mt-1">Conectando automaticamente</p>
+          </div>
+          <button
+            onClick={() => { setAutoLogin(false); setLoading(false); }}
+            className="text-slate-600 text-sm hover:text-slate-400 transition-colors mt-2 px-4 py-2"
+          >
+            Cancelar
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -67,7 +134,7 @@ export default function FuncionarioLoginPage() {
             label="ID do Funcionário"
             type="text"
             inputMode="text"
-            placeholder="ex: joao_3a4f"
+            placeholder="ex: joao.silva"
             value={funcionarioId}
             onChange={e => setFuncionarioId(e.target.value)}
             autoComplete="username"

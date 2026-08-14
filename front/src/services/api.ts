@@ -128,6 +128,13 @@ class ApiService {
     return response.data;
   }
 
+  /** Gera senha temporária + must_change_password=true. Resposta {login, senha_temporaria}
+   *  nunca é persistida em texto puro no banco — só existe nessa resposta única. */
+  async redefinirSenhaFuncionario(id: string): Promise<{ login: string; senha_temporaria: string }> {
+    const response = await this.api.put(`/api/funcionarios/${id}/redefinir-senha`);
+    return response.data;
+  }
+
   async updateEmployeePhoto(id: string, photo: File) {
     const formData = new FormData();
     formData.append('foto', photo);

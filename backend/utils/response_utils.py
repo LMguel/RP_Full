@@ -18,12 +18,19 @@ def sanitize_employee(employee: dict, generate_foto_url: bool = False) -> dict:
     """
     if not isinstance(employee, dict):
         return employee
+    # Sinal seguro de "tem biometria cadastrada" sem expor o face_id em si —
+    # calculado antes do strip, a partir do dict original.
+    tem_biometria_facial = bool(employee.get('face_id'))
     result = {k: v for k, v in employee.items() if k not in _BLOCKED_EMPLOYEE_FIELDS}
+    result['tem_biometria_facial'] = tem_biometria_facial
 
     if generate_foto_url:
         try:
             from utils.aws import extract_s3_key_from_url, generate_presigned_url
-            s3_key = result.get('foto_s3_key') or extract_s3_key_from_url(result.get('foto_url') or '')
+            # Ler foto_s3_key do dict ORIGINAL — em `result` esse campo já foi removido
+            # pelo strip acima (senão isto sempre caía no extract_s3_key_from_url, que
+            # normalmente não tem o que extrair).
+            s3_key = employee.get('foto_s3_key') or extract_s3_key_from_url(result.get('foto_url') or '')
             if s3_key:
                 presigned = generate_presigned_url(s3_key, expiration_seconds=300)
                 if presigned:

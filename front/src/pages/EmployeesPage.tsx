@@ -15,7 +15,6 @@ import {
   TableHead,
   TableRow,
   Paper,
-  IconButton,
   Avatar,
   Chip,
   Dialog,
@@ -24,15 +23,10 @@ import {
   DialogActions,
   CircularProgress,
   Alert,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Search as SearchIcon,
-  MoreVert as MoreVertIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Person as PersonIcon,
@@ -57,8 +51,6 @@ const EmployeesPage: React.FC = () => {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [companySettings, setCompanySettings] = useState<any>(null);
 
@@ -219,25 +211,18 @@ const EmployeesPage: React.FC = () => {
     }
   };
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, employee: Employee) => {
-    setMenuAnchor(event.currentTarget);
-    setSelectedEmployee(employee);
-  };
-
-  const handleMenuClose = () => {
-    setMenuAnchor(null);
-    setSelectedEmployee(null);
-  };
-
   const handleEdit = (employee: Employee) => {
     setEditingEmployee(employee);
     setFormOpen(true);
   };
 
-  const handleDelete = () => {
-    setEmployeeToDelete(selectedEmployee);
+  // Disparado de dentro do EmployeeForm (botão "Desativar" no modal) — fecha o
+  // modal de edição e abre a confirmação, em vez de um menu separado na tabela.
+  const handleRequestDeactivate = (employee: Employee) => {
+    setFormOpen(false);
+    setEditingEmployee(null);
+    setEmployeeToDelete(employee);
     setDeleteDialogOpen(true);
-    handleMenuClose();
   };
 
   const formatDate = (dateString: string) => {
@@ -387,9 +372,6 @@ const EmployeesPage: React.FC = () => {
                     <TableCell sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
                       Status
                     </TableCell>
-                    <TableCell align="center" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 600 }}>
-                      Ações
-                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -533,17 +515,6 @@ const EmployeesPage: React.FC = () => {
                         <TableCell sx={{ color: employee.ativo === false ? 'red' : 'green', fontWeight: 600 }}>
                           {employee.ativo === false ? 'Desativado' : 'Ativado'}
                         </TableCell>
-                        <TableCell align="center">
-                          {!isViewer && (
-                            <IconButton
-                              onClick={(e) => handleMenuOpen(e, employee)}
-                              size="small"
-                              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
-                            >
-                              <MoreVertIcon />
-                            </IconButton>
-                          )}
-                        </TableCell>
                       </TableRow>
                       );
                     })
@@ -551,7 +522,7 @@ const EmployeesPage: React.FC = () => {
                    : (
                     <TableRow>
                       <TableCell
-                        colSpan={isViewer ? 9 : 10}
+                        colSpan={isViewer ? 8 : 9}
                         align="center"
                         sx={{ color: 'rgba(255, 255, 255, 0.6)' }}
                       >
@@ -589,30 +560,8 @@ const EmployeesPage: React.FC = () => {
         loading={submitting}
         existingCargos={existingCargos}
         companySettings={companySettings}
+        onRequestDeactivate={handleRequestDeactivate}
       />
-
-      {/* Action Menu */}
-      <Menu
-        anchorEl={menuAnchor}
-        open={Boolean(menuAnchor)}
-        onClose={handleMenuClose}
-        PaperProps={{
-          sx: { 
-            borderRadius: 2,
-            background: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          }
-        }}
-      >
-        <MenuItem onClick={handleDelete} sx={{ color: '#ef4444' }}>
-          <ListItemIcon>
-            <DeleteIcon fontSize="small" sx={{ color: '#ef4444' }} />
-          </ListItemIcon>
-          <ListItemText>Desativar</ListItemText>
-        </MenuItem>
-      </Menu>
 
       {/* Delete Confirmation Dialog */}
       <Dialog

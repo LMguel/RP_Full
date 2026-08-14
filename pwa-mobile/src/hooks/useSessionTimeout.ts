@@ -1,8 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { UserType } from '../types';
 
-// Timeouts por tipo de usuário
-const SESSION_TIMEOUT_MS: Record<string, number> = {
+// Timeouts por tipo de usuário — rolam (não são absolutos) enquanto houver
+// atividade: renewSession() é chamado a cada request bem-sucedida (ver
+// interceptor de resposta em services/api.ts), então na prática só expira
+// depois desse tempo SEM nenhum uso do app.
+export const SESSION_TIMEOUT_MS: Record<string, number> = {
   empresa:     12 * 60 * 60 * 1000,  // 12 horas
   funcionario:  8 * 60 * 60 * 1000,  // 8 horas
 };

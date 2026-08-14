@@ -13,6 +13,9 @@ interface AuthContextValue {
   clearKioskRestore: () => void;
   signInFuncionario: (id: string, senha: string) => Promise<FuncionarioUser>;
   signInEmpresa: (usuario: string, senha: string) => Promise<EmpresaUser>;
+  /** Atualiza must_change_password=false localmente (estado + localStorage) após o
+   *  funcionário trocar a senha com sucesso — evita precisar logar de novo. */
+  markPasswordChanged: () => void;
   signOut: () => void;
   /** Logout para o botão "Sair" do kiosk: limpa auth mas preserva cache de funcionários
    *  (IndexedDB) e credenciais salvas — ambos necessários para registros offline e
@@ -144,6 +147,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return empresaData;
   }
 
+  const markPasswordChanged = useCallback(() => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, must_change_password: false };
+      localStorage.setItem('@app:user', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   return (
     <AuthContext.Provider value={{
       signed: !!user,
@@ -154,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearKioskRestore,
       signInFuncionario,
       signInEmpresa,
+      markPasswordChanged,
       signOut,
       signOutKiosk,
     }}>

@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { SESSION_TIMEOUT_MS, renewSession } from '../hooks/useSessionTimeout';
+import type { UserType } from '../types';
 import type {
   FuncionarioDashboard,
   TimeRecord,
@@ -41,28 +43,44 @@ const stored = getStoredToken();
 if (stored) setAuthToken(stored);
 
 // ─── Token refresh ────────────────────────────────────────────────────────────
+// Mesmo mecanismo pra empresa (kiosk) e funcionário: renova o JWT sem pedir
+// senha de novo, e estende o timer de sessão local (useSessionTimeout).
 
 // Mutex: evita múltiplos refresh simultâneos (ex: várias requests em paralelo recebendo 401)
 let _refreshPromise: Promise<string | null> | null = null;
 
 async function _doRefresh(): Promise<string | null> {
   const token = getStoredToken();
-  if (!token) return null;
+  const userType = localStorage.getItem('@app:userType');
+  if (!token || !userType) return null;
   try {
-    const { data } = await api.post<{ token: string }>('/api/auth/refresh', {});
+    const { data } = await api.post<{ token: string; must_change_password?: boolean }>('/api/auth/refresh', {});
     const newToken = data.token;
     localStorage.setItem('@app:token', newToken);
     setAuthToken(newToken);
-    // Renova o timer de sessão local também
-    const EMPRESA_SESSION_MS = 12 * 60 * 60 * 1000;
-    localStorage.setItem('@app:session_expires', String(Date.now() + EMPRESA_SESSION_MS));
+    renewSession(userType as UserType);
+
+    // Funcionário: o refresh reconsulta o registro no backend — se must_change_password
+    // mudou nesse meio-tempo (RH redefiniu a senha remotamente), refletir no user salvo
+    // pra o gate RequireSenhaAtualizada pegar isso já na próxima navegação.
+    if (userType === 'funcionario' && typeof data.must_change_password === 'boolean') {
+      try {
+        const rawUser = localStorage.getItem('@app:user');
+        if (rawUser) {
+          const user = JSON.parse(rawUser);
+          user.must_change_password = data.must_change_password;
+          localStorage.setItem('@app:user', JSON.stringify(user));
+        }
+      } catch { /* ignore parse error */ }
+    }
+
     return newToken;
   } catch {
     return null;
   }
 }
 
-/** Renova o JWT de empresa chamando o backend. Fire-and-forget seguro. */
+/** Renova o JWT (empresa ou funcionário) chamando o backend. Fire-and-forget seguro. */
 export async function refreshEmpresaToken(): Promise<boolean> {
   if (_refreshPromise) {
     const result = await _refreshPromise;
@@ -77,22 +95,28 @@ export async function refreshEmpresaToken(): Promise<boolean> {
   }
 }
 
-// ─── 401 interceptor com auto-refresh ────────────────────────────────────────
-// Se a request falhar com 401 e for uma conta empresa (kiosk), tenta refresh uma
-// vez e repete a request original. Se o refresh falhar, limpa a sessão.
+// ─── Interceptor de resposta ───────────────────────────────────────────────────
+// Sucesso: renova o timer de sessão local a cada request autenticada bem-sucedida
+// (equivalente ao que o kiosk já fazia manualmente em vários pontos — aqui fica
+// automático pra empresa E funcionário, sem precisar espalhar renewSession() pelas
+// telas). 401: tenta refresh uma vez e repete a request original; se falhar, limpa a sessão.
 
 api.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    const userType = localStorage.getItem('@app:userType') as UserType | null;
+    if (userType && SESSION_TIMEOUT_MS[userType]) renewSession(userType);
+    return r;
+  },
   async (err) => {
     const status = err?.response?.status;
     const config = err?.config;
+    const userType = localStorage.getItem('@app:userType');
 
-    // Só tenta refresh para 401 de conta empresa, evita loop no próprio /auth/refresh
     if (
       status === 401 &&
       config &&
       !config._refreshRetry &&
-      localStorage.getItem('@app:userType') === 'empresa' &&
+      (userType === 'empresa' || userType === 'funcionario') &&
       !config.url?.includes('/auth/refresh') &&
       !config.url?.includes('/login')
     ) {
@@ -173,6 +197,44 @@ async function registerPointByFace(
     ...(extra?.company_id && { company_id: extra.company_id }),
   });
   return data;
+}
+
+async function cadastrarFotoFuncionario(photoBlob: Blob): Promise<{ success: boolean; foto_url?: string; error?: string; motivo?: string }> {
+  const formData = new FormData();
+  formData.append('foto', photoBlob, 'cadastro.jpg');
+  try {
+    const { data } = await api.post('/api/funcionario/cadastrar_foto', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 15000,
+    });
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.response?.data?.error || 'Erro ao cadastrar foto', motivo: err?.response?.data?.motivo };
+  }
+}
+
+async function registrarPontoFuncionario(
+  imageBlob: Blob,
+  geo?: { latitude?: number; longitude?: number; accuracy?: number }
+): Promise<RegisterPointResult> {
+  const formData = new FormData();
+  formData.append('image', imageBlob, 'ponto.jpg');
+  if (geo?.latitude != null) formData.append('latitude', String(geo.latitude));
+  if (geo?.longitude != null) formData.append('longitude', String(geo.longitude));
+  if (geo?.accuracy != null) formData.append('accuracy', String(geo.accuracy));
+  try {
+    const { data } = await api.post('/api/funcionario/registrar_ponto', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 15000,
+    });
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.response?.data?.error || 'Erro ao registrar ponto',
+      motivo: err?.response?.data?.motivo,
+    };
+  }
 }
 
 // ─── Funcionário ──────────────────────────────────────────────────────────────
@@ -343,6 +405,9 @@ const apiService = {
   // kiosk
   recognizeFace,
   registerPointByFace,
+  // funcionario — registro facial+gps self-service
+  cadastrarFotoFuncionario,
+  registrarPontoFuncionario,
   // funcionario
   getFuncionarioDashboard,
   getMeusRegistros,

@@ -16,6 +16,7 @@ Regras invariantes deste módulo (não relaxar sem revisão de segurança):
 """
 from flask import Blueprint, request, jsonify
 from datetime import datetime
+from decimal import Decimal
 import pytz
 import os
 import uuid
@@ -31,7 +32,12 @@ from utils.aws import (
     tabela_registros,
     tabela_configuracoes,
     generate_presigned_url,
+    enviar_s3,
+    rekognition,
+    COLLECTION,
+    _resize_for_rekognition,
 )
+from utils.geolocation import validar_localizacao, formatar_distancia
 
 routes_facial = Blueprint('routes_facial', __name__)
 
@@ -507,6 +513,337 @@ def registrar_ponto_facial(payload):
             'success': False,
             'error': 'Erro ao registrar ponto',
         }), 500
+
+
+@routes_facial.route('/api/funcionario/cadastrar_foto', methods=['POST', 'OPTIONS'])
+@token_required
+def cadastrar_foto_funcionario(payload):
+    """Auto-cadastro de foto/biometria no primeiro acesso do funcionário.
+
+    Regras:
+    - funcionario_id vem SEMPRE do JWT — nunca do body. Um funcionário não
+      pode cadastrar/sobrescrever a foto de outro (mesma garantia de posse
+      que faltava no endpoint administrativo de recadastro).
+    - Só permite se o funcionário AINDA NÃO tem face_id cadastrado. Depois do
+      primeiro cadastro, trocar a biometria é exclusivo do RH pelo painel
+      (PUT /api/funcionarios/<id>/foto) — decisão de produto para impedir
+      troca de identidade facial sem supervisão.
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    if payload.get('tipo') != 'funcionario':
+        return jsonify({'error': 'Endpoint exclusivo para login de funcionário'}), 403
+
+    token_company_id = payload.get('company_id')
+    funcionario_id = payload.get('funcionario_id')
+    if not token_company_id or not funcionario_id:
+        return jsonify({'error': 'Token sem company_id/funcionario_id; faça login novamente.'}), 401
+
+    if 'foto' not in request.files:
+        return jsonify({'error': 'Nenhuma foto enviada'}), 400
+
+    funcionario = _buscar_funcionario_tenant_safe(token_company_id, funcionario_id)
+    if not funcionario:
+        return jsonify({'error': 'Funcionário não encontrado nesta empresa'}), 403
+
+    if funcionario.get('face_id'):
+        return jsonify({
+            'error': 'Você já tem uma foto cadastrada. Para trocar, entre em contato com o RH.',
+            'motivo': 'foto_ja_cadastrada',
+        }), 409
+
+    foto = request.files['foto']
+    temp_path = os.path.join(tempfile.gettempdir(), f"temp_{uuid.uuid4().hex}.jpg")
+    foto.save(temp_path)
+
+    try:
+        if not rekognition:
+            return jsonify({'error': 'Serviço de reconhecimento facial indisponível no momento.'}), 503
+
+        face_id = None
+        index_error = None
+        try:
+            with open(temp_path, 'rb') as _f:
+                _raw = _f.read()
+            rekognition_response = rekognition.index_faces(
+                CollectionId=COLLECTION,
+                Image={'Bytes': _resize_for_rekognition(_raw)},
+                ExternalImageId=f"{token_company_id}_{funcionario_id}",
+                MaxFaces=1,
+                QualityFilter="AUTO",
+            )
+            records = rekognition_response.get('FaceRecords', [])
+            if records:
+                face_id = records[0].get('Face', {}).get('FaceId')
+            else:
+                index_error = 'baixa_qualidade'
+        except Exception as rek_e:
+            print(f"[FACIAL] cadastrar_foto_funcionario: Rekognition falhou: {rek_e}")
+            index_error = 'erro_rekognition'
+
+        if index_error:
+            return jsonify({
+                'error': (
+                    'Não foi possível cadastrar o rosto nesta foto. Verifique se o '
+                    'rosto está bem iluminado, de frente para a câmera e sem '
+                    'obstruções, e tente novamente.'
+                ),
+                'motivo': index_error,
+            }), 400
+
+        foto_nome = f"funcionarios/{funcionario_id}.jpg"
+        foto_s3_key = enviar_s3(temp_path, foto_nome, token_company_id)
+        foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300)
+
+        tabela_funcionarios.update_item(
+            Key={'company_id': token_company_id, 'id': funcionario_id},
+            UpdateExpression='SET face_id = :fid, foto_s3_key = :fkey',
+            ExpressionAttributeValues={':fid': face_id, ':fkey': foto_s3_key},
+        )
+
+        print(f"[FACIAL] Foto auto-cadastrada: company_id={token_company_id} funcionario_id={funcionario_id}")
+        return jsonify({'success': True, 'foto_url': foto_url}), 200
+
+    except Exception as e:
+        import traceback
+        print(f"[FACIAL] Erro em cadastrar_foto_funcionario: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': 'Erro ao cadastrar foto'}), 500
+    finally:
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+
+@routes_facial.route('/api/funcionario/registrar_ponto', methods=['POST', 'OPTIONS'])
+@token_required
+def registrar_ponto_funcionario(payload):
+    """Registro de ponto self-service do funcionário: reconhecimento facial
+    (obrigatório, trava de identidade contra o próprio JWT) + geolocalização
+    (best-effort, NUNCA bloqueia — Portaria 671/2021 proíbe impedir o
+    registro de ponto; o app do funcionário nunca exibe o status de raio,
+    só o painel administrativo).
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    temp_path = None
+    try:
+        if payload.get('tipo') != 'funcionario':
+            return jsonify({'success': False, 'error': 'Endpoint exclusivo para login de funcionário'}), 403
+
+        token_company_id = payload.get('company_id')
+        funcionario_id = payload.get('funcionario_id')
+        if not token_company_id or not funcionario_id:
+            return jsonify({'success': False, 'error': 'Token sem company_id/funcionario_id; faça login novamente.'}), 401
+
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'Nenhuma imagem enviada'}), 400
+
+        file = request.files['image']
+        if not file or file.filename == '':
+            return jsonify({'success': False, 'error': 'Nome de arquivo vazio'}), 400
+
+        filename = secure_filename(f"temp_{uuid.uuid4().hex}.jpg")
+        temp_path = os.path.join(tempfile.gettempdir(), filename)
+        file.save(temp_path)
+
+        # 1) Match facial + validação de tenant (mesmo helper do reconhecer_rosto).
+        match = reconhecer_funcionario(temp_path, expected_company_id=token_company_id)
+        status = match.get('status') if isinstance(match, dict) else 'ERROR'
+
+        if status == 'NO_FACE':
+            return jsonify({
+                'success': False,
+                'error': 'Nenhum rosto detectado. Posicione seu rosto no centro e tente novamente.',
+                'motivo': 'nenhum_rosto',
+            }), 400
+
+        if status == 'NO_MATCH':
+            return jsonify({
+                'success': False,
+                'error': 'Rosto não reconhecido. Tente novamente ou procure o RH.',
+                'motivo': 'rosto_nao_confere',
+            }), 403
+
+        if status in ('INVALID_EXTERNAL_ID', 'TENANT_MISMATCH'):
+            _log_tenant_mismatch(
+                endpoint='registrar_ponto_funcionario',
+                expected=token_company_id,
+                matched=match.get('matched_company_id'),
+                extra={'external_image_id': match.get('external_image_id')},
+            )
+            return jsonify({'success': False, 'error': 'Rosto não reconhecido. Tente novamente ou procure o RH.', 'motivo': 'rosto_nao_confere'}), 403
+
+        if status not in ('OK', 'LOW_CONFIDENCE'):
+            return jsonify({'success': False, 'error': f"Erro no reconhecimento: {match.get('reason', status)}"}), 500
+
+        matched_employee_id = match['employee_id']
+        matched_company_id = match['company_id']
+
+        # 2) Defesa #2: re-checar tenant.
+        if matched_company_id != token_company_id:
+            _log_tenant_mismatch(
+                endpoint='registrar_ponto_funcionario',
+                expected=token_company_id,
+                matched=matched_company_id,
+                extra={'where': 'post-helper-recheck'},
+            )
+            return jsonify({'success': False, 'error': 'Rosto não reconhecido. Tente novamente ou procure o RH.', 'motivo': 'rosto_nao_confere'}), 403
+
+        # 3) Trava de identidade: o rosto reconhecido TEM que ser o do funcionário logado.
+        #    Não é uma restrição de local — é prova de identidade, equivalente à senha.
+        if matched_employee_id != funcionario_id:
+            _log_tenant_mismatch(
+                endpoint='registrar_ponto_funcionario',
+                expected=funcionario_id,
+                matched=matched_employee_id,
+                extra={'where': 'identity-lock', 'company_id': token_company_id},
+            )
+            return jsonify({
+                'success': False,
+                'error': 'O rosto não confere com o seu cadastro.',
+                'motivo': 'rosto_nao_confere',
+            }), 403
+
+        funcionario = _buscar_funcionario_tenant_safe(token_company_id, funcionario_id)
+        if not funcionario:
+            return jsonify({'success': False, 'error': 'Funcionário não pertence a esta empresa'}), 403
+
+        is_active = funcionario.get('is_active', funcionario.get('ativo', True))
+        if not is_active:
+            return jsonify({'success': False, 'error': 'Funcionário inativo. Contate o RH.', 'inactive': True}), 403
+
+        nome_funcionario = (
+            funcionario.get('nome') or funcionario.get('name') or funcionario.get('full_name') or funcionario_id
+        )
+
+        # 4) Geofence NÃO-BLOQUEANTE. Fora do raio ou sem GPS nunca impede o registro —
+        #    só marca o registro para o painel administrativo avaliar depois.
+        user_lat_raw = request.form.get('latitude')
+        user_lng_raw = request.form.get('longitude')
+        gps_accuracy_raw = request.form.get('accuracy')
+
+        fora_do_raio = None
+        distance_from_company = None
+        gps_status = 'indisponivel'
+        location_payload = None
+
+        if user_lat_raw and user_lng_raw:
+            try:
+                user_lat = float(user_lat_raw)
+                user_lng = float(user_lng_raw)
+                location_payload = {'latitude': Decimal(str(user_lat)), 'longitude': Decimal(str(user_lng))}
+                if gps_accuracy_raw:
+                    try:
+                        location_payload['accuracy'] = Decimal(str(float(gps_accuracy_raw)))
+                    except (TypeError, ValueError):
+                        pass
+
+                cfg_resp = tabela_configuracoes.get_item(Key={'company_id': token_company_id})
+                config = cfg_resp.get('Item', {}) or {}
+                company_lat = config.get('company_lat') or config.get('latitude')
+                company_lng = config.get('company_lng') or config.get('longitude')
+                raio_permitido = int(config.get('raio_permitido', 100))
+
+                if company_lat and company_lng:
+                    dentro, distancia = validar_localizacao(
+                        user_lat, user_lng, float(company_lat), float(company_lng), raio_permitido,
+                    )
+                    fora_do_raio = not dentro
+                    distance_from_company = Decimal(str(round(distancia, 1)))
+                    gps_status = 'ok'
+                else:
+                    gps_status = 'empresa_sem_localizacao_configurada'
+            except (TypeError, ValueError) as e:
+                print(f"[FACIAL] Coordenadas inválidas em registrar_ponto_funcionario: {e}")
+                gps_status = 'coordenadas_invalidas'
+
+        # 5) Determinar próximo tipo (mesma alternação usada nos outros fluxos faciais).
+        agora_registro = datetime.now(TZ_SP)
+        hoje = agora_registro.strftime('%Y-%m-%d')
+        registros_hoje = _registros_do_dia(token_company_id, funcionario_id, hoje)
+
+        if not registros_hoje:
+            tipo = 'entrada'
+        else:
+            ultimo = registros_hoje[-1]
+            ultimo_tipo = (ultimo.get('type') or ultimo.get('tipo') or '').lower()
+            tipo = 'entrada' if ultimo_tipo in ('saida', 'saída', 'saida_almoco') else 'saida'
+
+            # Guarda de duplicata (evita duplo toque em poucos minutos).
+            ultimo_ts_str = str(ultimo.get('timestamp') or ultimo.get('data_hora') or '')
+            if ultimo_ts_str:
+                try:
+                    if 'T' in ultimo_ts_str:
+                        ultimo_dt = datetime.fromisoformat(ultimo_ts_str.replace('Z', '+00:00'))
+                        if ultimo_dt.tzinfo is None:
+                            ultimo_dt = TZ_SP.localize(ultimo_dt)
+                    else:
+                        ultimo_dt = TZ_SP.localize(datetime.strptime(ultimo_ts_str[:19], '%Y-%m-%d %H:%M:%S'))
+                    diff_min = (agora_registro - ultimo_dt).total_seconds() / 60
+                    if diff_min < 5:
+                        return jsonify({'success': False, 'too_soon': True, 'error': 'Você já registrou em menos de 5 minutos'}), 200
+                except Exception as e_ts:
+                    print(f"[FACIAL] Aviso ao verificar intervalo mínimo: {e_ts}")
+
+        tipo_label = {'entrada': 'Entrada', 'saida': 'Saída'}.get(tipo, tipo)
+        timestamp_iso = agora_registro.isoformat()
+        date_time_str = agora_registro.strftime('%Y-%m-%d %H:%M:%S')
+        composite_key = f"{funcionario_id}#{date_time_str}"
+
+        registro = {
+            'company_id': token_company_id,
+            'employee_id#date_time': composite_key,
+            'employee_id': funcionario_id,
+            'timestamp': timestamp_iso,
+            'data_hora': date_time_str,
+            'data_hora_calculo': date_time_str,
+            'date': agora_registro.strftime('%Y-%m-%d'),
+            'time': agora_registro.strftime('%H:%M:%S'),
+            'type': tipo,
+            'method': 'FACIAL_GPS',
+            'funcionario_nome': nome_funcionario,
+            'source': 'ONLINE',
+            'recorded_at': timestamp_iso,
+            'gps_status': gps_status,
+        }
+        if location_payload:
+            registro['location'] = location_payload
+        if fora_do_raio is not None:
+            registro['fora_do_raio'] = fora_do_raio
+        if distance_from_company is not None:
+            registro['distance_from_company'] = distance_from_company
+
+        tabela_registros.put_item(Item=registro)
+        print(
+            f"[FACIAL] Ponto (facial+gps) gravado: company_id={token_company_id} key={composite_key} "
+            f"tipo={tipo} fora_do_raio={fora_do_raio} gps_status={gps_status}"
+        )
+
+        # Resposta ao funcionário: NUNCA inclui status de raio (definição de produto —
+        # ver painel administrativo para isso).
+        return jsonify({
+            'success': True,
+            'tipo': tipo,
+            'tipo_label': tipo_label,
+            'timestamp': timestamp_iso,
+            'mensagem': f'Ponto de {tipo_label} registrado com sucesso!',
+        }), 200
+
+    except Exception as e:
+        import traceback
+        print(f"[FACIAL] Erro em registrar_ponto_funcionario: {e}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': 'Erro ao registrar ponto'}), 500
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
 @routes_facial.route('/api/facial/health', methods=['GET'])

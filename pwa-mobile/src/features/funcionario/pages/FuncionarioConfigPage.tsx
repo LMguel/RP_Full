@@ -6,6 +6,7 @@ import apiService from '../../../services/api';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
+import { saveFuncionarioCredentials, clearFuncionarioCredentials } from '../savedCredentials';
 import type { FuncionarioUser } from '../../../types';
 
 export default function FuncionarioConfigPage() {
@@ -29,6 +30,9 @@ export default function FuncionarioConfigPage() {
     setLoading(true);
     try {
       await apiService.alterarSenha(senhaAtual, novaSenha);
+      // Mantém a credencial salva em sincronia com a nova senha, senão o
+      // próximo auto-login tentaria a senha antiga e falharia.
+      if (func?.id) saveFuncionarioCredentials(func.id, novaSenha);
       setSuccess(true);
       setSenhaAtual(''); setNovaSenha(''); setConfirmar('');
       setTimeout(() => setSuccess(false), 4000);
@@ -40,6 +44,7 @@ export default function FuncionarioConfigPage() {
   };
 
   const handleSignOut = () => {
+    clearFuncionarioCredentials();
     signOut();
     navigate('/');
   };
