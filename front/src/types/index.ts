@@ -79,6 +79,8 @@ export interface Employee {
   ativo?: boolean;
   login?: string;
   must_change_password?: boolean;
+  /** Só presente enquanto must_change_password=true — apagado no backend assim que o funcionário troca a senha. */
+  senha_temporaria_plain?: string;
   /** Backend nunca envia face_id de verdade (dado biométrico sensível) — usar este sinal derivado. */
   tem_biometria_facial?: boolean;
   tolerancia_atraso?: number;

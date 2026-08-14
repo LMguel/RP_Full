@@ -3482,7 +3482,7 @@ def alterar_senha_funcionario(payload):
         novo_hash = hash_password(nova_senha)
         tabela_funcionarios.update_item(
             Key={'company_id': company_id, 'id': funcionario_id},
-            UpdateExpression='SET senha_hash = :h, must_change_password = :f',
+            UpdateExpression='SET senha_hash = :h, must_change_password = :f REMOVE senha_temporaria_plain',
             ExpressionAttributeValues={':h': novo_hash, ':f': False}
         )
         return jsonify({'message': 'Senha alterada com sucesso'}), 200
@@ -3517,14 +3517,20 @@ def redefinir_senha_funcionario(payload, funcionario_id):
         senha_temp = ''.join(secrets.choice(chars) for _ in range(8))
         novo_hash = hash_password(senha_temp)
 
+        # senha_temporaria_plain fica salva em texto puro até o funcionário trocar a
+        # senha (must_change_password volta a False), quando alterar_senha_funcionario
+        # apaga o campo. Decisão consciente do usuário, ciente de que reverte a política
+        # anterior de nunca persistir senha em texto puro (ver histórico de senha_original).
         tabela_funcionarios.update_item(
             Key={'company_id': company_id, 'id': funcionario_id},
-            UpdateExpression='SET senha_hash = :h, must_change_password = :t',
-            ExpressionAttributeValues={':h': novo_hash, ':t': True}
+            UpdateExpression='SET senha_hash = :h, must_change_password = :t, senha_temporaria_plain = :p',
+            ExpressionAttributeValues={':h': novo_hash, ':t': True, ':p': senha_temp}
         )
 
-        login = funcionario.get('login') or funcionario.get('id', funcionario_id)
-        return jsonify({'login': login, 'senha_temporaria': senha_temp}), 200
+        # Sempre o id, nunca o campo 'login' — login_funcionario autentica pelo id (GSI
+        # id-index). 'login' é resquício de cadastros antigos e pode divergir do id real,
+        # o que travava o funcionário com "ID ou senha inválidos" ao usar o valor errado.
+        return jsonify({'login': funcionario_id, 'senha_temporaria': senha_temp}), 200
 
     except Exception as e:
         import traceback; traceback.print_exc()

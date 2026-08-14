@@ -231,7 +231,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   // Populate form when employee data changes
   React.useEffect(() => {
-    setTempCredentials(null);
+    // Senha temporária continua visível ao reabrir o modal enquanto o funcionário
+    // não tiver trocado (must_change_password ainda true) — persistida no backend
+    // até lá (senha_temporaria_plain), decisão consciente do usuário.
+    setTempCredentials(
+      employee?.must_change_password && employee?.senha_temporaria_plain
+        ? { login: employee.id, senha_temporaria: employee.senha_temporaria_plain }
+        : null
+    );
     setSenhaError('');
     if (employee) {
       setFormData({ nome: employee.nome, cargo: employee.cargo });
@@ -589,18 +596,28 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
               {employee ? (
                 <>
+                  {/* Sempre employee.id, nunca employee.login — login_funcionario autentica
+                      pelo id (via GSI id-index). O campo 'login' é resquício de funcionários
+                      cadastrados antes da geração nome.sobrenome e pode ter um valor diferente
+                      do id real, o que travava o login do funcionário com "ID ou senha inválidos". */}
                   <TextField
                     fullWidth
                     label="Login"
-                    value={employee.login || employee.id}
+                    value={employee.id}
                     disabled
                     variant="outlined"
-                    sx={inputSx}
+                    sx={{
+                      ...inputSx,
+                      '& .MuiOutlinedInput-root.Mui-disabled': {
+                        WebkitTextFillColor: 'rgba(255, 255, 255, 0.85)',
+                        color: 'rgba(255, 255, 255, 0.85)',
+                      },
+                    }}
                     InputProps={{
                       endAdornment: (
                         <InputAdornment position="end">
                           <IconButton
-                            onClick={() => handleCopy('login', employee.login || employee.id)}
+                            onClick={() => handleCopy('login', employee.id)}
                             edge="end"
                             sx={{ color: copiedField === 'login' ? '#34d399' : 'rgba(255, 255, 255, 0.7)' }}
                           >

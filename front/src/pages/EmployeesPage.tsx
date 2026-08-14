@@ -211,9 +211,20 @@ const EmployeesPage: React.FC = () => {
     }
   };
 
-  const handleEdit = (employee: Employee) => {
+  const handleEdit = async (employee: Employee) => {
+    // Busca o funcionário fresco: a lista não traz senha_temporaria_plain (só a
+    // tela de edição de UM funcionário específico deve poder revelar isso, nunca
+    // a listagem em massa).
     setEditingEmployee(employee);
     setFormOpen(true);
+    try {
+      const fresh = await apiService.getEmployee(employee.id);
+      setEditingEmployee(fresh);
+    } catch (err) {
+      console.error('Error fetching fresh employee data:', err);
+      // Mantém os dados da lista já carregados — só perde a senha temporária
+      // pendente de exibir, não quebra a edição.
+    }
   };
 
   // Disparado de dentro do EmployeeForm (botão "Desativar" no modal) — fecha o
