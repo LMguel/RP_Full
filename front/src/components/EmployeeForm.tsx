@@ -608,9 +608,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     variant="outlined"
                     sx={{
                       ...inputSx,
-                      '& .MuiOutlinedInput-root.Mui-disabled': {
+                      // O texto em si é o <input>, não o wrapper .MuiOutlinedInput-root — o
+                      // -webkit-text-fill-color do MUI pro estado disabled tem que ser
+                      // sobrescrito no elemento certo, senão fica preto (padrão do MUI).
+                      '& .MuiOutlinedInput-input.Mui-disabled': {
                         WebkitTextFillColor: 'rgba(255, 255, 255, 0.85)',
                         color: 'rgba(255, 255, 255, 0.85)',
+                      },
+                      '& .MuiOutlinedInput-root.Mui-disabled .MuiOutlinedInput-notchedOutline': {
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
                       },
                     }}
                     InputProps={{
@@ -643,7 +649,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   {tempCredentials && (
                     <Box sx={{ mt: 2, p: 2, borderRadius: '10px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                       <Typography variant="caption" sx={{ color: '#6ee7b7', fontWeight: 600, display: 'block', mb: 1 }}>
-                        Senha temporária gerada — copie agora, ela só aparece uma vez
+                        Senha temporária pendente — o funcionário ainda não trocou
                       </Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Typography sx={{ color: 'white', fontFamily: 'monospace', fontSize: 18, fontWeight: 700, letterSpacing: 1 }}>
