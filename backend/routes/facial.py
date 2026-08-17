@@ -744,11 +744,18 @@ def registrar_ponto_funcionario(payload):
 
                 cfg_resp = tabela_configuracoes.get_item(Key={'company_id': token_company_id})
                 config = cfg_resp.get('Item', {}) or {}
+                exigir_localizacao = bool(config.get('exigir_localizacao', False))
                 company_lat = config.get('company_lat') or config.get('latitude')
                 company_lng = config.get('company_lng') or config.get('longitude')
                 raio_permitido = int(config.get('raio_permitido', 100))
 
-                if company_lat and company_lng:
+                if not exigir_localizacao:
+                    # Empresa desligou a validação de localização — GPS ainda é
+                    # capturado (location_payload acima) mas não é comparado
+                    # contra nenhum ponto, e o registro nunca fica marcado
+                    # como fora do raio.
+                    gps_status = 'nao_exigido'
+                elif company_lat and company_lng:
                     dentro, distancia = validar_localizacao(
                         user_lat, user_lng, float(company_lat), float(company_lng), raio_permitido,
                     )

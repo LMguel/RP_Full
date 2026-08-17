@@ -29,7 +29,9 @@ import {
   Save as SaveIcon,
   Timer as TimerIcon,
   AccessTime as AccessTimeIcon,
-  
+  LocationOn as LocationOnIcon,
+  MyLocation as MyLocationIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -142,6 +144,229 @@ const CompanyInfoSettings: React.FC = () => {
               </Box>
             </Grid>
           </Grid>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// Localização da empresa — define o ponto central e o raio permitido pra
+// validação de geolocalização do registro de ponto (app do funcionário e
+// tablet). Campos gravados via /api/company/update-location (company_lat/
+// company_lng/raio_permitido/exigir_localizacao) — são os mesmos nomes que
+// o backend lê na hora de validar o registro; não usar latitude_empresa/
+// longitude_empresa (nomes legados de outro endpoint) pra não descasar.
+const LocationSettings: React.FC = () => {
+  const [lat, setLat] = useState('');
+  const [lng, setLng] = useState('');
+  const [raio, setRaio] = useState('100');
+  const [exigirLocalizacao, setExigirLocalizacao] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
+
+  useEffect(() => {
+    apiService.get('/api/configuracoes').then((r: any) => {
+      const latVal = r?.company_lat ?? r?.latitude;
+      const lngVal = r?.company_lng ?? r?.longitude;
+      if (latVal != null) setLat(String(latVal));
+      if (lngVal != null) setLng(String(lngVal));
+      if (r?.raio_permitido != null) setRaio(String(r.raio_permitido));
+      setExigirLocalizacao(Boolean(r?.exigir_localizacao));
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleUseCurrentLocation = () => {
+    if (!('geolocation' in navigator)) {
+      toast.error('Seu navegador não suporta geolocalização.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLat(String(pos.coords.latitude));
+        setLng(String(pos.coords.longitude));
+        setLocating(false);
+        toast.success('Localização atual capturada — confira no mapa e salve.');
+      },
+      () => {
+        setLocating(false);
+        toast.error('Não foi possível obter sua localização. Permita o acesso e tente de novo.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleSave = async () => {
+    const latNum = parseFloat(lat.replace(',', '.'));
+    const lngNum = parseFloat(lng.replace(',', '.'));
+    const raioNum = parseInt(raio, 10);
+
+    if (exigirLocalizacao && (isNaN(latNum) || isNaN(lngNum))) {
+      toast.error('Informe latitude e longitude, ou use "Usar minha localização atual".');
+      return;
+    }
+    if (!isNaN(latNum) && (latNum < -90 || latNum > 90)) {
+      toast.error('Latitude deve estar entre -90 e 90.');
+      return;
+    }
+    if (!isNaN(lngNum) && (lngNum < -180 || lngNum > 180)) {
+      toast.error('Longitude deve estar entre -180 e 180.');
+      return;
+    }
+    if (isNaN(raioNum) || raioNum < 10 || raioNum > 5000) {
+      toast.error('Raio deve estar entre 10m e 5000m.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await apiService.post('/api/company/update-location', {
+        company_lat: latNum,
+        company_lng: lngNum,
+        raio_permitido: raioNum,
+        exigir_localizacao: exigirLocalizacao,
+      });
+      toast.success('Localização da empresa salva!');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Erro ao salvar localização');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputSx = {
+    '& .MuiOutlinedInput-root': {
+      color: 'rgba(255,255,255,0.9)',
+      '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.35)' },
+      '&.Mui-focused fieldset': { borderColor: '#3b82f6' },
+    },
+    '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
+    '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.5)' },
+  };
+
+  const temCoordenadas = lat.trim() !== '' && lng.trim() !== '' && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng));
+
+  return (
+    <Card sx={{ background:'rgba(255,255,255,0.08)', backdropFilter:'blur(20px)', borderRadius:'16px', border:'1px solid rgba(255,255,255,0.1)' }}>
+      <CardContent>
+        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:3 }}>
+          <LocationOnIcon sx={{ color:'#3b82f6', fontSize:'24px' }} />
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight:600, color:'white', fontSize:'18px' }}>
+              Localização da Empresa
+            </Typography>
+            <Typography variant="body2" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'14px' }}>
+              Define o ponto e o raio dentro dos quais o registro de ponto é considerado "no local"
+            </Typography>
+          </Box>
+        </Box>
+
+        {loading ? (
+          <Box sx={{ display:'flex', justifyContent:'center', p:3 }}><CircularProgress sx={{ color:'#3b82f6' }} /></Box>
+        ) : (
+          <>
+            <Alert
+              severity="info"
+              sx={{ mb: 3, backgroundColor: 'rgba(33, 150, 243, 0.1)', border: '1px solid rgba(33, 150, 243, 0.2)', color: 'white', '& .MuiAlert-icon': { color: '#2196f3' } }}
+            >
+              Fora do raio o ponto ainda é registrado — a Portaria 671/2021 não permite bloquear o registro.
+              Isso só marca o ponto como "fora do raio" pra você revisar em Registros.
+            </Alert>
+
+            <Grid container spacing={3}>
+              <Grid size={{ xs: 12 }}>
+                <Button
+                  variant="outlined"
+                  startIcon={locating ? <CircularProgress size={18} /> : <MyLocationIcon />}
+                  onClick={handleUseCurrentLocation}
+                  disabled={locating}
+                  sx={{ borderColor: 'rgba(255,255,255,0.3)', color: 'rgba(255,255,255,0.85)', '&:hover': { borderColor: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.05)' } }}
+                >
+                  {locating ? 'Obtendo localização...' : 'Usar minha localização atual'}
+                </Button>
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'rgba(255,255,255,0.5)' }}>
+                  Abra esta página no celular, estando fisicamente na empresa, pra capturar a coordenada certa.
+                </Typography>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField fullWidth label="Latitude" placeholder="Ex: -22.9707" value={lat} onChange={e => setLat(e.target.value)} sx={inputSx} />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField fullWidth label="Longitude" placeholder="Ex: -44.3086" value={lng} onChange={e => setLng(e.target.value)} sx={inputSx} />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Raio permitido"
+                  value={raio}
+                  onChange={e => setRaio(e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">m</InputAdornment>, inputProps: { min: 10, max: 5000 } }}
+                  helperText="Entre 10m e 5000m"
+                  sx={inputSx}
+                />
+              </Grid>
+
+              {temCoordenadas && (
+                <Grid size={{ xs: 12 }}>
+                  <Button
+                    size="small"
+                    startIcon={<OpenInNewIcon fontSize="small" />}
+                    component="a"
+                    href={`https://www.google.com/maps?q=${lat},${lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ color: '#60a5fa', textTransform: 'none' }}
+                  >
+                    Conferir esse ponto no Google Maps
+                  </Button>
+                </Grid>
+              )}
+
+              <Grid size={{ xs: 12 }}>
+                <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.08)', my: 1 }} />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={exigirLocalizacao}
+                      onChange={(e) => setExigirLocalizacao(e.target.checked)}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#3b82f6' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#3b82f6' },
+                      }}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)', fontWeight: 500 }}>
+                        Exigir localização no registro
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                        Desligado: o GPS do registro não é comparado com este ponto — nenhum registro é marcado como "fora do raio".
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Grid>
+            </Grid>
+
+            <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)', my: 3 }} />
+
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                variant="contained"
+                startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
+                onClick={handleSave}
+                disabled={saving}
+                sx={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', '&:hover': { background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' } }}
+              >
+                {saving ? 'Salvando...' : 'Salvar Localização'}
+              </Button>
+            </Box>
+          </>
         )}
       </CardContent>
     </Card>
@@ -670,6 +895,17 @@ const SettingsPage: React.FC = () => {
             transition={{ duration: 0.5, delay: 0.05 }}
           >
             <CompanyInfoSettings />
+          </motion.div>
+        </Grid>
+
+        {/* Localização da Empresa */}
+        <Grid size={{ xs: 12 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.08 }}
+          >
+            <LocationSettings />
           </motion.div>
         </Grid>
 
