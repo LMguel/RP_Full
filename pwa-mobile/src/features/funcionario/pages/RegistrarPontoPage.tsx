@@ -81,7 +81,7 @@ export default function RegistrarPontoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col safe-bottom">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col safe-bottom">
       <div className="flex items-center px-5 pt-8 pb-2">
         <button
           onClick={() => navigate('/funcionario')}

@@ -64,7 +64,7 @@ export default function CadastroFotoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col safe-bottom">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col safe-bottom">
       <div className="flex-1 flex flex-col px-5 pt-10 pb-8 max-w-sm mx-auto w-full">
         <AnimatePresence mode="wait">
 

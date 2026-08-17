@@ -1,6 +1,7 @@
 import React, { Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
+import { useFullscreen } from './hooks/useFullscreen';
 import KioskErrorBoundary from './components/KioskErrorBoundary';
 import SwUpdateToast from './components/SwUpdateToast';
 
@@ -105,8 +106,11 @@ function FuncionarioLayout() {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function AppRoutes() {
-  // Fullscreen NÃO é global — só entra ao acessar como empresa (EmpresaLoginPage)
-  // e no kiosk (KioskPage, modo persistente). Home e funcionário ficam no navegador normal.
+  // Fullscreen global — sem isso, o navegador mantém a barra de endereço visível
+  // e min-h-screen (100vh) passa a exceder a área realmente visível, cortando o
+  // fim da página (câmera de registro, botões) no rodapé da tela.
+  useFullscreen();
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
