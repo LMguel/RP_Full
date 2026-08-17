@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import apiService from '../../../services/api';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
-import { saveFuncionarioCredentials, clearFuncionarioCredentials } from '../savedCredentials';
+import { saveFuncionarioCredentials, clearFuncionarioCredentials, loadFuncionarioCredentials } from '../savedCredentials';
 import type { FuncionarioUser } from '../../../types';
 
 /**
@@ -13,13 +13,18 @@ import type { FuncionarioUser } from '../../../types';
  * temporária pro funcionário (must_change_password=true, seja no primeiro
  * acesso ou depois de "esqueci minha senha"). Não tem como pular: sem trocar
  * a senha aqui, o funcionário não acessa nenhuma outra rota do app.
+ *
+ * A senha temporária não é pedida de novo aqui — ele acabou de digitar ela na
+ * tela de login (ou ela já estava salva, no caso de auto-login), então
+ * reaproveitamos o valor salvo em savedCredentials em vez de pedir de novo.
  */
 export default function TrocarSenhaObrigatoriaPage() {
   const navigate = useNavigate();
   const { user, markPasswordChanged, signOut } = useAuth();
   const func = user as FuncionarioUser;
 
-  const [senhaAtual, setSenhaAtual] = useState('');
+  const senhaTemporariaSalva = loadFuncionarioCredentials()?.senha ?? '';
+  const [senhaAtual, setSenhaAtual] = useState(senhaTemporariaSalva);
   const [novaSenha, setNovaSenha] = useState('');
   const [confirmar, setConfirmar] = useState('');
   const [loading, setLoading] = useState(false);
@@ -67,15 +72,17 @@ export default function TrocarSenhaObrigatoriaPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Senha Temporária"
-            type="password"
-            placeholder="A que você recebeu do RH"
-            value={senhaAtual}
-            onChange={e => setSenhaAtual(e.target.value)}
-            autoComplete="current-password"
-            autoFocus
-          />
+          {!senhaTemporariaSalva && (
+            <Input
+              label="Senha Temporária"
+              type="password"
+              placeholder="A que você recebeu do RH"
+              value={senhaAtual}
+              onChange={e => setSenhaAtual(e.target.value)}
+              autoComplete="current-password"
+              autoFocus
+            />
+          )}
           <Input
             label="Nova Senha"
             type="password"
@@ -84,6 +91,7 @@ export default function TrocarSenhaObrigatoriaPage() {
             onChange={e => setNovaSenha(e.target.value)}
             autoComplete="new-password"
             hint="Mínimo 6 caracteres"
+            autoFocus={!!senhaTemporariaSalva}
           />
           <Input
             label="Confirmar Nova Senha"
