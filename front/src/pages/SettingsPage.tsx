@@ -31,7 +31,6 @@ import {
   AccessTime as AccessTimeIcon,
   LocationOn as LocationOnIcon,
   MyLocation as MyLocationIcon,
-  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -41,6 +40,19 @@ import { CompanySettings } from '../types';
 import HorarioEmpresaSettings from '../components/HorarioEmpresaSettings';
 import HolidayCalendarSettings from '../components/HolidayCalendarSettings';
 import UsersSettings from '../components/UsersSettings';
+import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix default marker icon paths for leaflet quando empacotado pelo Vite.
+try {
+  const iconRetinaUrl = new URL('leaflet/dist/images/marker-icon-2x.png', import.meta.url).href;
+  const iconUrl = new URL('leaflet/dist/images/marker-icon.png', import.meta.url).href;
+  const shadowUrl = new URL('leaflet/dist/images/marker-shadow.png', import.meta.url).href;
+  // @ts-ignore
+  delete (L.Icon.Default.prototype as any)._getIconUrl;
+  L.Icon.Default.mergeOptions({ iconRetinaUrl, iconUrl, shadowUrl });
+} catch {}
 
 // Componente para dados da empresa (nome e CNPJ para relatórios)
 const CompanyInfoSettings: React.FC = () => {
@@ -150,15 +162,36 @@ const CompanyInfoSettings: React.FC = () => {
   );
 };
 
+const DEFAULT_MAP_CENTER: [number, number] = [-23.55052, -46.633308]; // São Paulo
+
+function MapClickHandler({ onPick }: { onPick: (pos: [number, number]) => void }) {
+  useMapEvents({
+    click(e: any) {
+      onPick([e.latlng.lat, e.latlng.lng]);
+    },
+  });
+  return null;
+}
+
+function MapRecenter({ position }: { position: [number, number] | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (position) map.flyTo(position, map.getZoom() < 15 ? 17 : map.getZoom());
+  }, [position]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 // Localização da empresa — define o ponto central e o raio permitido pra
-// validação de geolocalização do registro de ponto (app do funcionário e
-// tablet). Campos gravados via /api/company/update-location (company_lat/
-// company_lng/raio_permitido/exigir_localizacao) — são os mesmos nomes que
-// o backend lê na hora de validar o registro; não usar latitude_empresa/
-// longitude_empresa (nomes legados de outro endpoint) pra não descasar.
+// validação de geolocalização do registro de ponto. Essa exigência (quando
+// ligada) só afeta o registro de ponto do app do funcionário (PWA) — o
+// kiosk/tablet da empresa (registrar_ponto_facial) não lê exigir_localizacao,
+// então não é impactado por este toggle.
+// Campos gravados via /api/company/update-location (company_lat/company_lng/
+// raio_permitido/exigir_localizacao) — são os mesmos nomes que o backend lê
+// na hora de validar o registro; não usar latitude_empresa/longitude_empresa
+// (nomes legados de outro endpoint) pra não descasar.
 const LocationSettings: React.FC = () => {
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
+  const [position, setPosition] = useState<[number, number] | null>(null);
   const [raio, setRaio] = useState('100');
   const [exigirLocalizacao, setExigirLocalizacao] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -169,8 +202,7 @@ const LocationSettings: React.FC = () => {
     apiService.get('/api/configuracoes').then((r: any) => {
       const latVal = r?.company_lat ?? r?.latitude;
       const lngVal = r?.company_lng ?? r?.longitude;
-      if (latVal != null) setLat(String(latVal));
-      if (lngVal != null) setLng(String(lngVal));
+      if (latVal != null && lngVal != null) setPosition([Number(latVal), Number(lngVal)]);
       if (r?.raio_permitido != null) setRaio(String(r.raio_permitido));
       setExigirLocalizacao(Boolean(r?.exigir_localizacao));
     }).catch(() => {}).finally(() => setLoading(false));
@@ -184,8 +216,7 @@ const LocationSettings: React.FC = () => {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLat(String(pos.coords.latitude));
-        setLng(String(pos.coords.longitude));
+        setPosition([pos.coords.latitude, pos.coords.longitude]);
         setLocating(false);
         toast.success('Localização atual capturada — confira no mapa e salve.');
       },
@@ -198,20 +229,10 @@ const LocationSettings: React.FC = () => {
   };
 
   const handleSave = async () => {
-    const latNum = parseFloat(lat.replace(',', '.'));
-    const lngNum = parseFloat(lng.replace(',', '.'));
     const raioNum = parseInt(raio, 10);
 
-    if (exigirLocalizacao && (isNaN(latNum) || isNaN(lngNum))) {
-      toast.error('Informe latitude e longitude, ou use "Usar minha localização atual".');
-      return;
-    }
-    if (!isNaN(latNum) && (latNum < -90 || latNum > 90)) {
-      toast.error('Latitude deve estar entre -90 e 90.');
-      return;
-    }
-    if (!isNaN(lngNum) && (lngNum < -180 || lngNum > 180)) {
-      toast.error('Longitude deve estar entre -180 e 180.');
+    if (!position) {
+      toast.error('Marque o local da empresa no mapa, ou use "Usar minha localização atual".');
       return;
     }
     if (isNaN(raioNum) || raioNum < 10 || raioNum > 5000) {
@@ -222,8 +243,8 @@ const LocationSettings: React.FC = () => {
     setSaving(true);
     try {
       await apiService.post('/api/company/update-location', {
-        company_lat: latNum,
-        company_lng: lngNum,
+        company_lat: position[0],
+        company_lng: position[1],
         raio_permitido: raioNum,
         exigir_localizacao: exigirLocalizacao,
       });
@@ -245,8 +266,6 @@ const LocationSettings: React.FC = () => {
     '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.7)' },
     '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.5)' },
   };
-
-  const temCoordenadas = lat.trim() !== '' && lng.trim() !== '' && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng));
 
   return (
     <Card sx={{ background:'rgba(255,255,255,0.08)', backdropFilter:'blur(20px)', borderRadius:'16px', border:'1px solid rgba(255,255,255,0.1)' }}>
@@ -272,7 +291,8 @@ const LocationSettings: React.FC = () => {
               sx={{ mb: 3, backgroundColor: 'rgba(33, 150, 243, 0.1)', border: '1px solid rgba(33, 150, 243, 0.2)', color: 'white', '& .MuiAlert-icon': { color: '#2196f3' } }}
             >
               Fora do raio o ponto ainda é registrado — a Portaria 671/2021 não permite bloquear o registro.
-              Isso só marca o ponto como "fora do raio" pra você revisar em Registros.
+              Isso só marca o ponto como "fora do raio" pra você revisar em Registros. Essa exigência vale só
+              pro app do funcionário — o tablet/kiosk da empresa não é afetado.
             </Alert>
 
             <Grid container spacing={3}>
@@ -287,16 +307,57 @@ const LocationSettings: React.FC = () => {
                   {locating ? 'Obtendo localização...' : 'Usar minha localização atual'}
                 </Button>
                 <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'rgba(255,255,255,0.5)' }}>
-                  Abra esta página no celular, estando fisicamente na empresa, pra capturar a coordenada certa.
+                  Abra esta página no celular, estando fisicamente na empresa, ou clique no mapa abaixo pra marcar o local.
                 </Typography>
               </Grid>
 
-              <Grid size={{ xs: 12, md: 4 }}>
-                <TextField fullWidth label="Latitude" placeholder="Ex: -22.9707" value={lat} onChange={e => setLat(e.target.value)} sx={inputSx} />
+              <Grid size={{ xs: 12 }}>
+                <Box
+                  sx={{
+                    height: 380,
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    '& .leaflet-container': { background: '#1a1f2e' },
+                  }}
+                >
+                  <MapContainer
+                    center={position ?? DEFAULT_MAP_CENTER}
+                    zoom={position ? 17 : 12}
+                    style={{ height: '100%', width: '100%' }}
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='&copy; OpenStreetMap contributors'
+                    />
+                    <MapClickHandler onPick={setPosition} />
+                    <MapRecenter position={position} />
+                    {position && (
+                      <>
+                        <Marker
+                          position={position}
+                          draggable
+                          eventHandlers={{
+                            dragend: (e: any) => {
+                              const p = e.target.getLatLng();
+                              setPosition([p.lat, p.lng]);
+                            },
+                          }}
+                        />
+                        <Circle
+                          center={position}
+                          radius={parseInt(raio, 10) || 100}
+                          pathOptions={{ color: '#3b82f6', fillOpacity: 0.1 }}
+                        />
+                      </>
+                    )}
+                  </MapContainer>
+                </Box>
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'rgba(255,255,255,0.5)' }}>
+                  Clique no mapa ou arraste o marcador pra ajustar o ponto exato da empresa. O círculo mostra o raio permitido.
+                </Typography>
               </Grid>
-              <Grid size={{ xs: 12, md: 4 }}>
-                <TextField fullWidth label="Longitude" placeholder="Ex: -44.3086" value={lng} onChange={e => setLng(e.target.value)} sx={inputSx} />
-              </Grid>
+
               <Grid size={{ xs: 12, md: 4 }}>
                 <TextField
                   fullWidth
@@ -309,22 +370,6 @@ const LocationSettings: React.FC = () => {
                   sx={inputSx}
                 />
               </Grid>
-
-              {temCoordenadas && (
-                <Grid size={{ xs: 12 }}>
-                  <Button
-                    size="small"
-                    startIcon={<OpenInNewIcon fontSize="small" />}
-                    component="a"
-                    href={`https://www.google.com/maps?q=${lat},${lng}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    sx={{ color: '#60a5fa', textTransform: 'none' }}
-                  >
-                    Conferir esse ponto no Google Maps
-                  </Button>
-                </Grid>
-              )}
 
               <Grid size={{ xs: 12 }}>
                 <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.08)', my: 1 }} />
