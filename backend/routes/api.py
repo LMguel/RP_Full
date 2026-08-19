@@ -333,7 +333,7 @@ def obter_funcionario(payload, funcionario_id):
         if not is_active:
             return jsonify({'error': 'Funcionário inativo'}), 404
 
-        return jsonify(sanitize_employee(funcionario))
+        return jsonify(sanitize_employee(funcionario, generate_foto_url=True))
     except Exception as e:
         print(f"[GET] Erro geral: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -349,7 +349,7 @@ def buscar_funcionario(payload, funcionario_id):
         item = resp.get('Item')
         if not item:
             return jsonify({'error': 'Funcionário não encontrado'}), 404
-        return jsonify(sanitize_employee(item))
+        return jsonify(sanitize_employee(item, generate_foto_url=True))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -395,6 +395,7 @@ def atualizar_funcionario(payload, funcionario_id):
         tipo_horario = request.form.get('tipo_horario')
         horarios_json_str = request.form.get('horarios_json')  # Horários por dia em JSON (DiaSemana format)
         home_office = request.form.get('home_office', 'false').lower() == 'true'
+        data_admissao = request.form.get('data_admissao')  # YYYY-MM-DD, opcional
         vigencia_modo = request.form.get('vigencia_modo', 'retroativo')  # 'retroativo' ou 'futuro'
         vigencia_data = request.form.get('vigencia_data')  # YYYY-MM-DD, obrigatório se modo == 'futuro'
 
@@ -478,7 +479,16 @@ def atualizar_funcionario(payload, funcionario_id):
 
         funcionario['nome'] = nome
         funcionario['cargo'] = cargo
-        
+
+        # Data de admissão: opcional. Ausente no form = não altera; string vazia
+        # explícita = remove (funcionário volta a não ter data de admissão,
+        # comportamento igual ao de antes desta funcionalidade existir).
+        if data_admissao is not None:
+            if data_admissao.strip():
+                funcionario['data_admissao'] = data_admissao.strip()[:10]
+            else:
+                funcionario.pop('data_admissao', None)
+
         # Atualizar login se fornecido
         if login and login.strip():
             funcionario['login'] = login.strip()
@@ -849,6 +859,7 @@ def cadastrar_funcionario(payload):
             nome = data.get('nome')
             cargo = data.get('cargo')
             cpf = data.get('cpf')
+            data_admissao = data.get('data_admissao')
             horario_entrada = data.get('horario_entrada')
             horario_saida = data.get('horario_saida')
             nome_horario = data.get('nome_horario')  # Nome do horário pré-definido
@@ -874,6 +885,7 @@ def cadastrar_funcionario(payload):
             cargo = request.form.get('cargo')
             foto = request.files.get('foto')
             cpf = request.form.get('cpf')
+            data_admissao = request.form.get('data_admissao')
             horario_entrada = request.form.get('horario_entrada')
             horario_saida = request.form.get('horario_saida')
             nome_horario = request.form.get('nome_horario')  # Nome do horário pré-definido
@@ -990,6 +1002,8 @@ def cadastrar_funcionario(payload):
             funcionario_item['face_id'] = face_id
         if cpf:
             funcionario_item['cpf'] = cpf
+        if data_admissao:
+            funcionario_item['data_admissao'] = str(data_admissao).strip()[:10]
         if horario_entrada:
             funcionario_item['horario_entrada'] = horario_entrada
         if horario_saida:
@@ -1996,6 +2010,11 @@ def listar_funcionarios(payload):
         # Retornar todos os campos relevantes de cada funcionário
         funcionarios_list = []
         for f in funcionarios:
+            # foto_url nunca é persistido no item (é presigned, expira) — sempre
+            # regenerado aqui a partir de foto_s3_key. Sem isso, a foto some da
+            # listagem assim que o campo antigo expira ou é sobrescrito num PUT.
+            foto_s3_key = f.get('foto_s3_key')
+            foto_url = generate_presigned_url(foto_s3_key, expiration_seconds=300) if foto_s3_key else None
             funcionario_dict = {
                 'id': f.get('id'),
                 'nome': f.get('nome', ''),
@@ -2005,7 +2024,7 @@ def listar_funcionarios(payload):
                 'setor': f.get('setor'),
                 'telefone': f.get('telefone'),
                 'email': f.get('email'),
-                'foto_url': f.get('foto_url'),
+                'foto_url': foto_url,
                 'data_cadastro': f.get('data_cadastro'),
                 'data_admissao': f.get('data_admissao'),
                 'horario_entrada': f.get('horario_entrada'),

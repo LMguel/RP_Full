@@ -65,6 +65,7 @@ function calcDiasEsperados(emp: Employee, start: string, end: string, holidays: 
   for (const d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
     const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     if (todayISO && iso >= todayISO) continue; // EM_PROCESSAMENTO — hoje e futuro não contam
+    if (emp.data_admissao && iso < emp.data_admissao) continue; // antes da admissão — sem vínculo ainda
     if (holidays.has(iso)) continue;
     const key = _DOW_KEYS[d.getDay()];
     if (emp.custom_schedule) {
@@ -103,6 +104,7 @@ function calcPrevistoFaltas(
   for (const d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
     const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     if (iso >= todayISO) continue; // hoje/futuro = EM_PROCESSAMENTO
+    if (emp.data_admissao && iso < emp.data_admissao) continue; // antes da admissão — sem vínculo ainda
     if (holidays.has(iso)) continue;
     if (diasComRegistro.has(iso)) continue; // já contabilizado via summary_obj
     const key = _DOW_KEYS[d.getDay()];
@@ -126,6 +128,7 @@ function calcFeriadosCredit(emp: Employee, start: string, end: string, holidays:
   let credit = 0;
   for (const iso of holidays) {
     if (iso < start || iso > end || iso >= todayISO) continue; // hoje = EM_PROCESSAMENTO
+    if (emp.data_admissao && iso < emp.data_admissao) continue; // antes da admissão — sem vínculo ainda
     const dow = new Date(iso + 'T12:00:00').getDay();
     const key = _DOW_KEYS[dow];
     let isWorkday = false;

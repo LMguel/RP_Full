@@ -52,7 +52,7 @@ export default function TrocarSenhaObrigatoriaPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}

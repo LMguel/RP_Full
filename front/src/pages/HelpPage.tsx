@@ -311,7 +311,7 @@ const sections: Section[] = [
       {
         question: 'O que significam os ícones no calendário do espelho?',
         answer: (
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
             {[
               { icon: '✓', label: 'Presente', color: '#10b981' },
               { icon: '!', label: 'Com atraso', color: '#f59e0b' },

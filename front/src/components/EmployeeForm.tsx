@@ -127,6 +127,14 @@ const timeInputSx = {
   },
 };
 
+const dateInputSx = {
+  ...inputSx,
+  '& .MuiInputBase-input': { color: 'white' },
+  '& input[type="date"]::-webkit-calendar-picker-indicator': {
+    filter: 'invert(1) brightness(0.7)',
+  },
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface EmployeeFormProps {
@@ -156,6 +164,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     nome: employee?.nome || '',
     cargo: employee?.cargo || '',
   });
+  // Opcional: quando definida, cálculos de horas/faltas só contam a partir
+  // dela. Funcionários sem essa data continuam calculados como sempre foram.
+  const [dataAdmissao, setDataAdmissao] = useState<string>(employee?.data_admissao || '');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(employee?.foto_url || null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -242,6 +253,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     setSenhaError('');
     if (employee) {
       setFormData({ nome: employee.nome, cargo: employee.cargo });
+      setDataAdmissao(employee.data_admissao || '');
       setPhotoPreview(employee.foto_url);
       setIntervaloPersonalizado(!!employee.intervalo_personalizado);
       setIntervaloEmp(employee.intervalo_emp ? employee.intervalo_emp.toString() : '');
@@ -279,6 +291,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     } else {
       setHorarioOriginal(null);
       setFormData({ nome: '', cargo: '' });
+      setDataAdmissao('');
       setPhoto(null);
       setPhotoPreview(null);
       setNomeHorario('');
@@ -394,6 +407,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const formDataToSend = new FormData();
     formDataToSend.append('nome', formData.nome);
     formDataToSend.append('cargo', formData.cargo);
+    // Vazio é válido (opcional) — na edição, enviar vazio remove a data já
+    // cadastrada. No cadastro, o backend simplesmente ignora se vazio.
+    formDataToSend.append('data_admissao', dataAdmissao);
 
     // Login/id são gerados pelo backend (nome.sobrenome, com dedup) — não enviar
     // nada daqui, tanto na criação quanto na edição.
@@ -465,6 +481,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const handleClose = () => {
     setFormData({ nome: '', cargo: '' });
+    setDataAdmissao('');
     setPhoto(null);
     setPhotoPreview(null);
     setNomeHorario('');
@@ -586,6 +603,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 <TextField {...params} label="Cargo" error={!!errors.cargo} helperText={errors.cargo || 'Selecione ou digite o cargo'} variant="outlined" fullWidth sx={{ ...inputSx, '& .MuiAutocomplete-popupIndicator': { color: 'rgba(255, 255, 255, 0.7)' } }} />
               )}
               ListboxProps={{ sx: { background: 'rgba(15, 23, 42, 0.95)', color: 'white', '& .MuiAutocomplete-option': { '&.Mui-focused': { backgroundColor: 'rgba(59, 130, 246, 0.35)' } } } }}
+            />
+
+            {/* Data de Admissão */}
+            <TextField
+              fullWidth
+              type="date"
+              label="Data de Admissão"
+              value={dataAdmissao}
+              onChange={(e) => setDataAdmissao(e.target.value)}
+              disabled={loading}
+              variant="outlined"
+              InputLabelProps={{ shrink: true }}
+              helperText="Opcional. Se preenchida, horas e faltas só passam a contar a partir dela."
+              sx={dateInputSx}
             />
 
             {/* Acesso ao App Mobile */}

@@ -234,7 +234,7 @@ const RHFuncionariosPage: React.FC = () => {
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.22 }}>
           <Card>
-            <TableContainer>
+            <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>

@@ -131,6 +131,17 @@ def get_schedule_for_date(
     weekday = DAYS_EN[target_date.weekday()]
 
     if isinstance(employee, dict):
+        # Funcionário com data de admissão cadastrada não tem escala antes
+        # dela — evita gerar previsto/falta para dias anteriores à contratação.
+        # Sem data_admissao (funcionários já cadastrados), comportamento inalterado.
+        data_admissao = employee.get("data_admissao")
+        if data_admissao:
+            try:
+                if target_date < date.fromisoformat(str(data_admissao)[:10]):
+                    return None, None
+            except ValueError:
+                pass
+
         period = _select_schedule_period(employee, target_date)
         return _resolve_from_source(period, weekday, target_date, company_config)
 

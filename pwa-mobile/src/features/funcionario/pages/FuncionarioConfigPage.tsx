@@ -6,7 +6,7 @@ import apiService from '../../../services/api';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Card from '../../../components/ui/Card';
-import { saveFuncionarioCredentials, clearFuncionarioCredentials } from '../savedCredentials';
+import { saveFuncionarioCredentials, clearFuncionarioCredentials, loadFuncionarioCredentials } from '../savedCredentials';
 import type { FuncionarioUser } from '../../../types';
 
 export default function FuncionarioConfigPage() {
@@ -20,6 +20,23 @@ export default function FuncionarioConfigPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+
+  // Estado real do que está gravado neste aparelho agora — não é um preference
+  // toggle comum, é uma leitura direta do storage, pra o funcionário conseguir
+  // confirmar visualmente se o login automático vai funcionar da próxima vez
+  // que abrir o app, sem precisar de ferramentas de desenvolvedor.
+  const [lembrarAtivo, setLembrarAtivo] = useState(() => !!loadFuncionarioCredentials());
+
+  const handleToggleLembrar = () => {
+    if (lembrarAtivo) {
+      clearFuncionarioCredentials();
+      setLembrarAtivo(false);
+    } else if (func?.id) {
+      // Não temos a senha em mãos aqui (nunca fica em memória fora do login) —
+      // por isso só oferecemos DESLIGAR neste toggle. Pra religar, o próximo
+      // login manual com a caixa marcada já resolve.
+    }
+  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,13 +61,15 @@ export default function FuncionarioConfigPage() {
   };
 
   const handleSignOut = () => {
-    clearFuncionarioCredentials();
+    // Mesmo padrão do "Sair" do kiosk/empresa: encerra a sessão mas PRESERVA a
+    // credencial salva (a menos que o funcionário já tenha desativado o toggle
+    // acima), pra próxima abertura do app reconectar sozinha.
     signOut();
     navigate('/');
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/funcionario')} className="text-slate-400 hover:text-slate-200 transition-colors">
@@ -72,6 +91,36 @@ export default function FuncionarioConfigPage() {
                 <p className="font-semibold text-slate-100">{func?.nome}</p>
                 <p className="text-sm text-slate-400">{func?.cargo || 'Funcionário'}</p>
               </div>
+            </div>
+          </Card>
+        </motion.div>
+
+        {/* Login automático — status real do que está salvo neste aparelho */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.02 }}>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">Login Automático</p>
+          <Card>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${lembrarAtivo ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                <div>
+                  <p className="text-sm font-medium text-slate-200">
+                    {lembrarAtivo ? 'Ativo neste aparelho' : 'Desativado neste aparelho'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {lembrarAtivo
+                      ? 'Da próxima vez que abrir o app, você entra direto, sem digitar senha.'
+                      : 'Marque "Lembrar minhas credenciais" na próxima vez que fizer login.'}
+                  </p>
+                </div>
+              </div>
+              {lembrarAtivo && (
+                <button
+                  onClick={handleToggleLembrar}
+                  className="text-xs text-slate-500 hover:text-rose-400 transition-colors flex-shrink-0 px-2 py-1"
+                >
+                  Desativar
+                </button>
+              )}
             </div>
           </Card>
         </motion.div>

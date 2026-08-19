@@ -122,7 +122,7 @@ const RHFechamentosPage: React.FC = () => {
 
       {/* Seletor */}
       <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }}>
           <InputLabel sx={{ fontSize: 13 }}>Competência</InputLabel>
           <Select
             value={selectedComp}

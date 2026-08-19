@@ -355,13 +355,13 @@ export default function FechamentoMesPage() {
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-              <FormControl size="small" sx={{ minWidth: 130 }}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 130 } }}>
                 <Select value={mes} onChange={e => { setMes(Number(e.target.value)); setLoaded(false); }} sx={{ fontSize: 13, height: 36 }}>
                   {MESES.map((m, i) => <MenuItem key={i + 1} value={i + 1}>{m}</MenuItem>)}
                 </Select>
               </FormControl>
 
-              <FormControl size="small" sx={{ minWidth: 90 }}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 90 } }}>
                 <Select value={ano} onChange={e => { setAno(Number(e.target.value)); setLoaded(false); }} sx={{ fontSize: 13, height: 36 }}>
                   {anos.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
                 </Select>

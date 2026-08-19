@@ -17,7 +17,7 @@ export default function EmpresaDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col select-none">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col select-none">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-5">

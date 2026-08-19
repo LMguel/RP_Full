@@ -102,8 +102,19 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
             or not emp_abs.get('horario_saida')
         )
 
-        if variavel_abs:
-            # Horário variável: sem registro = sem falta, sem previsto
+        # Data anterior à admissão do funcionário: ainda não tinha vínculo,
+        # não deve gerar falta nem previsto (mesmo comportamento do horário
+        # variável). Sem data_admissao cadastrada, não entra aqui.
+        data_admissao = emp_abs.get('data_admissao')
+        antes_da_admissao = False
+        if data_admissao:
+            try:
+                antes_da_admissao = target_date < date.fromisoformat(str(data_admissao)[:10])
+            except ValueError:
+                antes_da_admissao = False
+
+        if variavel_abs or antes_da_admissao:
+            # Horário variável ou dia anterior à admissão: sem registro = sem falta, sem previsto
             return DailySummary(
                 company_id=company_id,
                 employee_id=employee_id,

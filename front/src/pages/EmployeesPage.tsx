@@ -349,6 +349,8 @@ const EmployeesPage: React.FC = () => {
                 backdropFilter: 'blur(10px)',
                 borderRadius: '12px',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch',
               }}
             >
               <Table>

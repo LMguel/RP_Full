@@ -109,7 +109,7 @@ export default function EmpresaLoginPage() {
   // ── Tela de auto-login (credenciais salvas sendo usadas) ──────────────────────
   if (autoLogin && !error) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 select-none">
+      <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center px-6 select-none">
         <motion.div
           initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -147,7 +147,7 @@ export default function EmpresaLoginPage() {
 
   // ── Formulário de login ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       <div className="flex items-center px-5 pt-10 pb-2">
         <button onClick={() => navigate('/')} className="text-slate-400 hover:text-slate-200 transition-colors">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

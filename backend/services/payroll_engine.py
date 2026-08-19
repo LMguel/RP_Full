@@ -138,6 +138,17 @@ def compute_worked_data(
     tolerancia_atraso_min = int(cfg_empresa.get('tolerancia_atraso', 0) or 0)
     horario_entrada_padrao = emp_info.get('horario_entrada') or '08:00'
 
+    # Data de admissão: dias anteriores não contam como dia útil nem geram
+    # falta — o funcionário ainda não tinha vínculo. Sem data_admissao
+    # cadastrada (funcionários já existentes), comportamento inalterado.
+    data_admissao_raw = emp_info.get('data_admissao')
+    data_admissao = None
+    if data_admissao_raw:
+        try:
+            data_admissao = date.fromisoformat(str(data_admissao_raw)[:10])
+        except ValueError:
+            data_admissao = None
+
     # Dias úteis passados até hoje
     dias_uteis = 0
     dias_passados: List[date] = []
@@ -145,6 +156,8 @@ def compute_worked_data(
         dt = date(year, month, d)
         if dt > today:
             break
+        if data_admissao and dt < data_admissao:
+            continue
         dias_passados.append(dt)
         if dt.weekday() < 5 and dt.isoformat() not in feriados:
             dias_uteis += 1

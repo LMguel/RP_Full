@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import Input from '../../../components/ui/Input';
 import Button from '../../../components/ui/Button';
 import Modal from '../../../components/ui/Modal';
-import { saveFuncionarioCredentials, loadFuncionarioCredentials } from '../savedCredentials';
+import { saveFuncionarioCredentials, loadFuncionarioCredentials, clearFuncionarioCredentials } from '../savedCredentials';
 
 export default function FuncionarioLoginPage() {
   const navigate = useNavigate();
@@ -18,6 +18,7 @@ export default function FuncionarioLoginPage() {
   const [error, setError] = useState('');
   const [helpModal, setHelpModal] = useState(false);
   const [autoLogin, setAutoLogin] = useState(false);
+  const [lembrar, setLembrar] = useState(true);
 
   // Refs estáveis para não incluir signInFuncionario/navigate como deps do effect de mount
   const signInRef = useRef(signInFuncionario);
@@ -34,6 +35,7 @@ export default function FuncionarioLoginPage() {
 
     setFuncionarioId(saved.id);
     setSenha(saved.senha);
+    setLembrar(true);
 
     if ((location.state as any)?.fromLogout) return;
 
@@ -42,6 +44,10 @@ export default function FuncionarioLoginPage() {
       setLoading(true);
       try {
         await signInRef.current(saved.id, saved.senha);
+        // Mesmo padrão do EmpresaLoginPage: re-grava a credencial a cada
+        // auto-login bem-sucedido — auto-cura caso o save anterior tenha
+        // falhado silenciosamente (ex: storage bloqueado numa sessão passada).
+        saveFuncionarioCredentials(saved.id, saved.senha);
         navigateRef.current('/funcionario');
       } catch {
         // Senha salva ficou inválida (trocada, conta desativada, etc.) — cai
@@ -64,7 +70,11 @@ export default function FuncionarioLoginPage() {
     setLoading(true);
     try {
       await signInFuncionario(id, senha);
-      saveFuncionarioCredentials(id, senha);
+      if (lembrar) {
+        saveFuncionarioCredentials(id, senha);
+      } else {
+        clearFuncionarioCredentials();
+      }
       navigate('/funcionario');
     } catch (err: any) {
       setError(err?.response?.data?.error || 'ID ou senha inválidos.');
@@ -74,22 +84,32 @@ export default function FuncionarioLoginPage() {
   };
 
   // ── Tela de auto-login (credenciais salvas sendo usadas) ──────────────────────
+  // Mesmo visual do EmpresaLoginPage: ícone pulsando + texto — consistência entre
+  // os dois portais de acesso rápido do PWA.
   if (autoLogin && !error) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 select-none">
+      <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center px-6 select-none">
         <motion.div
           initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.35 }}
-          className="flex flex-col items-center gap-6 text-center"
+          className="flex flex-col items-center gap-7 text-center"
         >
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-600/30">
-            <div className="w-6 h-6 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-          </div>
+          <motion.div
+            animate={{ opacity: [0.6, 1, 0.6], scale: [0.97, 1, 0.97] }}
+            transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
+            className="w-28 h-28 bg-blue-500/20 rounded-3xl flex items-center justify-center border border-blue-500/30 shadow-2xl shadow-blue-500/10"
+          >
+            <svg className="w-14 h-14 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </motion.div>
+
           <div>
-            <p className="text-white text-xl font-black">Entrando…</p>
-            <p className="text-slate-400 text-sm mt-1">Conectando automaticamente</p>
+            <p className="text-white text-2xl font-black">Entrando…</p>
+            <p className="text-slate-400 text-sm mt-1.5">Conectando automaticamente</p>
           </div>
+
           <button
             onClick={() => { setAutoLogin(false); setLoading(false); }}
             className="text-slate-600 text-sm hover:text-slate-400 transition-colors mt-2 px-4 py-2"
@@ -102,7 +122,7 @@ export default function FuncionarioLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-10 pb-2">
         <button onClick={() => navigate('/')} className="text-slate-400 hover:text-slate-200 transition-colors">
@@ -158,6 +178,29 @@ export default function FuncionarioLoginPage() {
               </button>
             }
           />
+
+          {/* Lembrar credenciais — mesmo padrão do EmpresaLoginPage */}
+          <button
+            type="button"
+            onClick={() => setLembrar(v => !v)}
+            className="flex items-center gap-3 w-full py-1 group"
+          >
+            <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors flex-shrink-0 ${lembrar ? 'bg-blue-600 border-blue-500' : 'bg-transparent border-slate-600 group-hover:border-slate-400'}`}>
+              {lembrar && (
+                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+            <div className="text-left">
+              <span className="text-slate-300 text-sm font-medium group-hover:text-slate-200 transition-colors block">
+                Lembrar minhas credenciais
+              </span>
+              <span className="text-slate-500 text-xs">
+                Entra direto na sua home da próxima vez
+              </span>
+            </div>
+          </button>
 
           {error && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-rose-500/15 border border-rose-500/30 rounded-xl px-4 py-3">

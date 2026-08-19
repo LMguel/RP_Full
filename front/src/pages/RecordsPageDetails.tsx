@@ -1014,7 +1014,7 @@ const RecordsDetailedPage: React.FC = () => {
             ) : error ? (
               <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>
             ) : (
-              <TableContainer sx={{ background: 'transparent' }}>
+              <TableContainer sx={{ background: 'transparent', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                 <Table aria-label="tabela de registros detalhados">
                   <TableHead>
                     <TableRow>

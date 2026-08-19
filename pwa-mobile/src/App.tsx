@@ -29,7 +29,7 @@ const ConfiguracoesEmpresaPage = React.lazy(() => import('./features/empresa/pag
 // ─── Loading fallback minimalista ─────────────────────────────────────────────
 function PageLoader() {
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+    <div className="min-h-[100dvh] bg-slate-950 flex items-center justify-center">
       <svg className="animate-spin w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24">
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -106,10 +106,12 @@ function FuncionarioLayout() {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function AppRoutes() {
-  // Fullscreen global — sem isso, o navegador mantém a barra de endereço visível
-  // e min-h-screen (100vh) passa a exceder a área realmente visível, cortando o
-  // fim da página (câmera de registro, botões) no rodapé da tela.
-  useFullscreen();
+  // Fullscreen global e persistente — sem isso, o navegador mantém a barra de
+  // endereço visível e min-h-screen (100vh) passa a exceder a área realmente
+  // visível, cortando o fim da página (câmera de registro, botões) no rodapé
+  // da tela. persistent:true garante que volta ao sair (troca de tela, gesto
+  // do navegador) em vez de precisar de um novo toque para reativar.
+  useFullscreen({ persistent: true });
 
   return (
     <Suspense fallback={<PageLoader />}>

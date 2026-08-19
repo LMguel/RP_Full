@@ -2,7 +2,6 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../auth/AuthContext';
-import { clearFuncionarioCredentials } from '../savedCredentials';
 import type { FuncionarioUser } from '../../../types';
 
 export default function FuncionarioDashboardPage() {
@@ -14,7 +13,7 @@ export default function FuncionarioDashboardPage() {
   const initials = func?.nome?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() ?? '?';
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       {/* Header */}
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-6">
         <div className="flex items-center gap-4">
@@ -26,7 +25,10 @@ export default function FuncionarioDashboardPage() {
             <h1 className="text-2xl font-black text-slate-50 leading-tight truncate">{func?.nome ?? 'Funcionário'}</h1>
           </div>
           <button
-            onClick={() => { clearFuncionarioCredentials(); signOut(); navigate('/'); }}
+            // Mesmo padrão do "Sair" do kiosk/empresa: encerra a sessão mas PRESERVA
+            // a credencial salva, pra próxima abertura do app reconectar sozinha.
+            // Apagar de vez agora é ação explícita só do toggle em Config.
+            onClick={() => { signOut(); navigate('/'); }}
             className="p-2.5 text-slate-500 hover:text-rose-400 transition-colors rounded-xl hover:bg-rose-500/10"
             aria-label="Sair"
           >

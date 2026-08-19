@@ -73,6 +73,11 @@ export interface Employee {
   empresa_id: string;  // mantém compatibilidade
   company_id?: string; // novo schema DynamoDB
   data_cadastro: string;
+  /** Data de admissão (YYYY-MM-DD), opcional. Quando definida, os cálculos de
+   *  horas/faltas só passam a contar a partir dela — dias anteriores não
+   *  geram previsto nem falta. Sem essa data, o funcionário continua sendo
+   *  calculado normalmente desde sempre (comportamento legado). */
+  data_admissao?: string | null;
   horario_entrada?: string;
   horario_saida?: string;
   is_active?: boolean;

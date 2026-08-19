@@ -262,7 +262,7 @@ export default function FuncionarioFormPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
 
       {/* Header */}
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-4">

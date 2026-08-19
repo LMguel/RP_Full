@@ -129,6 +129,9 @@ export interface RegistroDiario {
   saida_antecipada_str?: string;
   intervalo_automatico?: boolean;
   horario_variavel?: boolean;
+  status?: 'PRESENTE' | 'INCOMPLETO' | 'VARIAVEL' | 'FERIAS' | 'ATESTADO';
+  atestado_url?: string;
+  n_punches?: number;
 }
 
 export interface MonthlySummary {

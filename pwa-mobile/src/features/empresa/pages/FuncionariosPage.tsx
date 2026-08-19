@@ -65,7 +65,7 @@ export default function FuncionariosPage() {
   const handleCopy = (text: string) => navigator.clipboard.writeText(text).catch(() => {});
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       {/* Header */}
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-4">
         <div className="flex items-center gap-3 mb-4">

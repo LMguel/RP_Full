@@ -219,7 +219,7 @@ function DetailModal({ log, onClose }: { log: AuditLog | null; onClose: () => vo
           )}
 
           {/* Grid de detalhes */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
             {log.employee_name && <InfoRow label="Funcionário" value={log.employee_name} />}
             <InfoRow label="Alterado por" value={log.user_name || log.user_id} />
             <InfoRow label="Data / Hora" value={formatDateTime(log.created_at)} />
@@ -430,29 +430,29 @@ const AuditPage: React.FC = () => {
             <TextField
               label="Mês" type="month" value={month}
               onChange={e => handleMonthChange(e.target.value)}
-              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: 150 }}
+              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: { xs: '100%', sm: 150 } }}
             />
             <TextField
               label="Data inicial" type="date" value={dateFrom}
               onChange={e => { setDateFrom(e.target.value); setMonth(''); }}
-              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: 150 }}
+              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: { xs: '100%', sm: 150 } }}
             />
             <TextField
               label="Data final" type="date" value={dateTo}
               onChange={e => { setDateTo(e.target.value); setMonth(''); }}
-              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: 150 }}
+              size="small" InputLabelProps={{ shrink: true }} sx={{ minWidth: { xs: '100%', sm: 150 } }}
             />
             <TextField
               label="Funcionário" value={filterEmployee}
               onChange={e => setFilterEmployee(e.target.value)}
-              size="small" placeholder="Filtrar por nome..." sx={{ minWidth: 180 }}
+              size="small" placeholder="Filtrar por nome..." sx={{ minWidth: { xs: '100%', sm: 180 } }}
             />
             <TextField
               label="Alterado por" value={filterChangedBy}
               onChange={e => setFilterChangedBy(e.target.value)}
-              size="small" placeholder="Filtrar por usuário..." sx={{ minWidth: 180 }}
+              size="small" placeholder="Filtrar por usuário..." sx={{ minWidth: { xs: '100%', sm: 180 } }}
             />
-            <FormControl size="small" sx={{ minWidth: 160 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 160 } }}>
               <InputLabel>Tipo de evento</InputLabel>
               <Select value={action} label="Tipo de evento" onChange={e => setAction(e.target.value)}>
                 <MenuItem value="">Todos</MenuItem>

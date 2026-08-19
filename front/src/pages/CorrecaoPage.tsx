@@ -298,7 +298,7 @@ function EmployeeGroupSection({ group, defaultExpanded, confirmedProximos, onOpe
       {/* Tabela expandível */}
       <Collapse in={expanded}>
         <Box sx={{ border: '1px solid rgba(255,255,255,0.1)', borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
-          <TableContainer sx={{ bgcolor: 'transparent' }}>
+          <TableContainer sx={{ bgcolor: 'transparent', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>

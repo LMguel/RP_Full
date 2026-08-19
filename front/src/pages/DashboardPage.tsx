@@ -379,7 +379,7 @@ const DashboardPage = () => {
                     <Typography sx={{ fontSize: 13, color: 'rgba(255,255,255,0.28)', fontStyle: 'italic' }}>Nenhum registro hoje</Typography>
                   </Box>
                 ) : (
-                  <TableContainer sx={{ flex: 1, overflow: 'auto', bgcolor: 'transparent' }}>
+                  <TableContainer sx={{ flex: 1, overflow: 'auto', overflowX: 'auto', WebkitOverflowScrolling: 'touch', bgcolor: 'transparent' }}>
                     <Table size="small" stickyHeader>
                       <TableHead>
                         <TableRow>

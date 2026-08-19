@@ -99,7 +99,7 @@ const RHPreFolhaPage: React.FC = () => {
 
       {/* Controles */}
       <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 180 } }}>
           <InputLabel sx={{ fontSize: 13 }}>Competência</InputLabel>
           <Select
             value={selectedComp}
@@ -214,7 +214,7 @@ const RHPreFolhaPage: React.FC = () => {
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
           <Card>
-            <TableContainer>
+            <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>

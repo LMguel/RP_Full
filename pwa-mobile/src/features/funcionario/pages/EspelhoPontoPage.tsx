@@ -15,13 +15,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../auth/AuthContext';
 import apiService from '../../../services/api';
-import Badge from '../../../components/ui/Badge';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import type { TimeRecord, RegistroDiario, FuncionarioUser, WeeklySchedule } from '../../../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DayStatus = 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO';
+type DayStatus = 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO' | 'INCOMPLETO' | 'EM_PROCESSAMENTO' | 'FERIAS' | 'ATESTADO';
 
 // Tolerância mensal: se saldo (extras − atrasos) estiver dentro deste limite,
 // considera cumprimento integral e zera banco/extras/atrasos na exibição.
@@ -44,6 +43,7 @@ interface CalendarDay {
   saida_antecipada_min?: number;
   horas_extras_min?: number;    // minutos extras positivos do dia
   feriado_credit_min?: number;  // horas auto-creditadas para feriados em dias úteis
+  atestado_url?: string;
   status: DayStatus;
   registros: TimeRecord[];
 }
@@ -124,10 +124,14 @@ function tipoDot(tipo: string): string {
 
 // Status color palette (same as chipColor in front)
 function statusStyle(status: DayStatus): { bg: string; border: string; text: string; dot: string } {
-  if (status === 'PRESENTE') return { bg: 'bg-emerald-500/15', border: 'border-emerald-500/50', text: 'text-emerald-400', dot: 'bg-emerald-500' };
-  if (status === 'ATRASO')   return { bg: 'bg-amber-500/15',   border: 'border-amber-500/50',   text: 'text-amber-400',   dot: 'bg-amber-500'   };
-  if (status === 'FERIADO')  return { bg: 'bg-yellow-500/15',  border: 'border-yellow-500/50',  text: 'text-yellow-400',  dot: 'bg-yellow-500'  };
-  if (status === 'FALTA')    return { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    text: 'text-rose-400',    dot: 'bg-rose-500'    };
+  if (status === 'PRESENTE')         return { bg: 'bg-emerald-500/15', border: 'border-emerald-500/50', text: 'text-emerald-400', dot: 'bg-emerald-500' };
+  if (status === 'ATRASO')           return { bg: 'bg-amber-500/15',   border: 'border-amber-500/50',   text: 'text-amber-400',   dot: 'bg-amber-500'   };
+  if (status === 'FERIADO')          return { bg: 'bg-yellow-500/15',  border: 'border-yellow-500/50',  text: 'text-yellow-400',  dot: 'bg-yellow-500'  };
+  if (status === 'FALTA')            return { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    text: 'text-rose-400',    dot: 'bg-rose-500'    };
+  if (status === 'INCOMPLETO')       return { bg: 'bg-yellow-500/10',  border: 'border-yellow-500/30',  text: 'text-yellow-400',  dot: 'bg-yellow-500'  };
+  if (status === 'EM_PROCESSAMENTO') return { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   text: 'text-slate-400',   dot: 'bg-slate-500'   };
+  if (status === 'FERIAS')           return { bg: 'bg-violet-500/15',  border: 'border-violet-500/50',  text: 'text-violet-400',  dot: 'bg-violet-500'  };
+  if (status === 'ATESTADO')         return { bg: 'bg-teal-500/15',    border: 'border-teal-500/50',    text: 'text-teal-400',    dot: 'bg-teal-500'    };
   return { bg: '',                    border: 'border-slate-800',            text: 'text-slate-600',   dot: 'bg-slate-700'   };
 }
 
@@ -161,6 +165,20 @@ export default function EspelhoPontoPage() {
   const inicio = `${year}-${String(month).padStart(2, '0')}-01`;
   const fim = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
+
+  // "De"/"Até" — mesmo filtro do painel admin: por trás dos panos ainda navega
+  // por mês inteiro (calendário e resumo dependem disso), então escolher uma
+  // data só troca o mês/ano de referência.
+  const handleDateFromChange = (v: string) => {
+    if (!v) return;
+    const [y, m] = v.split('-').map(Number);
+    setYear(y); setMonth(m);
+  };
+  const handleDateToChange = (v: string) => {
+    if (!v) return;
+    const [y, m] = v.split('-').map(Number);
+    setYear(y); setMonth(m);
+  };
 
   // ── Fetch all data ───────────────────────────────────────────────────────────
 
@@ -251,7 +269,7 @@ export default function EspelhoPontoPage() {
       const records = grouped[iso] || [];
       // dow via Date às 12:00 (evita problemas de DST/UTC na extração do dia da semana)
       const dow = new Date(`${iso}T12:00:00`).getDay();
-      const isPast = iso <= todayISO;
+      const isPast = iso < todayISO;
       const feriadoNome = holidayMap[iso];
       const isHoliday = Boolean(feriadoNome);
       const summary = dailySummariesMap[iso];
@@ -268,20 +286,45 @@ export default function EspelhoPontoPage() {
         ? minutosPrevistosDia(employeeSchedule, customSchedule, companyWeeklySchedule, iso)
         : 0;
 
+      // ── Dia atual: nunca recebe status definitivo (mesmo tratamento do painel) ──
+      if (iso === todayISO) {
+        days.push({
+          data: iso, dia_numero: d, dia_semana: DOW_SHORT[dow],
+          entrada: summary?.hora_entrada || undefined,
+          saida_intervalo: summary?.intervalo_saida || undefined,
+          volta_intervalo: summary?.intervalo_volta || undefined,
+          saida: summary?.hora_saida || undefined,
+          status: 'EM_PROCESSAMENTO', registros: records,
+        });
+        continue;
+      }
+
       // ── Status determinado EXCLUSIVAMENTE pelo dailySummary (fonte canônica) ──
       // rawRecords.length NUNCA é usado para determinar presença/falta.
       // rawRecords serve apenas para a tabela de detalhes (drilldown).
+      const summaryStatus = summary?.status;
       const summaryWorked = summary ? Number(summary.horas_trabalhadas_min || 0) : 0;
-      const summaryAtraso = summary ? Number(summary.atraso_minutos || 0) : 0;
+      const summaryNPunches = summary ? Number(summary.n_punches || 0) : 0;
+      const hasPunchNoExit = summaryNPunches > 0 && !summary?.hora_saida;
 
       let status: DayStatus = 'SEM_REGISTRO';
-      if (isHoliday) {
+      if (summaryStatus === 'FERIAS') {
+        status = 'FERIAS';
+      } else if (summaryStatus === 'ATESTADO') {
+        status = 'ATESTADO';
+      } else if (isHoliday) {
         status = 'FERIADO';
+      } else if (summaryStatus === 'INCOMPLETO' || hasPunchNoExit) {
+        status = 'INCOMPLETO';
       } else if (summaryWorked > 0) {
-        // Horas calculadas pelo motor canônico → funcionário presente
-        status = summaryAtraso > 0 ? 'ATRASO' : 'PRESENTE';
-      } else if (isWorkday && isPast) {
+        // Usa banco_horas_dia como fonte única de verdade (mesmo critério do painel):
+        // banco < 0 → déficit real; banco >= 0 → jornada cumprida (mesmo com atraso compensado).
+        const bancoDia = summary ? Number(summary.banco_horas_dia ?? 0) : 0;
+        status = bancoDia < 0 ? 'ATRASO' : 'PRESENTE';
+      } else if (isWorkday && isPast && records.length === 0) {
         status = 'FALTA';
+      } else if (isWorkday && isPast && records.length > 0) {
+        status = 'INCOMPLETO';
       }
 
       // Horas previstas: dias úteis normais + feriados com crédito automático
@@ -309,6 +352,7 @@ export default function EspelhoPontoPage() {
         saida_antecipada_min: summary?.saida_antecipada_minutos,
         horas_extras_min: summary ? Number(summary.horas_extras_min ?? summary.horas_extras ?? 0) : undefined,
         feriado_credit_min: feriadoCreditMin > 0 ? feriadoCreditMin : undefined,
+        atestado_url: summary?.atestado_url,
         status, registros: records,
       });
     }
@@ -316,8 +360,13 @@ export default function EspelhoPontoPage() {
   }, [year, month, rawRecords, dailySummariesMap, holidayMap, employeeSchedule, customSchedule, companyWeeklySchedule, isVariableSchedule]);
 
   const calendarDays = buildCalendar();
-  // Inclui dias com registros reais OU com summary do backend (safety net para paginação)
+  // Inclui dias com registros reais, summary do backend (safety net para paginação),
+  // ou status relevante mesmo sem registro (férias/atestado/incompleto) — mesmo
+  // critério do painel admin.
   const daysWithRecords = calendarDays.filter(d =>
+    d.status === 'FERIAS' ||
+    d.status === 'ATESTADO' ||
+    d.status === 'INCOMPLETO' ||
     d.registros.length > 0 ||
     (dailySummariesMap[d.data] && Number(dailySummariesMap[d.data].horas_trabalhadas_min || 0) > 0)
   );
@@ -325,7 +374,9 @@ export default function EspelhoPontoPage() {
   const feriadosAutoCredit = calendarDays.filter(
     d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros.length === 0
   );
-  const allDisplayDays = [...daysWithRecords, ...feriadosAutoCredit];
+  // Faltas: dia útil passado sem nenhum registro — mesmo critério do painel admin.
+  const diasFalta = calendarDays.filter(d => d.status === 'FALTA');
+  const allDisplayDays = [...daysWithRecords, ...feriadosAutoCredit, ...diasFalta];
   const daysSorted = [...allDisplayDays].sort((a, b) => {
     const c = a.data.localeCompare(b.data);
     return sortDir === 'asc' ? c : -c;
@@ -342,9 +393,12 @@ export default function EspelhoPontoPage() {
     let totalMinExtras      = 0; // soma de dias com saldo positivo
     let totalMinAtrasos     = 0; // soma de atraso_min + saida_antecipada_min
 
-    // Agregar resumos diários do backend (fonte de verdade)
+    // Agregar resumos diários do backend (fonte de verdade). Hoje fica de fora
+    // (status EM_PROCESSAMENTO, ainda sem cálculo definitivo) e férias não
+    // contam em nada (nem trabalhado, nem previsto) — mesmo critério do painel.
     Object.entries(dailySummariesMap).forEach(([iso, s]) => {
-      if (iso > todayISO) return;
+      if (iso >= todayISO) return;
+      if (s.status === 'FERIAS') return;
       totalMinTrabalhados += Number(s.horas_trabalhadas_min || 0);
       totalMinPrevistos   += Number(s.horas_previstas_min  || 0);
       totalMinExtras      += Number(s.horas_extras_min ?? s.horas_extras ?? 0);
@@ -355,7 +409,7 @@ export default function EspelhoPontoPage() {
     if (!isVariableSchedule) {
       calendarDays.forEach(day => {
         if (day.status !== 'FERIADO') return;
-        if (day.data > todayISO) return;
+        if (day.data >= todayISO) return;
         if (dailySummariesMap[day.data]) return;
         const credit = day.feriado_credit_min ?? 0;
         if (credit > 0) {
@@ -374,19 +428,22 @@ export default function EspelhoPontoPage() {
     // Quando tolerância aplicada: exibe previsto como trabalhado (sem minutos sobrando)
     const displayTrabalhado  = toleranciaAplicada ? totalMinPrevistos : totalMinTrabalhados;
 
-    // Presença: dias com registro + feriados em dias úteis contam como presente
+    // Presença: dias com registro + feriados em dias úteis + atestado contam como presente
     const presentes = calendarDays.filter(d => {
-      if (d.status === 'PRESENTE' || d.status === 'ATRASO') return true;
+      if (d.status === 'PRESENTE' || d.status === 'ATRASO' || d.status === 'INCOMPLETO') return true;
+      if (d.status === 'ATESTADO') return true;
       if (d.status === 'FERIADO' && d.data <= todayISO && (d.feriado_credit_min ?? 0) > 0) return true;
       return false;
     }).length;
 
-    const faltas  = calendarDays.filter(d => d.status === 'FALTA').length;
-    const atrasos = calendarDays.filter(d => d.status === 'ATRASO').length;
+    const faltas      = calendarDays.filter(d => d.status === 'FALTA').length;
+    const atrasos     = calendarDays.filter(d => d.status === 'ATRASO').length;
+    const incompletos = calendarDays.filter(d => d.status === 'INCOMPLETO').length;
 
-    // Dias úteis previstos até hoje (inclui feriados com crédito)
+    // Dias úteis previstos até hoje (inclui feriados com crédito; férias não contam)
     const diasUteisPrevistosAteHoje = calendarDays.filter(d => {
       if (d.data > todayISO) return false;
+      if (d.status === 'FERIAS') return false;
       if (d.status === 'FERIADO') return (d.feriado_credit_min ?? 0) > 0;
       return !!(d.horas_previstas && d.horas_previstas !== '00:00');
     }).length;
@@ -399,7 +456,7 @@ export default function EspelhoPontoPage() {
     });
 
     return {
-      presentes, faltas, atrasos,
+      presentes, faltas, atrasos, incompletos,
       percent: Math.round((presentes / (diasUteisPrevistosAteHoje || 1)) * 100),
       totalMinPrevistos,
       totalMinTrabalhados: displayTrabalhado,
@@ -481,7 +538,15 @@ export default function EspelhoPontoPage() {
   const CalendarCell = ({ day }: { day: CalendarDay }) => {
     const st = statusStyle(day.status);
     const hasData = day.registros.length > 0;
-    const symbol = day.status === 'PRESENTE' ? '✓' : day.status === 'ATRASO' ? '!' : day.status === 'FERIADO' ? 'F' : day.status === 'FALTA' ? '✗' : '';
+    const symbol =
+      day.status === 'PRESENTE' ? '✓' :
+      day.status === 'ATRASO' ? '!' :
+      day.status === 'FERIADO' ? 'F' :
+      day.status === 'FALTA' ? '✗' :
+      day.status === 'INCOMPLETO' ? '?' :
+      day.status === 'FERIAS' ? 'V' :
+      day.status === 'ATESTADO' ? 'A' :
+      day.status === 'EM_PROCESSAMENTO' ? '···' : '';
 
     return (
       <button
@@ -503,7 +568,7 @@ export default function EspelhoPontoPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       {/* ── Header ──────────────────────────────────────────────────────────────── */}
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-5">
         <div className="flex items-center gap-3 mb-5">
@@ -608,7 +673,13 @@ export default function EspelhoPontoPage() {
                 </div>
                 <p className="text-3xl font-black text-white">{resumo.faltas} <span className="text-slate-500 text-lg font-medium">dias</span></p>
                 <p className="text-slate-500 text-xs mt-1">
-                  {isVariableSchedule ? 'Horista' : resumo.atrasos > 0 ? `${resumo.atrasos} atraso(s)` : 'Sem faltas'}
+                  {isVariableSchedule
+                    ? 'Horista'
+                    : resumo.incompletos > 0
+                      ? `⚠ ${resumo.incompletos} incompleto(s)`
+                      : resumo.atrasos > 0
+                        ? `${resumo.atrasos} atraso(s)`
+                        : 'Sem atrasos'}
                 </p>
               </div>
 
@@ -737,6 +808,9 @@ export default function EspelhoPontoPage() {
                   { symbol: '!', color: 'text-amber-400',   label: 'Atraso' },
                   { symbol: 'F', color: 'text-yellow-400',  label: 'Feriado' },
                   { symbol: '✗', color: 'text-rose-400',    label: 'Falta' },
+                  { symbol: '?', color: 'text-yellow-400',  label: 'Incompleto' },
+                  { symbol: 'V', color: 'text-violet-400',  label: 'Férias' },
+                  { symbol: 'A', color: 'text-teal-400',    label: 'Atestado' },
                   { symbol: '○', color: 'text-slate-500',   label: 'Sem reg.' },
                 ].map(l => (
                   <div key={l.label} className="flex items-center gap-1">
@@ -773,25 +847,49 @@ export default function EspelhoPontoPage() {
 
             {/* ── Detail table ────────────────────────────────────────────────── */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  <span className="text-slate-300 font-bold text-sm">
-                    Registros do Mês
-                    <span className="text-slate-500 font-normal ml-1 text-xs">({daysSorted.length} dias)</span>
-                  </span>
+              <div className="px-5 py-4 border-b border-slate-800 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <span className="text-slate-300 font-bold text-sm">
+                      Registros do Mês
+                      <span className="text-slate-500 font-normal ml-1 text-xs">({daysSorted.length} dias)</span>
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sortDir === 'asc' ? "M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" : "M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"} />
+                    </svg>
+                    {sortDir === 'asc' ? 'Mais antigo' : 'Mais recente'}
+                  </button>
                 </div>
-                <button
-                  onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sortDir === 'asc' ? "M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" : "M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"} />
-                  </svg>
-                  {sortDir === 'asc' ? 'Mais antigo' : 'Mais recente'}
-                </button>
+
+                {/* De / Até — mesmo filtro do painel admin */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase font-semibold">De</span>
+                    <input
+                      type="date"
+                      value={inicio}
+                      onChange={e => handleDateFromChange(e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase font-semibold">Até</span>
+                    <input
+                      type="date"
+                      value={fim}
+                      onChange={e => handleDateToChange(e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+                    />
+                  </label>
+                </div>
               </div>
 
               {daysSorted.length === 0 ? (
@@ -804,237 +902,291 @@ export default function EspelhoPontoPage() {
                   <p className="text-slate-500 text-base font-medium">Nenhum registro neste período</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-800/60">
-                  {daysSorted.map(day => {
-                    const st = statusStyle(day.status);
-                    const isOpen = expandedDay === day.data;
-                    const bancoPositivo = (day.banco_horas_min ?? 0) >= 0;
-                    const isFeriadoAutoCredit = day.status === 'FERIADO' && (day.feriado_credit_min ?? 0) > 0 && day.registros.length === 0;
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800">
+                        {['Data', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'Trabalhado', 'Previsto', 'Banco Horas', ''].map((h, i) => (
+                          <th
+                            key={h || 'expand'}
+                            className={`px-2.5 py-2.5 text-slate-500 font-bold uppercase text-[10px] tracking-wide whitespace-nowrap ${i === 0 ? 'text-left' : 'text-center'}`}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {daysSorted.map(day => {
+                        const isOpen = expandedDay === day.data;
+                        const bancoPositivo = (day.banco_horas_min ?? 0) >= 0;
+                        const isFeriadoAutoCredit = day.status === 'FERIADO' && (day.feriado_credit_min ?? 0) > 0 && day.registros.length === 0;
+                        const dataLabel = day.data.split('-').reverse().join('-');
 
-                    // ── Linha de feriado com crédito automático ──────────────
-                    if (isFeriadoAutoCredit) {
-                      return (
-                        <div key={day.data}
-                          className="px-5 py-4 flex items-center gap-3"
-                          style={{ borderLeft: '3px solid #eab308' }}
-                        >
-                          <div className="w-16 flex-shrink-0">
-                            <p className="text-white font-bold text-sm font-mono">{day.data.slice(8)}/{day.data.slice(5, 7)}</p>
-                            <p className="text-slate-500 text-xs uppercase">{day.dia_semana}</p>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full">
-                                Feriado
-                              </span>
-                              {day.feriado_nome && (
-                                <span className="text-xs text-yellow-400/80 truncate">{day.feriado_nome}</span>
-                              )}
-                            </div>
-                            <div className="flex gap-4 mt-1.5 text-xs text-slate-400">
-                              <span>Previsto: <span className="text-slate-300 font-mono">{toHHMM(day.feriado_credit_min!)}</span></span>
-                              <span>Trabalhado: <span className="text-slate-300 font-mono">{toHHMM(day.feriado_credit_min!)}</span></span>
-                              <span>Banco: <span className="text-slate-400 font-mono">00:00</span></span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
+                        // ── Linha de feriado com crédito automático ──────────────
+                        if (isFeriadoAutoCredit) {
+                          return (
+                            <tr key={day.data} className="border-b border-slate-800/60" style={{ borderLeft: '3px solid #eab308' }}>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-white font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">{day.dia_semana}</p>
+                              </td>
+                              <td colSpan={4} className="text-center px-2 py-2.5">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full">Feriado</span>
+                                  {day.feriado_nome && <span className="text-yellow-400/80 text-[11px]">{day.feriado_nome}</span>}
+                                </span>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono font-bold text-white">{toHHMM(day.feriado_credit_min!)}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-400">{toHHMM(day.feriado_credit_min!)}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">00:00</td>
+                              <td />
+                            </tr>
+                          );
+                        }
 
-                    // ── Linha com summary mas sem raw records (paginação incompleta) ─
-                    const hasSummaryOnly = day.registros.length === 0 && dailySummariesMap[day.data];
-                    if (hasSummaryOnly) {
-                      const s = dailySummariesMap[day.data];
-                      return (
-                        <div key={day.data}
-                          className="px-5 py-4 flex items-center gap-3 border-l-[3px] border-emerald-500/50"
-                        >
-                          <div className="w-16 flex-shrink-0">
-                            <p className="text-white font-bold text-sm font-mono">{day.data.slice(8)}/{day.data.slice(5,7)}</p>
-                            <p className="text-slate-500 text-xs uppercase">{day.dia_semana}</p>
-                          </div>
-                          <div className="flex-1 grid grid-cols-3 gap-2 text-center min-w-0">
-                            <div>
-                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Entrada</p>
-                              <p className="text-sm font-mono font-semibold text-emerald-400">{s.hora_entrada || '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Saída</p>
-                              <p className="text-sm font-mono font-semibold text-rose-400">{s.hora_saida || '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Total</p>
-                              <p className="text-sm font-mono font-bold text-white">{s.horas_trabalhadas_str || '—'}</p>
-                            </div>
-                          </div>
-                          {s.banco_horas_dia_str && !isVariableSchedule && (
-                            <span className={`text-xs font-mono font-bold flex-shrink-0 ${Number(s.banco_horas_dia ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {Number(s.banco_horas_dia ?? 0) >= 0 ? '+' : ''}{s.banco_horas_dia_str}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    }
+                        // ── Linha EM_PROCESSAMENTO — dia atual, sem cálculo definitivo ──
+                        if (day.status === 'EM_PROCESSAMENTO') {
+                          return (
+                            <tr key={day.data} className="border-b border-slate-800/60" style={{ borderLeft: '3px solid rgba(100,116,139,0.5)' }}>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-slate-300 font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">{day.dia_semana}</p>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-300">{day.entrada || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">{day.saida_intervalo || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">{day.volta_intervalo || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-300">{day.saida || '—'}</td>
+                              <td colSpan={3} className="text-center px-2 py-2.5">
+                                <span className="text-[10px] font-bold bg-slate-500/15 text-slate-400 border border-slate-500/30 px-2 py-0.5 rounded-full">⏳ Em processamento</span>
+                              </td>
+                              <td />
+                            </tr>
+                          );
+                        }
 
-                    // ── Linha normal com registros ────────────────────────────
-                    return (
-                      <div key={day.data}>
-                        {/* Day summary row */}
-                        <button
-                          onClick={() => setExpandedDay(isOpen ? null : day.data)}
-                          className={`w-full text-left px-5 py-4 flex items-center gap-3 hover:bg-slate-800/50 transition-colors ${isOpen ? 'bg-slate-800/30' : ''}`}
-                          style={{ borderLeft: `3px solid ${day.status === 'ATRASO' ? '#f59e0b' : day.status === 'PRESENTE' ? '#10b981' : day.status === 'FERIADO' ? '#eab308' : '#334155'}` }}
-                        >
-                          {/* Date */}
-                          <div className="w-16 flex-shrink-0">
-                            <p className="text-white font-bold text-sm font-mono">{day.data.slice(8)}/{day.data.slice(5, 7)}</p>
-                            <p className="text-slate-500 text-xs uppercase">{day.dia_semana}</p>
-                          </div>
+                        // ── Linha de FALTA ────────────────────────────────────────
+                        if (day.status === 'FALTA') {
+                          return (
+                            <tr key={day.data} className="border-b border-slate-800/60" style={{ borderLeft: '3px solid #ef4444' }}>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-rose-400 font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">{day.dia_semana}</p>
+                              </td>
+                              <td colSpan={6} className="text-center px-2 py-2.5">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40 px-2 py-0.5 rounded-full">Falta</span>
+                                  <span className="text-rose-400/70 text-[11px]">Sem registro de ponto</span>
+                                </span>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono font-bold text-rose-400">{day.horas_previstas ? `-${day.horas_previstas}` : '—'}</td>
+                              <td />
+                            </tr>
+                          );
+                        }
 
-                          {/* Times */}
-                          <div className="flex-1 grid grid-cols-3 gap-2 text-center min-w-0">
-                            <div>
-                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Entrada</p>
-                              <p className="text-sm font-mono font-semibold text-emerald-400">{day.entrada || '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Saída</p>
-                              <p className="text-sm font-mono font-semibold text-rose-400">{day.saida || '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] text-slate-500 uppercase font-semibold">Total</p>
-                              <p className="text-sm font-mono font-bold text-white">{day.horas_trabalhadas || '—'}</p>
-                            </div>
-                          </div>
+                        // ── Linha de FÉRIAS / FOLGA ────────────────────────────────
+                        if (day.status === 'FERIAS') {
+                          const s = dailySummariesMap[day.data];
+                          return (
+                            <tr key={day.data} className="border-b border-slate-800/60" style={{ borderLeft: '3px solid #8b5cf6' }}>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-white font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">{day.dia_semana}</p>
+                              </td>
+                              <td colSpan={4} className="text-center px-2 py-2.5">
+                                <span className="text-[10px] font-bold bg-violet-500/20 text-violet-400 border border-violet-500/40 px-2 py-0.5 rounded-full">🏖 Férias / Folga</span>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono font-bold text-violet-400">{s?.horas_trabalhadas_str || day.horas_previstas || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-400">{s?.horas_previstas_str || day.horas_previstas || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">00:00</td>
+                              <td />
+                            </tr>
+                          );
+                        }
 
-                          {/* Status badges + expand */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {day.status === 'FERIADO' && (
-                              <span className="text-[10px] font-bold text-yellow-400 bg-yellow-500/15 border border-yellow-500/25 px-1.5 py-0.5 rounded-full">F</span>
-                            )}
-                            {day.banco_horas && !isVariableSchedule && (
-                              <span className={`text-xs font-mono font-bold ${bancoPositivo ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {bancoPositivo ? '+' : ''}{day.banco_horas}
-                              </span>
-                            )}
-                            {day.atraso_min && day.atraso_min > 0 && (
-                              <span className="text-xs bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded-full font-semibold">
-                                +{day.atraso_min}m
-                              </span>
-                            )}
-                            <svg
-                              className={`w-4 h-4 text-slate-600 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`}
-                              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        // ── Linha de ATESTADO ──────────────────────────────────────
+                        if (day.status === 'ATESTADO') {
+                          const s = dailySummariesMap[day.data];
+                          return (
+                            <tr key={day.data} className="border-b border-slate-800/60" style={{ borderLeft: '3px solid #14b8a6' }}>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-white font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">{day.dia_semana}</p>
+                              </td>
+                              <td colSpan={4} className="text-center px-2 py-2.5">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span
+                                    className={`text-[10px] font-bold bg-teal-500/20 text-teal-400 border border-teal-500/40 px-2 py-0.5 rounded-full ${day.atestado_url ? 'cursor-pointer' : ''}`}
+                                    onClick={day.atestado_url ? () => window.open(day.atestado_url, '_blank') : undefined}
+                                  >
+                                    🩺 Atestado Médico
+                                  </span>
+                                  {day.atestado_url && (
+                                    <span
+                                      className="text-[10px] text-teal-400/80 underline cursor-pointer"
+                                      onClick={() => window.open(day.atestado_url, '_blank')}
+                                    >
+                                      Ver documento
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono font-bold text-teal-400">{s?.horas_trabalhadas_str || day.horas_previstas || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-400">{s?.horas_previstas_str || day.horas_previstas || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">00:00</td>
+                              <td />
+                            </tr>
+                          );
+                        }
+
+                        // ── Linha com summary mas sem raw records (paginação incompleta) ─
+                        const hasSummaryOnly = day.registros.length === 0 && (
+                          day.status === 'INCOMPLETO' || dailySummariesMap[day.data]
+                        );
+                        if (hasSummaryOnly) {
+                          const s = dailySummariesMap[day.data];
+                          const isIncomp = day.status === 'INCOMPLETO';
+                          return (
+                            <tr key={day.data} className="border-b border-slate-800/60" style={{ borderLeft: `3px solid ${isIncomp ? '#eab308' : '#10b981'}` }}>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-white font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">
+                                  {day.dia_semana}
+                                  {isIncomp && <span className="text-yellow-400 ml-1">⚠</span>}
+                                </p>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-200">{s?.hora_entrada || day.entrada || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">{s?.intervalo_saida || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">{s?.intervalo_volta || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-200">{s?.hora_saida || day.saida || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono font-bold text-white">{s?.horas_trabalhadas_str || day.horas_trabalhadas || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-400">{day.horas_previstas || '—'}</td>
+                              <td className={`text-center px-2 py-2.5 font-mono font-bold ${s?.banco_horas_dia_str ? (Number(s.banco_horas_dia ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-500'}`}>
+                                {s?.banco_horas_dia_str || '00:00'}
+                              </td>
+                              <td />
+                            </tr>
+                          );
+                        }
+
+                        // ── Linha normal com registros ────────────────────────────
+                        return (
+                          <React.Fragment key={day.data}>
+                            <tr
+                              onClick={() => setExpandedDay(isOpen ? null : day.data)}
+                              className={`border-b ${isOpen ? 'border-transparent bg-slate-800/30' : 'border-slate-800/60'} cursor-pointer hover:bg-slate-800/40 transition-colors`}
+                              style={{ borderLeft: `3px solid ${day.status === 'ATRASO' ? '#f59e0b' : day.status === 'PRESENTE' ? '#10b981' : day.status === 'FERIADO' ? '#eab308' : day.status === 'INCOMPLETO' ? '#eab308' : '#334155'}` }}
                             >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </div>
-                        </button>
+                              <td className="px-2.5 py-2.5">
+                                <p className="text-white font-bold font-mono whitespace-nowrap">{dataLabel}</p>
+                                <p className="text-slate-500 text-[10px] uppercase">
+                                  {day.dia_semana}
+                                  {day.status === 'INCOMPLETO' && <span className="text-yellow-400 ml-1">⚠</span>}
+                                  {day.status === 'FERIADO' && <span className="text-yellow-400 ml-1">F</span>}
+                                </p>
+                              </td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-200">{day.entrada || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">{day.saida_intervalo || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-500">{day.volta_intervalo || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-200">{day.saida || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono font-bold text-white">{day.horas_trabalhadas || '—'}</td>
+                              <td className="text-center px-2 py-2.5 font-mono text-slate-400">{day.horas_previstas || '—'}</td>
+                              <td className={`text-center px-2 py-2.5 font-mono font-bold ${day.banco_horas ? (bancoPositivo ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-500'}`}>
+                                {day.banco_horas || '00:00'}
+                              </td>
+                              <td className="text-center px-2 py-2.5">
+                                <svg
+                                  className={`w-3.5 h-3.5 text-slate-600 transition-transform inline-block ${isOpen ? 'rotate-180' : ''}`}
+                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </td>
+                            </tr>
 
-                        {/* Expanded detail */}
-                        <AnimatePresence>
-                          {isOpen && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden"
-                            >
-                              <div className="bg-slate-950/50 border-t border-slate-800">
-                                {/* Extra summary fields */}
-                                <div className="px-5 py-3 grid grid-cols-2 gap-x-6 gap-y-1.5">
-                                  {day.status === 'FERIADO' && day.feriado_nome && (
-                                    <div className="flex justify-between text-xs col-span-2">
-                                      <span className="text-yellow-400/70">Feriado</span>
-                                      <span className="text-yellow-400 font-medium">{day.feriado_nome}</span>
-                                    </div>
-                                  )}
-                                  {day.saida_intervalo && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">Saída Int.</span>
-                                      <span className="text-slate-300 font-mono">{day.saida_intervalo}</span>
-                                    </div>
-                                  )}
-                                  {day.volta_intervalo && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">Volta Int.</span>
-                                      <span className="text-slate-300 font-mono">{day.volta_intervalo}</span>
-                                    </div>
-                                  )}
-                                  {day.horas_previstas && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">Previsto</span>
-                                      <span className="text-slate-300 font-mono">{day.horas_previstas}</span>
-                                    </div>
-                                  )}
-                                  {day.banco_horas && !isVariableSchedule && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">Banco dia</span>
-                                      <span className={`font-mono font-semibold ${bancoPositivo ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {bancoPositivo ? '+' : ''}{day.banco_horas}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(day.atraso_min ?? 0) > 0 && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">Atraso</span>
-                                      <span className="text-amber-400 font-mono">{toHHMM(day.atraso_min!)}</span>
-                                    </div>
-                                  )}
-                                  {(day.saida_antecipada_min ?? 0) > 0 && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">Saída Ant.</span>
-                                      <span className="text-amber-400 font-mono">{toHHMM(day.saida_antecipada_min!)}</span>
-                                    </div>
-                                  )}
-                                  {(day.horas_extras_min ?? 0) > 0 && (
-                                    <div className="flex justify-between text-xs">
-                                      <span className="text-slate-500">H. Extra dia</span>
-                                      <span className="text-violet-400 font-mono">+{toHHMM(day.horas_extras_min!)}</span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Individual punches */}
-                                <div className="px-5 pb-2">
-                                  <p className="text-slate-600 text-[10px] font-bold uppercase tracking-wider mb-2">
-                                    Marcações — {day.registros.length} registro(s)
-                                  </p>
-                                  <div className="space-y-1.5">
-                                    {day.registros.map((r, i) => {
-                                      const recStatus = (r as any).status?.toUpperCase() || 'ATIVO';
-                                      return (
-                                        <div key={i} className="flex items-center gap-3">
-                                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${tipoDot(r.tipo)}`} />
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-sm font-medium text-slate-300">{tipoLabel(r.tipo)}</span>
-                                              {r.editado && <Badge variant="warning">Editado</Badge>}
-                                              {recStatus === 'INVALIDADO' && <Badge variant="danger">Invalidado</Badge>}
-                                              {(r as any).method === 'MANUAL' && (
-                                                <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded-full">Manual</span>
-                                              )}
+                            {/* Expanded detail */}
+                            <tr>
+                              <td colSpan={9} className="p-0 border-b border-slate-800/60">
+                                <AnimatePresence>
+                                  {isOpen && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.2 }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="bg-slate-950/50">
+                                        {/* Extra summary fields */}
+                                        <div className="px-5 py-3 grid grid-cols-2 gap-x-6 gap-y-1.5">
+                                          {day.status === 'FERIADO' && day.feriado_nome && (
+                                            <div className="flex justify-between text-xs col-span-2">
+                                              <span className="text-yellow-400/70">Feriado</span>
+                                              <span className="text-yellow-400 font-medium">{day.feriado_nome}</span>
                                             </div>
-                                            {r.justificativa && (
-                                              <p className="text-xs text-slate-500 mt-0.5 truncate">{r.justificativa}</p>
-                                            )}
-                                          </div>
-                                          <span className="text-sm font-mono text-slate-200 font-bold flex-shrink-0">
-                                            {formatTime(r.data_hora)}
-                                          </span>
+                                          )}
+                                          {(day.atraso_min ?? 0) > 0 && (
+                                            <div className="flex justify-between text-xs">
+                                              <span className="text-slate-500">Atraso</span>
+                                              <span className="text-amber-400 font-mono">{toHHMM(day.atraso_min!)}</span>
+                                            </div>
+                                          )}
+                                          {(day.saida_antecipada_min ?? 0) > 0 && (
+                                            <div className="flex justify-between text-xs">
+                                              <span className="text-slate-500">Saída Ant.</span>
+                                              <span className="text-amber-400 font-mono">{toHHMM(day.saida_antecipada_min!)}</span>
+                                            </div>
+                                          )}
+                                          {(day.horas_extras_min ?? 0) > 0 && (
+                                            <div className="flex justify-between text-xs">
+                                              <span className="text-slate-500">H. Extra dia</span>
+                                              <span className="text-violet-400 font-mono">+{toHHMM(day.horas_extras_min!)}</span>
+                                            </div>
+                                          )}
                                         </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  })}
+
+                                        {/* Individual punches — sem status interno (invalidado/ajustado), só o
+                                            resultado final: o que conta pro cálculo é isso que aparece aqui. */}
+                                        {(() => {
+                                          const activePunches = day.registros.filter(
+                                            r => !['INVALIDADO', 'AJUSTADO'].includes(((r as any).status || 'ATIVO').toUpperCase())
+                                          );
+                                          return (
+                                            <div className="px-5 pb-3">
+                                              <p className="text-slate-600 text-[10px] font-bold uppercase tracking-wider mb-2">
+                                                Marcações — {activePunches.length} registro(s)
+                                              </p>
+                                              <div className="space-y-1.5">
+                                                {activePunches.map((r, i) => (
+                                                  <div key={i} className="flex items-center gap-3">
+                                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${tipoDot(r.tipo)}`} />
+                                                    <div className="flex-1 min-w-0">
+                                                      <span className="text-sm font-medium text-slate-300">{tipoLabel(r.tipo)}</span>
+                                                      {r.justificativa && (
+                                                        <p className="text-xs text-slate-500 mt-0.5 truncate">{r.justificativa}</p>
+                                                      )}
+                                                    </div>
+                                                    <span className="text-sm font-mono text-slate-200 font-bold flex-shrink-0">
+                                                      {formatTime(r.data_hora)}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </td>
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

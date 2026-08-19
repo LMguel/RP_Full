@@ -196,6 +196,10 @@ const EmployeeRecordsPage: React.FC = () => {
     horario_saida: string;
     intervalo_min: number;
   }>({ horario_entrada: '08:00', horario_saida: '17:00', intervalo_min: 60 });
+  // Data de admissão do funcionário (opcional) — dias anteriores a ela nunca
+  // geram falta/previsto no fallback client-side (o backend já não gera
+  // dailySummary pra esses dias, mas o cálculo local também precisa respeitar).
+  const [dataAdmissao, setDataAdmissao] = useState<string | null>(null);
   const [customSchedule, setCustomSchedule] = useState<WeeklyScheduleMap | null>(null);
   const [scheduleHistory, setScheduleHistory] = useState<any[]>([]);
   const [companyWeeklySchedule, setCompanyWeeklySchedule] = useState<WeeklyScheduleMap | null>(null);
@@ -260,6 +264,9 @@ const EmployeeRecordsPage: React.FC = () => {
   // Prioridade: custom_schedule do funcionário > weekly_schedule da empresa > padrão Seg-Sex.
   // descontarIntervalo: true = jornada líquida (falta, feriado, tooltip); false = janela bruta.
   const minutosPrevistosDia = (schedule: typeof funcionarioSchedule, dateISO?: string, descontarIntervalo: boolean = true): number => {
+    // Antes da admissão o funcionário ainda não tinha vínculo — nunca gera
+    // previsto/falta pra esses dias (opcional; sem data_admissao não afeta nada).
+    if (dateISO && dataAdmissao && dateISO < dataAdmissao) return 0;
     const parseHHMM = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0); };
     const effective = resolveScheduleForDate(dateISO);
     let entrada = effective.horario_entrada;
@@ -852,6 +859,30 @@ const EmployeeRecordsPage: React.FC = () => {
     );
   };
 
+  // Badge de geofence — só para registros do PWA do funcionário por localização
+  // (method === 'FACIAL_GPS'). Nunca aparece para kiosk (CAMERA) nem manual/ajuste.
+  // Fora do raio nunca bloqueia o registro (Portaria 671/2021) — é só sinalização pro RH.
+  const getGeofenceBadge = (record: any) => {
+    if ((record?.method || '').toUpperCase() !== 'FACIAL_GPS') return null;
+    if (record?.gps_status !== 'ok' || typeof record?.fora_do_raio !== 'boolean') return null;
+    const dist = record?.distance_from_company;
+    const distTxt = typeof dist === 'number' ? ` (${Math.round(dist)}m)` : '';
+    if (record.fora_do_raio) {
+      return (
+        <Tooltip title="Registro feito fora do raio permitido da empresa">
+          <Chip label={`⚠️ Fora do raio${distTxt}`} size="small"
+            sx={{ height: 18, fontSize: 10, mt: 0.4, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', color: '#fbbf24' }} />
+        </Tooltip>
+      );
+    }
+    return (
+      <Tooltip title="Registro feito dentro do raio permitido da empresa">
+        <Chip label={`📍 Dentro do raio${distTxt}`} size="small"
+          sx={{ height: 18, fontSize: 10, mt: 0.4, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.35)', color: '#10b981' }} />
+      </Tooltip>
+    );
+  };
+
   const handleAdjustConfirm = async () => {
     if (!recordToAdjust?.registro_id||!adjustData.justificativa.trim()||!adjustData.date||!adjustData.time) return;
     setSubmitting(true);
@@ -1080,6 +1111,7 @@ const EmployeeRecordsPage: React.FC = () => {
       setCustomSchedule(emp?.custom_schedule || null);
       setScheduleHistory(Array.isArray(emp?.schedule_history) ? emp.schedule_history : []);
       setCargaHorariaMensal(emp?.carga_horaria_mensal ? Number(emp.carga_horaria_mensal) : null);
+      setDataAdmissao(emp?.data_admissao || null);
     }).catch(() => {});
   }, [employeeId]);
 
@@ -1241,7 +1273,7 @@ const EmployeeRecordsPage: React.FC = () => {
       {/* CALENDARIO */}
       <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ duration:0.5, delay:0.1 }}>
         <Paper sx={{ background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:2, p:3, mb:3 }}>
-          <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between', mb:2 }}>
+          <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between', mb:2, flexWrap:'wrap', gap:1 }}>
             <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
               <CalendarIcon sx={{ color:'rgba(255,255,255,0.7)', fontSize:20 }} />
               <Typography sx={{ color:'rgba(255,255,255,0.9)', fontWeight:700, fontSize:15 }}>Calendário do Mês</Typography>
@@ -1252,7 +1284,7 @@ const EmployeeRecordsPage: React.FC = () => {
               </Typography>
             ) : (
               <Tooltip title={`Jornada líquida: ${toHHMM(minutosPrevistosDia(funcionarioSchedule))}h por dia`}>
-                <Typography sx={{ color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'default' }}>
+                <Typography sx={{ color:'rgba(255,255,255,0.4)', fontSize:12, cursor:'default', whiteSpace:{ xs:'normal', sm:'nowrap' }, maxWidth:{ xs:'100%', sm:'none' } }}>
                   Jornada: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{funcionarioSchedule.horario_entrada} → {funcionarioSchedule.horario_saida}</strong>
                   &nbsp;|&nbsp;
                   Intervalo: <strong style={{ color:'rgba(255,255,255,0.7)' }}>{toHHMM(funcionarioSchedule.intervalo_min)}</strong>
@@ -1364,7 +1396,7 @@ const EmployeeRecordsPage: React.FC = () => {
             </Box>
           </Box>
           <Box sx={{ height:1, background:'linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)' }} />
-          <TableContainer sx={{ background:'transparent' }}>
+          <TableContainer sx={{ background:'transparent', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -1620,6 +1652,7 @@ const EmployeeRecordsPage: React.FC = () => {
                                   + Registro
                                 </Button>
                               </Box>
+                              <TableContainer sx={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
                               <Table size="small">
                                 <TableHead>
                                   <TableRow>{['Hora','Fonte','Tipo','Status','Justificativa','Ações'].map(h => (<TableCell key={h} sx={{ color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:700, borderBottom:'1px solid rgba(255,255,255,0.08)', py:0.5 }}>{h}</TableCell>))}</TableRow>
@@ -1661,7 +1694,12 @@ const EmployeeRecordsPage: React.FC = () => {
                                     return (
                                       <TableRow key={r.registro_id||idx} sx={{ '& td':{ borderBottom:'none' }, opacity: isInactive ? 0.6 : 1, background: isInactive ? 'rgba(239,68,68,0.03)' : 'transparent' }}>
                                         <TableCell sx={{ color: isInactive ? 'rgba(255,255,255,0.4)' : 'white', fontFamily:'monospace', fontSize:13, textDecoration: isInactive ? 'line-through' : 'none' }}>{time}</TableCell>
-                                        <TableCell>{getMethodBadge((r as any).method, recStatus)}</TableCell>
+                                        <TableCell>
+                                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                                            {getMethodBadge((r as any).method, recStatus)}
+                                            {getGeofenceBadge(r)}
+                                          </Box>
+                                        </TableCell>
                                         <TableCell><Chip label={tipoLabel} size="small" sx={{ background: isInactive ? 'rgba(255,255,255,0.06)' : undefined, color: isInactive ? 'rgba(255,255,255,0.35)' : undefined }} color={isInactive ? undefined : (tipoEntry?'success':'error')} /></TableCell>
                                         <TableCell>
                                           <Box sx={{ display:'flex', flexDirection:'column', gap:0.25 }}>
@@ -1686,6 +1724,7 @@ const EmployeeRecordsPage: React.FC = () => {
                                   })()}
                                 </TableBody>
                               </Table>
+                              </TableContainer>
                             </Box>
                           </Collapse>
                         </TableCell>

@@ -35,7 +35,7 @@ export default function ConfiguracoesEmpresaPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col">
       <div className="bg-slate-900 border-b border-slate-800 px-5 pt-10 pb-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/empresa')} className="text-slate-400 hover:text-slate-200 transition-colors">

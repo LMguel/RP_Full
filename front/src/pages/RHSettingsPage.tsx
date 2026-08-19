@@ -103,7 +103,7 @@ const RHSettingsPage: React.FC = () => {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
         {/* Jornada */}
         <Section title="Jornada de Trabalho">
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
             <TextField
               label="Horas por dia"
               type="number"
@@ -198,7 +198,7 @@ const RHSettingsPage: React.FC = () => {
 
         {/* Arredondamento e descontos */}
         <Section title="Arredondamento e Descontos">
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 }}>
             <FormControl size="small">
               <InputLabel>Arredondamento de ponto</InputLabel>
               <Select
