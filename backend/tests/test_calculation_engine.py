@@ -24,6 +24,9 @@ from services.calculation_engine import (
     calculate_expected_minutes,
     calculate_worked_minutes,
     calculate_tolerance_rounding_minutes,
+    calculate_entry_early_tolerance_minutes,
+    calculate_exit_early_tolerance_minutes,
+    calculate_exit_overage_tolerance_minutes,
     calculate_daily_balance,
     minutes_to_hhmm,
 )
@@ -217,6 +220,101 @@ class TestCalculateToleranceRoundingMinutes:
 
     def test_sem_horario_previsto_retorna_zero(self):
         assert calculate_tolerance_rounding_minutes('2026-05-01T13:10:00', None, 10) == 0
+
+
+# ─────────────────────────────────────────────
+# calculate_entry_early_tolerance_minutes / calculate_exit_early_tolerance_minutes
+# calculate_exit_overage_tolerance_minutes
+#
+# Caso Apoliana: jornada 13:00-17:30, tolerância 10min. Entrada
+# rotineiramente ~7min adiantada e saída ~9min atrasada — cada desvio
+# isolado está dentro da tolerância, mas juntos infringiam a jornada em
+# ~16min/dia e viravam hora extra indevida. Estas funções arredondam cada
+# ponta (entrada e saída) para o horário previsto quando dentro da
+# tolerância, nos dois sentidos.
+# ─────────────────────────────────────────────
+
+class TestCalculateEntryEarlyToleranceMinutes:
+    def test_entrada_adiantada_dentro_tolerancia(self):
+        minutes = calculate_entry_early_tolerance_minutes('2026-08-03T12:53:00', '13:00', 10)
+        assert minutes == 7
+
+    def test_entrada_adiantada_no_limite(self):
+        minutes = calculate_entry_early_tolerance_minutes('2026-08-03T12:50:00', '13:00', 10)
+        assert minutes == 10
+
+    def test_entrada_adiantada_acima_tolerancia_nao_arredonda(self):
+        minutes = calculate_entry_early_tolerance_minutes('2026-08-03T12:45:00', '13:00', 10)
+        assert minutes == 0
+
+    def test_entrada_atrasada_nao_se_aplica(self):
+        minutes = calculate_entry_early_tolerance_minutes('2026-08-03T13:05:00', '13:00', 10)
+        assert minutes == 0
+
+    def test_entrada_no_horario_nao_arredonda(self):
+        minutes = calculate_entry_early_tolerance_minutes('2026-08-03T13:00:00', '13:00', 10)
+        assert minutes == 0
+
+
+class TestCalculateExitEarlyToleranceMinutes:
+    def test_saida_adiantada_dentro_tolerancia(self):
+        minutes = calculate_exit_early_tolerance_minutes('2026-08-03T17:25:00', '17:30', 10)
+        assert minutes == 5
+
+    def test_saida_adiantada_acima_tolerancia_nao_arredonda(self):
+        minutes = calculate_exit_early_tolerance_minutes('2026-08-03T17:15:00', '17:30', 10)
+        assert minutes == 0
+
+    def test_saida_atrasada_nao_se_aplica(self):
+        minutes = calculate_exit_early_tolerance_minutes('2026-08-03T17:39:00', '17:30', 10)
+        assert minutes == 0
+
+
+class TestCalculateExitOverageToleranceMinutes:
+    def test_saida_atrasada_dentro_tolerancia(self):
+        minutes = calculate_exit_overage_tolerance_minutes('2026-08-03T17:39:00', '17:30', 10)
+        assert minutes == 9
+
+    def test_saida_atrasada_acima_tolerancia_nao_arredonda(self):
+        minutes = calculate_exit_overage_tolerance_minutes('2026-08-03T17:45:00', '17:30', 10)
+        assert minutes == 0
+
+    def test_saida_adiantada_nao_se_aplica(self):
+        minutes = calculate_exit_overage_tolerance_minutes('2026-08-03T17:25:00', '17:30', 10)
+        assert minutes == 0
+
+
+class TestApoliancaCasoCompleto:
+    """Reproduz o dia 03/08/2026 do caso reportado: entrada 12:53, saída
+    17:39, jornada 13:00-17:30, intervalo automático 30min, tolerância 10min.
+    Sem o arredondamento simétrico, o dia fechava com +16min de banco/extra
+    indevido; com o arredondamento, o dia deve fechar em 0 (dentro da
+    tolerância em ambas as pontas)."""
+
+    def test_dia_fecha_zerado_com_arredondamento_simetrico(self):
+        worked_min, first_iso, last_iso = calculate_worked_minutes(
+            [
+                {'data_hora': '2026-08-03T12:53:00', 'type': 'entrada'},
+                {'data_hora': '2026-08-03T17:39:00', 'type': 'saida'},
+            ],
+            intervalo_automatico=True,
+            break_duration=30,
+        )
+        assert worked_min == 256  # (17:39-12:53) - 30min = 286-30
+
+        tolerancia = 10
+        worked_min += calculate_tolerance_rounding_minutes(first_iso, '13:00', tolerancia)
+        worked_min -= calculate_entry_early_tolerance_minutes(first_iso, '13:00', tolerancia)
+        worked_min += calculate_exit_early_tolerance_minutes(last_iso, '17:30', tolerancia)
+        worked_min -= calculate_exit_overage_tolerance_minutes(last_iso, '17:30', tolerancia)
+
+        expected_min = calculate_expected_minutes('13:00', '17:30', intervalo_automatico=True, break_duration=30)
+        assert expected_min == 240
+
+        banco, extra = calculate_daily_balance(worked_min, expected_min, tolerancia)
+        assert worked_min == 240
+        assert banco == 0
+        assert extra == 0
 
 
 # ─────────────────────────────────────────────

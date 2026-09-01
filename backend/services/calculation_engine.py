@@ -361,6 +361,102 @@ def calculate_tolerance_rounding_minutes(
     return 0
 
 
+def calculate_entry_early_tolerance_minutes(
+    first_punch_iso: Optional[str],
+    scheduled_start: Optional[str],
+    tolerance_minutes: int = 0,
+) -> int:
+    """
+    Minutos a SUBTRAIR de horas trabalhadas quando a entrada real está
+    ADIANTADA mas DENTRO da tolerância — o adiantamento é arredondado para
+    o horário previsto e não deve virar hora extra, sem alterar o horário
+    de entrada exibido.
+
+    Complementa calculate_tolerance_rounding_minutes (que trata só a entrada
+    ATRASADA dentro da tolerância). Juntas, as duas cobrem o arredondamento
+    simétrico de entrada dentro da tolerância, nos dois sentidos.
+
+    Exemplo: previsto 13:00, tolerância 10 min.
+      Entrada 12:53 → 7 min (a subtrair; arredonda para 13:00).
+      Entrada 12:45 → 0 (fora da tolerância — conta normalmente, ver
+      resolve_early_entry_overtime para a regra de entrada muito adiantada).
+    """
+    if not first_punch_iso or not scheduled_start:
+        return 0
+    scheduled_min = _parse_hhmm(scheduled_start)
+    if scheduled_min is None:
+        return 0
+    hhmm = _extract_hhmm_from_iso(first_punch_iso)
+    actual_min = _parse_hhmm(hhmm)
+    if actual_min is None:
+        return 0
+    diff = scheduled_min - actual_min  # positivo = chegou antes do previsto
+    if 0 < diff <= tolerance_minutes:
+        return diff
+    return 0
+
+
+def calculate_exit_early_tolerance_minutes(
+    last_punch_iso: Optional[str],
+    scheduled_end: Optional[str],
+    tolerance_minutes: int = 0,
+) -> int:
+    """
+    Minutos a SOMAR em horas trabalhadas quando a saída real está
+    ADIANTADA mas DENTRO da tolerância — a saída é arredondada para o
+    horário previsto (a favor do funcionário), sem alterar o horário de
+    saída exibido.
+
+    Exemplo: previsto 17:30, tolerância 10 min.
+      Saída 17:25 → +5 min (arredonda para 17:30).
+      Saída 17:15 → +0 min (fora da tolerância, conta saída antecipada
+      normalmente — ver calculate_early_departure_minutes).
+    """
+    if not last_punch_iso or not scheduled_end:
+        return 0
+    scheduled_min = _parse_hhmm(scheduled_end)
+    if scheduled_min is None:
+        return 0
+    hhmm = _extract_hhmm_from_iso(last_punch_iso)
+    actual_min = _parse_hhmm(hhmm)
+    if actual_min is None:
+        return 0
+    diff = scheduled_min - actual_min  # positivo = saiu antes do previsto
+    if 0 < diff <= tolerance_minutes:
+        return diff
+    return 0
+
+
+def calculate_exit_overage_tolerance_minutes(
+    last_punch_iso: Optional[str],
+    scheduled_end: Optional[str],
+    tolerance_minutes: int = 0,
+) -> int:
+    """
+    Minutos a SUBTRAIR de horas trabalhadas quando a saída real está
+    ATRASADA mas DENTRO da tolerância — o excesso é arredondado para o
+    horário previsto e não deve virar hora extra, sem alterar o horário
+    de saída exibido.
+
+    Exemplo: previsto 17:30, tolerância 10 min.
+      Saída 17:39 → 9 min (a subtrair; arredonda para 17:30).
+      Saída 17:45 → 0 (fora da tolerância — conta hora extra normalmente).
+    """
+    if not last_punch_iso or not scheduled_end:
+        return 0
+    scheduled_min = _parse_hhmm(scheduled_end)
+    if scheduled_min is None:
+        return 0
+    hhmm = _extract_hhmm_from_iso(last_punch_iso)
+    actual_min = _parse_hhmm(hhmm)
+    if actual_min is None:
+        return 0
+    diff = actual_min - scheduled_min  # positivo = saiu depois do previsto
+    if 0 < diff <= tolerance_minutes:
+        return diff
+    return 0
+
+
 def apply_bank_tolerance(balance_minutes: int, tolerance_minutes: int) -> int:
     """
     Zera o saldo diário quando dentro da tolerância configurada.

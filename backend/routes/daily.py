@@ -47,6 +47,9 @@ from services.calculation_engine import (
     count_valid_punches,
     get_actual_break_minutes,
     calculate_tolerance_rounding_minutes as eng_tolerance_round,
+    calculate_entry_early_tolerance_minutes as eng_entry_early_tolerance,
+    calculate_exit_early_tolerance_minutes as eng_exit_early_tolerance,
+    calculate_exit_overage_tolerance_minutes as eng_exit_overage_tolerance,
     calculate_daily_balance as eng_daily_balance,
 )
 from utils.schedule_settings import resolve_interval_automatico
@@ -615,10 +618,16 @@ def get_daily_summaries():
                 records, emp_intervalo_automatico, break_duration
             )
 
-            # Entrada dentro da tolerância: arredonda para o horário previsto no
-            # cálculo de horas trabalhadas (não altera o horário exibido/hora_entrada).
+            # Entrada/saída dentro da tolerância: arredonda para o horário previsto
+            # no cálculo de horas trabalhadas, nos dois sentidos (não altera os
+            # horários exibidos). Evita que pequenas variações de bate-ponto
+            # dentro da tolerância (chegar adiantado, sair um pouco depois, etc.)
+            # virem hora extra ou reduzam o banco de horas indevidamente.
             if not variavel:
                 worked_min += eng_tolerance_round(first_iso, scheduled_start, tolerancia_atraso)
+                worked_min -= eng_entry_early_tolerance(first_iso, scheduled_start, tolerancia_atraso)
+                worked_min += eng_exit_early_tolerance(last_iso, scheduled_end, tolerancia_atraso)
+                worked_min -= eng_exit_overage_tolerance(last_iso, scheduled_end, tolerancia_atraso)
 
             # n_punches calculado antes do split auto/manual (usado no status e no break)
             n_punches_count = count_valid_punches(records)

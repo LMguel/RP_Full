@@ -46,6 +46,7 @@ interface CalendarDay {
   atestado_url?: string;
   status: DayStatus;
   registros: TimeRecord[];
+  is_workday?: boolean; // dia com jornada prevista (não fim de semana/dia não configurado)
 }
 
 const MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -295,6 +296,7 @@ export default function EspelhoPontoPage() {
           volta_intervalo: summary?.intervalo_volta || undefined,
           saida: summary?.hora_saida || undefined,
           status: 'EM_PROCESSAMENTO', registros: records,
+          is_workday: isWorkday,
         });
         continue;
       }
@@ -354,6 +356,7 @@ export default function EspelhoPontoPage() {
         feriado_credit_min: feriadoCreditMin > 0 ? feriadoCreditMin : undefined,
         atestado_url: summary?.atestado_url,
         status, registros: records,
+        is_workday: isWorkday,
       });
     }
     return days;
@@ -363,13 +366,19 @@ export default function EspelhoPontoPage() {
   // Inclui dias com registros reais, summary do backend (safety net para paginação),
   // ou status relevante mesmo sem registro (férias/atestado/incompleto) — mesmo
   // critério do painel admin.
-  const daysWithRecords = calendarDays.filter(d =>
-    d.status === 'FERIAS' ||
-    d.status === 'ATESTADO' ||
-    d.status === 'INCOMPLETO' ||
-    d.registros.length > 0 ||
-    (dailySummariesMap[d.data] && Number(dailySummariesMap[d.data].horas_trabalhadas_min || 0) > 0)
-  );
+  // Atestado que cai em dia não útil (ex.: fim de semana dentro do período do
+  // atestado) só aparece no calendário visual — não entra na tabela de
+  // registros, mesmo tendo um registro ATIVO no banco (mesmo critério do painel admin).
+  const daysWithRecords = calendarDays.filter(d => {
+    if (d.status === 'ATESTADO' && d.is_workday === false) return false;
+    return (
+      d.status === 'FERIAS' ||
+      d.status === 'ATESTADO' ||
+      d.status === 'INCOMPLETO' ||
+      d.registros.length > 0 ||
+      (dailySummariesMap[d.data] && Number(dailySummariesMap[d.data].horas_trabalhadas_min || 0) > 0)
+    );
+  });
   // Feriados em dias úteis sem registros reais: aparecem na tabela com crédito automático
   const feriadosAutoCredit = calendarDays.filter(
     d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros.length === 0

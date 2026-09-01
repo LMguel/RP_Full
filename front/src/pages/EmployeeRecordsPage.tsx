@@ -92,6 +92,7 @@ interface RegistroDia {
   feriado_credit_min?: number;  // crédito automático para feriados em dias úteis
   status: 'PRESENTE' | 'FALTA' | 'ATRASO' | 'FERIADO' | 'SEM_REGISTRO' | 'INCOMPLETO' | 'EM_PROCESSAMENTO' | 'FERIAS' | 'ATESTADO';
   atestado_url?: string;
+  is_workday?: boolean; // dia com jornada prevista (não fim de semana/dia não configurado)
   cor: 'verde' | 'vermelho' | 'laranja' | 'azul' | 'cinza' | 'amarelo';
   registros: TimeRecord[];
   registros_ativos: TimeRecord[]; // registros excluindo INVALIDADO/AJUSTADO — usado para decidir presença
@@ -441,6 +442,7 @@ const EmployeeRecordsPage: React.FC = () => {
           atraso_min: undefined, saida_antecipada_min: undefined,
           horas_extras_min: undefined, feriado_credit_min: undefined,
           status: 'EM_PROCESSAMENTO', cor: 'cinza', registros: records, registros_ativos: activeRecords,
+          is_workday: isWorkday,
         });
         continue;
       }
@@ -514,20 +516,28 @@ const EmployeeRecordsPage: React.FC = () => {
         feriado_credit_min: feriadoCreditMin > 0 ? feriadoCreditMin : undefined,
         atestado_url: atestadoUrl,
         status, cor, registros: records, registros_ativos: activeRecords,
+        is_workday: isWorkday,
       });
     }
     return days;
   };
 
   const calendarDays = buildCalendar();
-  // Inclui dias com registros reais OU days com status relevante via summary
-  const diasTrabalhados = calendarDays.filter(d =>
-    d.status === 'FERIAS' ||
-    d.status === 'ATESTADO' ||
-    d.registros_ativos.length > 0 ||
-    d.status === 'INCOMPLETO' ||
-    (dailySummaries[d.data] && Number(dailySummaries[d.data].horas_trabalhadas_min || 0) > 0)
-  );
+  // Inclui dias com registros reais OU days com status relevante via summary.
+  // Atestado que cai em dia não útil (ex.: fim de semana dentro do período do
+  // atestado) só aparece no calendário visual — não entra na tabela de
+  // registros nem na exportação (mesmo tendo um registro ATIVO no banco),
+  // para não distorcer a contabilidade.
+  const diasTrabalhados = calendarDays.filter(d => {
+    if (d.status === 'ATESTADO' && d.is_workday === false) return false;
+    return (
+      d.status === 'FERIAS' ||
+      d.status === 'ATESTADO' ||
+      d.registros_ativos.length > 0 ||
+      d.status === 'INCOMPLETO' ||
+      (dailySummaries[d.data] && Number(dailySummaries[d.data].horas_trabalhadas_min || 0) > 0)
+    );
+  });
   const feriadosAutoCredit = calendarDays.filter(
     d => d.status === 'FERIADO' && (d.feriado_credit_min ?? 0) > 0 && d.registros_ativos.length === 0
   );
@@ -895,7 +905,10 @@ const EmployeeRecordsPage: React.FC = () => {
     const wb = XLSXStyle.utils.book_new();
 
     const COLS = ['A','B','C','D','E','F','G','H'];
-    const pct = resumo.cumprimento;
+    // Horista não tem jornada prevista fixa (previsto=0), então % de
+    // cumprimento não tem referência e não deve ser exibido — mesma regra
+    // do card na tela (linha 1196).
+    const pct = isVariableSchedule ? null : resumo.cumprimento;
 
     // ── Estilos preto e branco ──────────────────────────────────
     const bThin  = { style:'thin', color:{ rgb:'000000' } };
@@ -944,7 +957,7 @@ const EmployeeRecordsPage: React.FC = () => {
       ['Período: ' + (dateFrom || '—') + ' a ' + (dateTo || '—'), '', '', '', '', '', '', ''],
       [`Gerado em: ${geradoEm}`, '', '', '', '', '', '', ''],
       ['Presentes', 'Faltas', 'H. Trabalhadas', 'H. Previstas', 'H. Extras', 'Atrasos', 'Banco de Horas', '% Cumprimento'],
-      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, resumo.extras, resumo.atrasosStr, resumo.saldo, pct + '%'],
+      [resumo.presentes, resumo.faltas, resumo.trabalhado, resumo.previsto, resumo.extras, resumo.atrasosStr, resumo.saldo, pct === null ? '—' : pct + '%'],
       ['', '', '', '', '', '', '', ''],
       ['Data', 'Dia', 'Entrada', 'Saída Int.', 'Volta Int.', 'Saída', 'H. Trabalhadas', 'H. Previstas'],
     ];

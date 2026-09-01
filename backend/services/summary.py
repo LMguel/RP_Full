@@ -14,6 +14,10 @@ from services.calculation_engine import (
     calculate_expected_minutes as eng_expected,
     calculate_delay_minutes as eng_delay,
     calculate_early_departure_minutes as eng_early_dep,
+    calculate_tolerance_rounding_minutes as eng_tolerance_round,
+    calculate_entry_early_tolerance_minutes as eng_entry_early_tolerance,
+    calculate_exit_early_tolerance_minutes as eng_exit_early_tolerance,
+    calculate_exit_overage_tolerance_minutes as eng_exit_overage_tolerance,
     calculate_daily_balance as eng_daily_balance,
 )
 from utils.schedule_settings import resolve_interval_automatico
@@ -216,6 +220,16 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
 
     # ── Motor canônico ──
     worked_min, first_iso, last_iso = eng_worked(records, break_auto, break_duration)
+
+    # Entrada/saída dentro da tolerância: arredonda para o horário previsto
+    # no cálculo de horas trabalhadas, nos dois sentidos (não altera os
+    # horários exibidos). Mesma regra aplicada em routes/daily.py.
+    if not variavel:
+        worked_min += eng_tolerance_round(first_iso, scheduled_start, tolerancia)
+        worked_min -= eng_entry_early_tolerance(first_iso, scheduled_start, tolerancia)
+        worked_min += eng_exit_early_tolerance(last_iso, scheduled_end, tolerancia)
+        worked_min -= eng_exit_overage_tolerance(last_iso, scheduled_end, tolerancia)
+
     worked_hours = Decimal(str(worked_min)) / Decimal('60')
 
     if variavel:
