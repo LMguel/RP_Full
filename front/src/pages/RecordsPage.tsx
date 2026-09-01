@@ -631,7 +631,13 @@ const RecordsSummaryPage: React.FC = () => {
       };
 
       for (const summary of employeeSummaries) {
+        // Atestado que cai em dia não útil (ex.: fim de semana dentro do
+        // período do atestado, com horas_previstas_min = 0) não entra na
+        // exportação — mesmo critério do espelho individual
+        // (EmployeeRecordsPage). Continua contando no calendário visual do
+        // espelho individual, só não aparece nesta planilha.
         const days: any[] = (dailyByEmployee[summary.employee_id] || [])
+          .filter(d => !(String(d.status || '').toUpperCase() === 'ATESTADO' && Number(d.horas_previstas_min ?? 0) === 0))
           .slice().sort((a, b) => (a.data || '').localeCompare(b.data || ''));
         const nome = summary.funcionario_nome;
         const pct  = summary.variavel ? '—' : Math.round((summary.horas_trabalhadas / (summary.horas_previstas || 1)) * 100) + '%';
