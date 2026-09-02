@@ -64,22 +64,46 @@ export default function EmpresaLoginPage() {
 
     setAutoLogin(true);
 
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const attempt = async () => {
       setLoading(true);
       try {
         await signInRef.current(saved.usuario, saved.senha);
+        if (cancelled) return;
         saveCredentials(saved.usuario, saved.senha);
         localStorage.setItem('@kiosk:active', 'true');
         navigateRef.current('/kiosk');
       } catch (err: any) {
+        if (cancelled) return;
+        // Sem resposta do servidor = falha de rede (kiosk offline, ex.: queda de
+        // luz/internet), não credencial errada. Mostrar "verifique as credenciais"
+        // aqui e cair pro formulário manual tiraria o tablet do modo kiosk à toa —
+        // em vez disso, continua tentando em segundo plano até a conexão voltar.
+        const isNetworkError = !err?.response;
+        if (isNetworkError) {
+          setError('');
+          retryTimer = setTimeout(attempt, 8000);
+          return;
+        }
         setAutoLogin(false);
-        setError(err?.response?.data?.error || 'Não foi possível conectar. Verifique as credenciais.');
+        setError(err?.response?.data?.error || 'Usuário ou senha inválidos.');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }, 700);
+    };
 
-    return () => clearTimeout(timer);
+    const timer = setTimeout(attempt, 700);
+    const onOnline = () => { if (retryTimer) { clearTimeout(retryTimer); retryTimer = setTimeout(attempt, 500); } };
+    window.addEventListener('online', onOnline);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (retryTimer) clearTimeout(retryTimer);
+      window.removeEventListener('online', onOnline);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {

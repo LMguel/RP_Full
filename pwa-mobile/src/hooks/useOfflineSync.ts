@@ -19,8 +19,14 @@ export interface OfflineSyncState {
 export function useOfflineSync(): OfflineSyncState {
   const isOnline = useConnectivity();
   const backendAvailable = useBackendStatus(12000);
-  const prevOnline = useRef(isOnline);
-  const prevBackend = useRef(backendAvailable);
+  // Inicializados como false (não com o valor atual) para que, se o componente
+  // já montar online — ex.: kiosk reaberto manualmente depois que a conexão já
+  // tinha voltado, sem uma transição offline→online acontecer enquanto montado —
+  // o primeiro render ainda seja tratado como "reconectou" e dispare a sync de
+  // registros pendentes. Sem isso, registros ficavam parados até a próxima
+  // queda/volta de conexão real.
+  const prevOnline = useRef(false);
+  const prevBackend = useRef(false);
   const syncLock = useRef(false);
 
   const [pendingCount, setPendingCount] = useState(0);

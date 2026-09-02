@@ -24,16 +24,33 @@ export function useSessionTimeout(userType: UserType | null, onExpire: () => voi
     }
   }, []);
 
-  const scheduleExpiry = useCallback((expiresAt: number) => {
+  // Roda quando o timer local zera. Sem internet não há como saber se o token
+  // realmente expirou no backend — expirar mesmo assim derruba kiosks que
+  // ficaram 24/7 sem nenhuma requisição bem-sucedida por >timeout (ex.: queda
+  // de luz/internet prolongada). Nesse caso só estende o timer local; a decisão
+  // de verdade acontece quando a conexão voltar (próximo request bem-sucedido
+  // chama renewSession, ou o refresh periódico do JWT no kiosk).
+  const scheduleExpiry = useCallback((expiresAt: number, timeout: number) => {
     clearTimer();
     const remaining = expiresAt - Date.now();
-    if (remaining <= 0) {
+
+    const fire = () => {
+      if (!navigator.onLine) {
+        const newExpiresAt = Date.now() + timeout;
+        localStorage.setItem(STORAGE_KEY, String(newExpiresAt));
+        scheduleExpiry(newExpiresAt, timeout);
+        return;
+      }
       onExpireRef.current();
+    };
+
+    if (remaining <= 0) {
+      fire();
       return;
     }
     // setTimeout tem limite de ~24.8 dias; clampar para segurança
     const delay = Math.min(remaining, 2_147_483_647);
-    timerRef.current = setTimeout(() => onExpireRef.current(), delay);
+    timerRef.current = setTimeout(fire, delay);
   }, [clearTimer]);
 
   useEffect(() => {
@@ -52,17 +69,16 @@ export function useSessionTimeout(userType: UserType | null, onExpire: () => voi
 
     if (stored) {
       expiresAt = parseInt(stored, 10);
-      if (isNaN(expiresAt) || expiresAt <= Date.now()) {
-        // Sessão expirada durante o tempo offline
-        onExpireRef.current();
-        return;
+      if (isNaN(expiresAt)) {
+        expiresAt = Date.now() + timeout;
+        localStorage.setItem(STORAGE_KEY, String(expiresAt));
       }
     } else {
       expiresAt = Date.now() + timeout;
       localStorage.setItem(STORAGE_KEY, String(expiresAt));
     }
 
-    scheduleExpiry(expiresAt);
+    scheduleExpiry(expiresAt, timeout);
     return clearTimer;
   }, [userType, scheduleExpiry, clearTimer]);
 }

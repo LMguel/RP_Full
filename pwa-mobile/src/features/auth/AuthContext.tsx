@@ -85,8 +85,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setKioskShouldRestore(false);
   }, [user]);
 
-  // Session timeout — auto-logout quando expirar
-  useSessionTimeout(userType, signOut);
+  // Session timeout — auto-logout quando expirar. No kiosk usa signOutKiosk:
+  // preserva cache de funcionários e credenciais salvas para que o tablet
+  // reconecte sozinho (o signOut completo apagaria o cache offline à toa).
+  const handleSessionExpire = useCallback(() => {
+    if (localStorage.getItem('@kiosk:active') === 'true') {
+      signOutKiosk();
+    } else {
+      signOut();
+    }
+  }, [signOut, signOutKiosk]);
+  useSessionTimeout(userType, handleSessionExpire);
 
   useEffect(() => {
     try {
