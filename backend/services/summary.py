@@ -6,7 +6,7 @@ import boto3
 from datetime import datetime, date, time, timedelta
 from decimal import Decimal
 from typing import List, Dict, Optional, Tuple
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Key
 from models import DailySummary, MonthlySummary, WorkMode, DayStatus
 from utils.schedule import get_schedule_for_date
 from services.calculation_engine import (
@@ -76,21 +76,12 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     date_str = target_date.isoformat()
     
     # Buscar todos os registros do dia
-    # A tabela TimeRecords usa employee_id#date_time como chave
-    try:
-        # Tentar query pela chave composta
-        response = table_records.query(
-            KeyConditionExpression=Key('employee_id#date_time').begins_with(f"{employee_id}#{date_str}")
-        )
-        records = response.get('Items', [])
-    except:
-        # Fallback: scan com filtro (menos eficiente mas funciona)
-        response = table_records.scan(
-            FilterExpression=Attr('company_id').eq(company_id) &
-                           (Attr('employee_id').eq(employee_id) | Attr('funcionario_id').eq(employee_id)) &
-                           Attr('data_hora').begins_with(date_str)
-        )
-        records = response.get('Items', [])
+    # A tabela TimeRecords tem company_id (hash) + employee_id#date_time (range)
+    response = table_records.query(
+        KeyConditionExpression=Key('company_id').eq(company_id) &
+                               Key('employee_id#date_time').begins_with(f"{employee_id}#{date_str}")
+    )
+    records = response.get('Items', [])
     
     # Filtrar registros INVALIDADOS e AJUSTADOS - apenas ATIVO deve ser considerado
     records = [r for r in records if (r.get('status') or 'ATIVO').upper() not in ('INVALIDADO', 'AJUSTADO')]
@@ -140,11 +131,18 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
                 comp_break = int(raw_dur) if raw_dur is not None else 0
             except (ValueError, TypeError):
                 comp_break = 0
-            emp_int = emp_abs.get('intervalo_emp')
-            try:
-                eff_break = int(emp_int) if emp_int is not None and int(emp_int) > 0 else comp_break
-            except (ValueError, TypeError):
-                eff_break = comp_break
+            ipm_abs_raw = emp_abs.get('intervalo_padrao_minutos')
+            if ipm_abs_raw is not None:
+                try:
+                    eff_break = int(ipm_abs_raw)
+                except (ValueError, TypeError):
+                    eff_break = comp_break
+            else:
+                emp_int = emp_abs.get('intervalo_emp')
+                try:
+                    eff_break = int(emp_int) if emp_int is not None and int(emp_int) > 0 else comp_break
+                except (ValueError, TypeError):
+                    eff_break = comp_break
             exp_min = eng_expected(scheduled_start, scheduled_end, False, eff_break)
             expected_hours = Decimal(str(exp_min)) / Decimal('60')
 
@@ -209,12 +207,22 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     except (ValueError, TypeError):
         company_break = 0
 
-    # Intervalo do funcionário sobrepõe o da empresa quando configurado
-    emp_intervalo = employee.get('intervalo_emp')
-    try:
-        break_duration = int(emp_intervalo) if emp_intervalo is not None and int(emp_intervalo) > 0 else company_break
-    except (ValueError, TypeError):
-        break_duration = company_break
+    # Intervalo do funcionário sobrepõe o da empresa quando configurado.
+    # intervalo_padrao_minutos é o campo explícito atual (0 é um valor válido,
+    # significa "sem intervalo previsto"); intervalo_emp é o legado.
+    # Mesma prioridade usada em routes/daily.py.
+    ipm_raw = employee.get('intervalo_padrao_minutos')
+    if ipm_raw is not None:
+        try:
+            break_duration = int(ipm_raw)
+        except (ValueError, TypeError):
+            break_duration = company_break
+    else:
+        emp_intervalo = employee.get('intervalo_emp')
+        try:
+            break_duration = int(emp_intervalo) if emp_intervalo is not None and int(emp_intervalo) > 0 else company_break
+        except (ValueError, TypeError):
+            break_duration = company_break
 
     tolerancia = int(config.get('tolerancia_atraso', 0) or 0)
 

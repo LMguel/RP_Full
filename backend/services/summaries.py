@@ -131,7 +131,7 @@ class SummaryService:
             response = employees_table.get_item(
                 Key={
                     'company_id': company_id,
-                    'employee_id': employee_id
+                    'id': employee_id
                 }
             )
             
