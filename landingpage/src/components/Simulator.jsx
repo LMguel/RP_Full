@@ -1,23 +1,19 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Monitor, Tablet, BrainCircuit, Check, ArrowRight, MessageCircle, RotateCcw, ArrowLeft } from 'lucide-react'
+import { Smartphone, Tablet, Check, ArrowRight, MessageCircle, RotateCcw, ArrowLeft } from 'lucide-react'
 import { trackWhatsAppClick } from '../lib/analytics'
-import { buildWaUrl, EMPLOYEE_RANGES, getPlanById, IMPLANTATION, PLUS_MODULE_PRICE } from '../data/plans'
+import { buildWaUrl, EMPLOYEE_RANGES, TIERS, METHODS, PLUS_MODULE_PRICE } from '../data/plans'
 
-const employeeOptions = EMPLOYEE_RANGES.map((r) => ({
-  id: r.id,
-  label: r.label,
-  sub: getPlanById(r.planId).name,
-}))
+const METHOD_ICONS = { Smartphone, Tablet }
 
-const planMap = Object.fromEntries(
-  EMPLOYEE_RANGES.map((r) => {
-    const plan = getPlanById(r.planId)
-    return [r.id, { name: plan.name, price: plan.price }]
-  })
-)
-
-const implMap = IMPLANTATION
+const employeeOptions = EMPLOYEE_RANGES.map((r) => {
+  const tier = TIERS.find((t) => t.id === r.id)
+  return {
+    id: r.id,
+    label: r.label,
+    sub: tier ? `a partir de R$${tier.mobile.monthly}/mês` : 'sob consulta',
+  }
+})
 
 const STEPS = 4
 
@@ -97,11 +93,12 @@ export default function Simulator() {
   const [regMethod,  setRegMethod]  = useState(null)
   const [plusModule, setPlusModule] = useState(null)
 
-  const plan          = employees ? planMap[employees] : null
-  const impl          = regMethod ? implMap[regMethod] : null
+  const tier          = employees ? TIERS.find((t) => t.id === employees) : null
+  const method        = regMethod ? METHODS.find((m) => m.id === regMethod) : null
+  const methodData    = tier && regMethod ? tier[regMethod] : null
   const tabletOptional = employees === 'up5' || employees === '6-10'
   const isEnterprise  = employees === '31+'
-  const mensalidade   = plan?.price != null ? plan.price + (plusModule ? PLUS_MODULE_PRICE : 0) : null
+  const mensalidade   = methodData ? methodData.monthly + (plusModule ? PLUS_MODULE_PRICE : 0) : null
 
   function goTo(n) {
     setDir(n > step ? 1 : -1)
@@ -123,17 +120,19 @@ export default function Simulator() {
 
   function buildWAUrl() {
     const empLabel = employeeOptions.find(e => e.id === employees)?.label ?? '-'
+    const implLine = methodData
+      ? `Implantação: R$${fmtBRL(methodData.implCash)} à vista (ou parcelado)`
+      : 'Implantação: sob consulta'
     const msg = [
       'Olá! Simulei um orçamento no REGISTRA.PONTO.',
       '',
       `Funcionários: ${empLabel}`,
-      `Registro: ${impl?.label ?? 'A definir'}`,
-      `Plano: ${plan?.name ?? '-'}`,
-      `Módulo Folha de Pagamento Plus: ${plusModule ? `Sim (+R$${fmtBRL(PLUS_MODULE_PRICE)}/mês)` : 'Não'}`,
+      `Método: ${method?.name ?? 'A definir'}`,
       `Mensalidade: ${mensalidade != null ? `R$${fmtBRL(mensalidade)}/mês` : 'A consultar'}`,
-      'Implantação: sob consulta (taxa única)',
+      implLine,
+      `Módulo Folha de Pagamento Plus: ${plusModule ? `Sim (+R$${fmtBRL(PLUS_MODULE_PRICE)}/mês)` : 'Não'}`,
       '',
-      'Gostaria de receber um orçamento da implantação.',
+      'Gostaria de confirmar o orçamento.',
     ].join('\n')
     return buildWaUrl(msg)
   }
@@ -231,56 +230,49 @@ export default function Simulator() {
                   <motion.div key="step2" custom={dir} variants={slide} initial="enter" animate="center" exit="exit">
                     <StepLabel>Como deseja registrar o ponto?</StepLabel>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {/* Dispositivo */}
-                      <SelCard selected={regMethod === 'device'} onClick={() => pick(setRegMethod, 'device', 3)}>
-                        <div className="flex flex-col gap-2">
-                          <div
-                            className="w-9 h-9 rounded-lg flex items-center justify-center"
-                            style={{ background: 'rgba(14,165,233,0.10)', border: '1px solid rgba(14,165,233,0.20)' }}
-                          >
-                            <Monitor size={17} style={{ color: '#0EA5E9' }} />
-                          </div>
-                          <div>
-                            <p className="font-bold text-[#0C1A38] text-sm mb-0.5">Usar dispositivo da empresa</p>
-                            <p className="text-xs text-[#4D5E7A] mb-1">Notebook, computador ou celular.</p>
-                            <p className="text-[11px] font-semibold" style={{ color: '#0EA5E9' }}>Menor investimento inicial.</p>
-                          </div>
-                        </div>
-                      </SelCard>
-
-                      {/* Tablet */}
-                      <SelCard selected={regMethod === 'tablet'} onClick={() => pick(setRegMethod, 'tablet', 3)}>
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-start justify-between">
-                            <div
-                              className="w-9 h-9 rounded-lg flex items-center justify-center"
-                              style={{ background: 'rgba(24,71,214,0.10)', border: '1px solid rgba(24,71,214,0.18)' }}
-                            >
-                              <Tablet size={17} style={{ color: '#1847D6' }} />
+                      {METHODS.map((m) => {
+                        const Icon = METHOD_ICONS[m.icon]
+                        const isKiosk = m.id === 'kiosk'
+                        return (
+                          <SelCard key={m.id} selected={regMethod === m.id} onClick={() => pick(setRegMethod, m.id, 3)}>
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-start justify-between">
+                                <div
+                                  className="w-9 h-9 rounded-lg flex items-center justify-center"
+                                  style={{
+                                    background: isKiosk ? 'rgba(24,71,214,0.10)' : 'rgba(14,165,233,0.10)',
+                                    border: isKiosk ? '1px solid rgba(24,71,214,0.18)' : '1px solid rgba(14,165,233,0.20)',
+                                  }}
+                                >
+                                  <Icon size={17} style={{ color: isKiosk ? '#1847D6' : '#0EA5E9' }} />
+                                </div>
+                                {isKiosk && !tabletOptional && (
+                                  <span
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                    style={{ background: 'rgba(24,71,214,0.09)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.18)' }}
+                                  >
+                                    Recomendado
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <p className="font-bold text-[#0C1A38] text-sm mb-0.5">{m.name}</p>
+                                <p className="text-xs text-[#4D5E7A] mb-1">{m.tagline}</p>
+                                {isKiosk && (
+                                  <p className="text-[11px] font-semibold" style={{ color: '#1847D6' }}>
+                                    O tablet passa a ser patrimônio da empresa.
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                            {!tabletOptional && (
-                              <span
-                                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                style={{ background: 'rgba(24,71,214,0.09)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.18)' }}
-                              >
-                                Recomendado
-                              </span>
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-bold text-[#0C1A38] text-sm mb-0.5">Receber tablet dedicado</p>
-                            <p className="text-xs text-[#4D5E7A] mb-1">Tablet incluso na implantação.</p>
-                            <p className="text-[11px] font-semibold" style={{ color: '#1847D6' }}>
-                              O equipamento passa a ser patrimônio da empresa.
-                            </p>
-                          </div>
-                        </div>
-                      </SelCard>
+                          </SelCard>
+                        )
+                      })}
                     </div>
 
                     {!tabletOptional && (
                       <p className="text-[11px] text-[#8FA0BE] mt-3 text-center">
-                        Para equipes acima de 10 funcionários, recomendamos tablet dedicado para maior fluidez.
+                        Para equipes acima de 10 funcionários, recomendamos o Kiosk (tablet) para maior fluidez.
                       </p>
                     )}
                   </motion.div>
@@ -329,7 +321,7 @@ export default function Simulator() {
                           boxShadow: '0 2px 10px rgba(24,71,214,0.30)',
                         }}
                       >
-                        {plan?.name}
+                        {method?.name ?? '-'}
                       </span>
                     </div>
 
@@ -369,16 +361,19 @@ export default function Simulator() {
                         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#8FA0BE] mb-2">
                           Implantação (única vez)
                         </p>
-                        {impl ? (
+                        {methodData ? (
                           <>
-                            <span
-                              className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider"
-                              style={{ background: 'rgba(14,165,233,0.09)', color: '#0EA5E9', border: '1px solid rgba(14,165,233,0.22)' }}
-                            >
-                              Sob consulta
-                            </span>
-                            <p className="text-[11px] text-[#4D5E7A] mt-2">
-                              Taxa única. Valor calculado no orçamento.
+                            <div className="flex items-baseline gap-0.5">
+                              <span className="text-xs text-[#4D5E7A] font-medium">R$</span>
+                              <span
+                                className="text-3xl font-black text-[#0C1A38] leading-none tracking-tight"
+                                style={{ fontFamily: 'Outfit, sans-serif' }}
+                              >
+                                {fmtBRL(methodData.implCash)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#4D5E7A] mt-1">
+                              ou {methodData.installments.map((i) => `${i.n}x R$${fmtBRL(i.value)}`).join(' ou ')}
                             </p>
                           </>
                         ) : (

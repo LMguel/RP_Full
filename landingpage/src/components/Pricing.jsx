@@ -1,46 +1,26 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { motion, useInView } from 'framer-motion'
-import { Check, Star, ArrowRight, MessageCircle, Package, Sparkles, Monitor, Tablet } from 'lucide-react'
+import { motion, useInView, AnimatePresence } from 'framer-motion'
+import { Check, Star, ArrowRight, MessageCircle, Sparkles, Smartphone, Tablet } from 'lucide-react'
 import { trackWhatsAppClick } from '../lib/analytics'
-import { buildWaUrl, BASE_FEATURES, PLANS, START_PLAN, PLUS_MODULE_PRICE } from '../data/plans'
+import { buildWaUrl, BASE_FEATURES, METHODS, TIERS, ENTERPRISE_TIER, PLUS_MODULE_PRICE } from '../data/plans'
 
-const WA_IMPL = buildWaUrl('Olá! Gostaria de solicitar um orçamento para a Implantação + Tablet do REGISTRA.PONTO.')
+const METHOD_ICONS = { Smartphone, Tablet }
 
-const baseFeatures = BASE_FEATURES
+function fmtBRL(v) {
+  if (v == null) return null
+  return v % 1 === 0
+    ? v.toLocaleString('pt-BR')
+    : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
-const startImplItems = [
-  'Configuração inicial',
-  'Cadastro facial inicial',
-  'Treinamento remoto',
-  'Sistema pronto para operar',
-]
+function installmentsLabel(installments) {
+  return installments.map((i) => `${i.n}x R$${fmtBRL(i.value)}`).join(' ou ')
+}
 
-const plans = PLANS.map((p) => ({
-  ...p,
-  waUrl: buildWaUrl(
-    p.id === 'enterprise'
-      ? 'Olá! Gostaria de solicitar um orçamento para o plano Enterprise do REGISTRA.PONTO.'
-      : `Olá! Tenho interesse no ${p.name} do REGISTRA.PONTO. Poderia me dar mais informações?`
-  ),
-  ctaLabel: p.id === 'enterprise' ? 'Solicitar orçamento' : undefined,
-  ctaGreen: p.id === 'enterprise',
-}))
-
-const implantationItems = [
-  'Tablet incluso',
-  'Tablet configurado com o sistema',
-  'Instalação',
-  'Configuração da empresa',
-  'Cadastro facial inicial',
-  'Treinamento da equipe',
-  'Suporte no primeiro mês',
-  'Operacional em até 48 horas',
-]
-
-function useCountUp(target, duration = 1300, trigger = false) {
+function useCountUp(target, duration = 1100, trigger = false) {
   const [val, setVal] = useState(0)
   useEffect(() => {
-    if (!trigger || target === null) return
+    if (!trigger || target == null) return
     let start = null
     const tick = (now) => {
       if (!start) start = now
@@ -57,26 +37,120 @@ const cardVariants = {
   hidden: { opacity: 0, y: 28 },
   visible: (i) => ({
     opacity: 1, y: 0,
-    transition: { duration: 0.55, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] },
+    transition: { duration: 0.5, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] },
   }),
 }
 
+function TierCard({ tier, method, methodId, index, trigger }) {
+  const Icon = METHOD_ICONS[method.icon]
+  const data = tier[methodId]
+  const displayedPrice = useCountUp(data.monthly, 900 + index * 100, trigger)
+  const waMsg = `Olá! Tenho interesse no ${method.name} (${tier.employees}) do REGISTRA.PONTO. Poderia me dar mais informações?`
+
+  return (
+    <motion.div
+      custom={index}
+      variants={cardVariants}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true, margin: '-60px' }}
+      whileHover={!tier.popular ? { y: -5, transition: { duration: 0.2 } } : {}}
+      className="relative flex flex-col rounded-2xl p-6 border transition-all duration-300"
+      style={{
+        background: tier.popular ? 'linear-gradient(145deg, #EEF4FF, #FFFFFF)' : '#FFFFFF',
+        borderColor: tier.popular ? 'rgba(24,71,214,0.30)' : 'rgba(24,71,214,0.09)',
+        boxShadow: tier.popular
+          ? '0 0 60px rgba(24,71,214,0.10), 0 8px 32px rgba(24,71,214,0.08)'
+          : '0 4px 16px rgba(24,71,214,0.05)',
+      }}
+    >
+      {tier.popular && (
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap">
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-1.5 rounded-full"
+            style={{
+              background: 'linear-gradient(135deg, #1847D6, #1035BC)',
+              color: '#FFFFFF',
+              boxShadow: '0 4px 16px rgba(24,71,214,0.35)',
+            }}
+          >
+            <Star size={10} fill="#FFFFFF" strokeWidth={0} />
+            Mais escolhido
+          </span>
+        </div>
+      )}
+
+      <div className="mb-1 flex items-center gap-2">
+        <Icon size={14} style={{ color: '#1847D6' }} />
+        <span className="text-[11px] font-semibold text-[#8FA0BE] uppercase tracking-wider">{method.shortLabel}</span>
+      </div>
+      <h3 className="text-lg font-bold text-[#0C1A38] mb-4">{tier.employees}</h3>
+
+      <div className="mb-4">
+        <div className="flex items-start gap-1">
+          <span className="text-[#4D5E7A] text-sm mt-2.5 font-medium">R$</span>
+          <span
+            className="text-5xl font-black text-[#0C1A38] tracking-tight leading-none"
+            style={{ fontFamily: 'Outfit, sans-serif' }}
+          >
+            {displayedPrice}
+          </span>
+          <span className="text-[#8FA0BE] text-sm self-end mb-1">/mês</span>
+        </div>
+      </div>
+
+      <div
+        className="rounded-xl px-3.5 py-3 mb-5"
+        style={{ background: 'rgba(24,71,214,0.04)', border: '1px solid rgba(24,71,214,0.10)' }}
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#8FA0BE] mb-1.5">
+          Implantação (única vez)
+        </p>
+        <p className="text-sm font-bold text-[#0C1A38]">
+          R${fmtBRL(data.implCash)} à vista
+        </p>
+        <p className="text-[11px] text-[#4D5E7A] mt-0.5">
+          ou {installmentsLabel(data.installments)}
+        </p>
+      </div>
+
+      <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.07)' }} />
+
+      <ul className="space-y-2.5 mb-6 flex-1">
+        {BASE_FEATURES.map((f) => (
+          <li key={f} className="flex items-start gap-2.5 text-sm text-[#4D5E7A]">
+            <Check size={13} className="mt-0.5 flex-shrink-0" style={{ color: tier.popular ? '#1847D6' : '#0EA5E9' }} strokeWidth={2.5} />
+            {f}
+          </li>
+        ))}
+        {methodId === 'kiosk' && (
+          <li className="flex items-start gap-2.5 text-sm text-[#4D5E7A]">
+            <Check size={13} className="mt-0.5 flex-shrink-0" style={{ color: tier.popular ? '#1847D6' : '#0EA5E9' }} strokeWidth={2.5} />
+            Tablet — patrimônio definitivo da empresa
+          </li>
+        )}
+      </ul>
+
+      <a
+        href={buildWaUrl(waMsg)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => trackWhatsAppClick(`pricing_${methodId}_${tier.id}`)}
+        className={`w-full mt-auto py-3 ${tier.popular ? 'btn-primary' : 'btn-secondary'}`}
+      >
+        Ver demonstração
+        <ArrowRight size={14} />
+      </a>
+    </motion.div>
+  )
+}
+
 export default function Pricing() {
-  const ref    = useRef(null)
+  const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-60px' })
-  const [regMethod, setRegMethod] = useState('device')
+  const [methodId, setMethodId] = useState('mobile')
 
-  const price119 = useCountUp(START_PLAN.price, 1000, inView)
-  const price179 = useCountUp(plans.find((p) => p.id === 'plano10').price, 1100, inView)
-  const price239 = useCountUp(plans.find((p) => p.id === 'plano20').price, 1200, inView)
-  const price299 = useCountUp(plans.find((p) => p.id === 'plano30').price, 1300, inView)
-
-  const priceOf = (plan) => {
-    if (plan.id === 'plano10') return price179
-    if (plan.id === 'plano20') return price239
-    if (plan.id === 'plano30') return price299
-    return null
-  }
+  const method = METHODS.find((m) => m.id === methodId)
 
   return (
     <section id="planos" className="py-24 bg-rp-surface relative overflow-hidden">
@@ -92,7 +166,7 @@ export default function Pricing() {
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
         {/* Header */}
-        <div className="text-center mb-14">
+        <div className="text-center mb-10">
           <motion.span
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -118,7 +192,7 @@ export default function Pricing() {
             transition={{ delay: 0.2 }}
             className="text-[#4D5E7A] text-lg max-w-xl mx-auto"
           >
-            Solução completa de ponto eletrônico com reconhecimento facial para empresas.
+            Duas formas de registrar o ponto, mesmo sistema por trás — escolha a que combina com sua empresa.
           </motion.p>
         </div>
 
@@ -129,10 +203,7 @@ export default function Pricing() {
           viewport={{ once: true }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="mb-8 rounded-2xl px-5 py-4 max-w-2xl mx-auto text-center"
-          style={{
-            background: 'rgba(24,71,214,0.05)',
-            border: '1px solid rgba(24,71,214,0.14)',
-          }}
+          style={{ background: 'rgba(24,71,214,0.05)', border: '1px solid rgba(24,71,214,0.14)' }}
         >
           <p className="text-sm text-[#4D5E7A] leading-relaxed">
             <span className="text-[#1847D6] font-semibold">
@@ -142,259 +213,102 @@ export default function Pricing() {
           </p>
         </motion.div>
 
-        {/* Wrapper ref para countUp */}
-        <div ref={ref}>
-
-          {/* ── START — entrada acessível ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 28 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-60px' }}
-            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-6 max-w-4xl mx-auto"
+        {/* Method toggle */}
+        <div className="flex flex-col items-center mb-10">
+          <div
+            className="inline-flex rounded-xl overflow-hidden mb-3"
+            style={{ border: '1.5px solid rgba(24,71,214,0.14)' }}
           >
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{
-                background: '#FFFFFF',
-                border: '1.5px solid rgba(24,71,214,0.09)',
-                boxShadow: '0 4px 16px rgba(24,71,214,0.05)',
-              }}
-            >
-              {/* Card header */}
-              <div className="px-6 pt-6 pb-4 flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2.5">
-                  <h3 className="text-lg font-bold text-[#0C1A38]">Start</h3>
-                  <span
-                    className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider"
-                    style={{ background: 'rgba(14,165,233,0.09)', color: '#0EA5E9', border: '1px solid rgba(14,165,233,0.22)' }}
-                  >
-                    Sem tablet
-                  </span>
-                </div>
-                <p className="text-sm text-[#8FA0BE]">Até 5 funcionários</p>
-              </div>
-
-              <div className="h-px mx-6" style={{ background: 'rgba(24,71,214,0.07)' }} />
-
-              {/* 2 colunas: mensalidade | implantação */}
-              <div className="grid grid-cols-1 lg:grid-cols-2">
-
-                {/* Mensalidade */}
-                <div className="p-6">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[#8FA0BE] mb-4">
-                    Mensalidade
-                  </p>
-                  <div className="flex items-start gap-1 mb-3">
-                    <span className="text-[#4D5E7A] text-sm mt-2.5 font-medium">R$</span>
-                    <span
-                      className="text-5xl font-black text-[#0C1A38] tracking-tight leading-none"
-                      style={{ fontFamily: 'Outfit, sans-serif' }}
-                    >
-                      {price119}
-                    </span>
-                    <span className="text-[#8FA0BE] text-sm self-end mb-1">/mês</span>
-                  </div>
-                  <p className="text-sm text-[#4D5E7A] leading-relaxed mb-5">
-                    Use computador, notebook ou celular da empresa para registrar ponto com reconhecimento facial.
-                  </p>
-                  <ul className="space-y-2.5">
-                    {baseFeatures.map((f) => (
-                      <li key={f} className="flex items-center gap-2.5 text-sm text-[#4D5E7A]">
-                        <Check size={13} className="flex-shrink-0" style={{ color: '#0EA5E9' }} strokeWidth={2.5} />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Implantação Start */}
-                <div
-                  className="p-6 lg:border-l"
-                  style={{
-                    borderColor: 'rgba(24,71,214,0.07)',
-                    background: 'rgba(24,71,214,0.02)',
-                  }}
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[#8FA0BE] mb-4">
-                    Implantação Start
-                  </p>
-                  <div className="mb-4">
-                    <span
-                      className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2"
-                      style={{ background: 'rgba(24,71,214,0.08)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.18)' }}
-                    >
-                      Sob consulta
-                    </span>
-                    <p className="text-sm text-[#4D5E7A]">
-                      Taxa única, calculada conforme a sua necessidade.
-                    </p>
-                  </div>
-
-                  <div className="h-px mb-4" style={{ background: 'rgba(24,71,214,0.07)' }} />
-
-                  <ul className="space-y-2.5 mb-3">
-                    {startImplItems.map((f) => (
-                      <li key={f} className="flex items-center gap-2.5 text-sm text-[#4D5E7A]">
-                        <Check size={12} className="flex-shrink-0" style={{ color: '#1847D6' }} strokeWidth={2.5} />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-[11px] text-[#8FA0BE] mb-3">Sem tablet dedicado.</p>
-                  <a
-                    href={buildWaUrl('Olá! Gostaria de solicitar um orçamento para a Implantação do Plano Start do REGISTRA.PONTO.')}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => trackWhatsAppClick('pricing_start_implantacao')}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold"
-                    style={{ color: '#1847D6' }}
-                  >
-                    Solicitar orçamento da implantação
-                    <ArrowRight size={12} />
-                  </a>
-                </div>
-              </div>
-
-              {/* CTA */}
-              <div className="px-6 pb-6">
-                <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.07)' }} />
-                <a
-                  href={buildWaUrl('Olá! Tenho interesse no Plano Start do REGISTRA.PONTO. Poderia me dar mais informações?')}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => trackWhatsAppClick('pricing_start')}
-                  className="btn-secondary w-full py-3"
-                >
-                  Começar agora
-                  <ArrowRight size={14} />
-                </a>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* ── Planos 10 / 20 / 30 / Enterprise ── */}
-          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-14">
-            {plans.map((plan, i) => {
-              const displayed = priceOf(plan)
+            {METHODS.map((m) => {
+              const Icon = METHOD_ICONS[m.icon]
+              const active = methodId === m.id
               return (
-                <motion.div
-                  key={plan.id}
-                  custom={i}
-                  variants={cardVariants}
-                  initial="hidden"
-                  whileInView="visible"
-                  viewport={{ once: true, margin: '-60px' }}
-                  whileHover={!plan.popular ? { y: -5, transition: { duration: 0.2 } } : {}}
-                  className="relative flex flex-col rounded-2xl p-6 border transition-all duration-300"
+                <button
+                  key={m.id}
+                  onClick={() => setMethodId(m.id)}
+                  className="flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-all duration-200"
                   style={{
-                    background: plan.popular
-                      ? 'linear-gradient(145deg, #EEF4FF, #FFFFFF)'
-                      : '#FFFFFF',
-                    borderColor: plan.popular
-                      ? 'rgba(24,71,214,0.30)'
-                      : 'rgba(24,71,214,0.09)',
-                    boxShadow: plan.popular
-                      ? '0 0 60px rgba(24,71,214,0.10), 0 8px 32px rgba(24,71,214,0.08)'
-                      : '0 4px 16px rgba(24,71,214,0.05)',
+                    background: active ? '#1847D6' : 'transparent',
+                    color: active ? '#FFFFFF' : '#4D5E7A',
+                    borderLeft: m.id !== METHODS[0].id ? '1.5px solid rgba(24,71,214,0.14)' : undefined,
                   }}
                 >
-                  {plan.popular && (
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                      <span
-                        className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-1.5 rounded-full"
-                        style={{
-                          background: 'linear-gradient(135deg, #1847D6, #1035BC)',
-                          color: '#FFFFFF',
-                          boxShadow: '0 4px 16px rgba(24,71,214,0.35)',
-                        }}
-                      >
-                        <Star size={10} fill="#FFFFFF" strokeWidth={0} />
-                        Mais escolhido
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="mb-4">
-                    <h3 className="text-lg font-bold text-[#0C1A38] mb-1">{plan.name}</h3>
-                    <p className="text-sm text-[#8FA0BE]">{plan.employees}</p>
-                  </div>
-
-                  {/* Nota tablet opcional/recomendado */}
-                  {plan.tabletNote && (
-                    <div
-                      className="flex items-start gap-2 px-3 py-2 rounded-lg mb-4 text-xs"
-                      style={{ background: 'rgba(24,71,214,0.05)', color: '#4D5E7A', border: '1px solid rgba(24,71,214,0.10)' }}
-                    >
-                      <Tablet size={11} className="flex-shrink-0 mt-0.5" style={{ color: '#1847D6' }} />
-                      {plan.tabletNote}
-                    </div>
-                  )}
-
-                  <div className="mb-6">
-                    {plan.price !== null ? (
-                      <>
-                        <div className="flex items-start gap-1">
-                          <span className="text-[#4D5E7A] text-sm mt-2.5 font-medium">R$</span>
-                          <span
-                            className="text-5xl font-black text-[#0C1A38] tracking-tight leading-none"
-                            style={{ fontFamily: 'Outfit, sans-serif' }}
-                          >
-                            {displayed}
-                          </span>
-                          <span className="text-[#8FA0BE] text-sm self-end mb-1">/mês</span>
-                        </div>
-                        {plan.roi && (
-                          <p className="text-[11px] text-[#8FA0BE] mt-1.5 leading-snug">
-                            {plan.roi}
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-base font-medium text-[#4D5E7A] leading-relaxed">
-                        {plan.description}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.07)' }} />
-
-                  {plan.features.length > 0 && (
-                    <ul className="space-y-2.5 mb-6 flex-1">
-                      {plan.features.map((f) => (
-                        <li key={f} className="flex items-start gap-2.5 text-sm text-[#4D5E7A]">
-                          <Check
-                            size={13}
-                            className="mt-0.5 flex-shrink-0"
-                            style={{ color: plan.popular ? '#1847D6' : '#0EA5E9' }}
-                            strokeWidth={2.5}
-                          />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {plan.id === 'enterprise' && <div className="flex-1 min-h-[60px]" />}
-
-                  <a
-                    href={plan.waUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => trackWhatsAppClick(`pricing_${plan.id}`)}
-                    className={`w-full mt-auto py-3 ${
-                      plan.popular ? 'btn-primary' : plan.ctaGreen ? 'btn-green' : 'btn-secondary'
-                    }`}
-                  >
-                    {plan.ctaLabel || 'Ver demonstração'}
-                    <ArrowRight size={14} />
-                  </a>
-                </motion.div>
+                  <Icon size={15} />
+                  {m.name}
+                </button>
               )
             })}
           </div>
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={methodId}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.2 }}
+              className="text-sm text-[#4D5E7A] max-w-md text-center"
+            >
+              {method.tagline}
+            </motion.p>
+          </AnimatePresence>
+        </div>
 
-        </div>{/* /ref wrapper */}
+        {/* Tier cards */}
+        <div ref={ref} className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+          <AnimatePresence mode="wait">
+            {TIERS.map((tier, i) => (
+              <TierCard
+                key={`${methodId}-${tier.id}`}
+                tier={tier}
+                method={method}
+                methodId={methodId}
+                index={i}
+                trigger={inView}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {/* Enterprise */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-40px' }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="rounded-2xl p-6 mb-14 max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4"
+          style={{ background: '#FFFFFF', border: '1.5px solid rgba(24,71,214,0.09)', boxShadow: '0 4px 16px rgba(24,71,214,0.05)' }}
+        >
+          <div className="text-center sm:text-left">
+            <h3 className="text-base font-bold text-[#0C1A38] mb-1">{ENTERPRISE_TIER.employees}</h3>
+            <p className="text-sm text-[#4D5E7A]">{ENTERPRISE_TIER.description} — mensalidade e implantação sob consulta.</p>
+          </div>
+          <a
+            href={buildWaUrl('Olá! Gostaria de solicitar um orçamento para o plano Enterprise (31+ funcionários) do REGISTRA.PONTO.')}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackWhatsAppClick('pricing_enterprise')}
+            className="btn-green py-3 px-6 whitespace-nowrap"
+          >
+            Solicitar orçamento
+            <ArrowRight size={14} />
+          </a>
+        </motion.div>
+
+        {/* Clarificação */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4 }}
+          className="text-center mb-14"
+        >
+          <p className="text-sm text-[#4D5E7A] leading-relaxed">
+            Os valores acima são{' '}
+            <span className="font-semibold text-[#0C1A38]">mensalidade recorrente + implantação única</span>{' '}
+            (cobrada separadamente, à vista ou parcelada). O {METHODS.find((m) => m.id === 'kiosk').name}{' '}
+            inclui o tablet — o {METHODS.find((m) => m.id === 'mobile').name} usa o celular que o funcionário já tem.
+          </p>
+        </motion.div>
 
         {/* RH/Folha Plus add-on */}
         <motion.div
@@ -402,7 +316,7 @@ export default function Pricing() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-          className="relative rounded-3xl overflow-hidden mb-10 max-w-5xl mx-auto"
+          className="relative rounded-3xl overflow-hidden max-w-5xl mx-auto"
           style={{
             background: 'linear-gradient(135deg, #3B0764 0%, #5B21B6 45%, #6D28D9 100%)',
             boxShadow: '0 24px 64px rgba(109,40,217,0.30), 0 0 0 1px rgba(167,139,250,0.18)',
@@ -516,9 +430,7 @@ export default function Pricing() {
                 viewport={{ once: true, margin: '-40px' }}
                 transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
                 className="rounded-2xl overflow-hidden"
-                style={{
-                  boxShadow: '0 16px 48px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.10)',
-                }}
+                style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.40), 0 0 0 1px rgba(255,255,255,0.10)' }}
               >
                 <img
                   src="/image/folha.webp"
@@ -530,243 +442,6 @@ export default function Pricing() {
             </div>
           </div>
         </motion.div>
-
-        {/* Clarificação */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.4 }}
-          className="text-center mb-12"
-        >
-          <p className="text-sm text-[#4D5E7A] leading-relaxed">
-            Os planos acima são{' '}
-            <span className="font-semibold text-[#0C1A38]">mensalidades recorrentes.</span>{' '}
-            A implantação é realizada{' '}
-            <span className="font-semibold text-[#0C1A38]">uma única vez</span>{' '}
-            e cobrada separadamente — com ou sem tablet, de acordo com a sua escolha.
-          </p>
-        </motion.div>
-
-        {/* ── Escolha sua implantação ── */}
-        <div id="implantacao" className="max-w-5xl mx-auto">
-
-          {/* Cabeçalho + simulador */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-60px' }}
-            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            className="text-center mb-8"
-          >
-            <span className="section-label mb-3">Implantação</span>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#0C1A38] tracking-tight mb-6">
-              Escolha como implantar
-            </h3>
-
-            {/* Simulador */}
-            <div className="inline-flex flex-col sm:flex-row items-center gap-3 mb-4">
-              <span className="text-sm text-[#4D5E7A] font-medium whitespace-nowrap">Como deseja registrar o ponto?</span>
-              <div
-                className="flex rounded-xl overflow-hidden"
-                style={{ border: '1.5px solid rgba(24,71,214,0.14)' }}
-              >
-                <button
-                  onClick={() => setRegMethod('device')}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition-all duration-200"
-                  style={{
-                    background: regMethod === 'device' ? '#1847D6' : 'transparent',
-                    color: regMethod === 'device' ? '#FFFFFF' : '#4D5E7A',
-                  }}
-                >
-                  <Monitor size={14} />
-                  Dispositivo da empresa
-                </button>
-                <button
-                  onClick={() => setRegMethod('tablet')}
-                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition-all duration-200"
-                  style={{
-                    background: regMethod === 'tablet' ? '#1847D6' : 'transparent',
-                    color: regMethod === 'tablet' ? '#FFFFFF' : '#4D5E7A',
-                    borderLeft: '1.5px solid rgba(24,71,214,0.14)',
-                  }}
-                >
-                  <Tablet size={14} />
-                  Tablet dedicado
-                </button>
-              </div>
-            </div>
-
-            {/* Mensagem contextual */}
-            <p
-              className="text-sm font-medium transition-all duration-300"
-              style={{ color: regMethod === 'device' ? '#0EA5E9' : '#1847D6' }}
-            >
-              {regMethod === 'device'
-                ? '✓ Tablet opcional — ideal para equipes de até 10 funcionários.'
-                : '✓ Tablet dedicado recomendado para maior fluidez operacional.'}
-            </p>
-          </motion.div>
-
-          {/* Comparação 2 colunas */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-            {/* Col 1: Remota */}
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-              className="card-dark flex flex-col p-6"
-            >
-              <div className="mb-5">
-                <div className="flex items-center gap-2 mb-2">
-                  <Monitor size={15} style={{ color: '#0EA5E9' }} />
-                  <h4 className="font-bold text-[#0C1A38] text-base">Implantação Remota</h4>
-                </div>
-                <p className="text-xs text-[#8FA0BE]">Ideal para até 10 funcionários</p>
-              </div>
-
-              <div className="mb-5">
-                <span
-                  className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2"
-                  style={{ background: 'rgba(14,165,233,0.09)', color: '#0EA5E9', border: '1px solid rgba(14,165,233,0.22)' }}
-                >
-                  Sob consulta
-                </span>
-                <p className="text-sm text-[#4D5E7A]">
-                  Taxa única de implantação. Valor calculado conforme a sua empresa.
-                </p>
-              </div>
-
-              <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.07)' }} />
-
-              <ul className="space-y-2.5 flex-1 mb-5">
-                {[
-                  'Configuração inicial',
-                  'Cadastro facial',
-                  'Treinamento remoto',
-                  'Uso em computador, notebook ou celular da empresa',
-                  'Sistema pronto para operar',
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-[#4D5E7A]">
-                    <Check size={13} className="mt-0.5 flex-shrink-0" style={{ color: '#0EA5E9' }} strokeWidth={2.5} />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-
-              <p className="text-[11px] text-[#8FA0BE] mb-5">Sem tablet incluso.</p>
-
-              <a
-                href={buildWaUrl('Olá! Gostaria de solicitar um orçamento para a Implantação Remota do REGISTRA.PONTO.')}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackWhatsAppClick('pricing_impl_remota')}
-                className="btn-secondary w-full py-3 mt-auto"
-              >
-                Solicitar orçamento
-                <ArrowRight size={14} />
-              </a>
-            </motion.div>
-
-            {/* Col 2: Tablet Incluso (destacada) */}
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-40px' }}
-              transition={{ duration: 0.55, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-              className="relative flex flex-col rounded-2xl p-6"
-              style={{
-                background: 'linear-gradient(145deg, #EEF4FF, #FFFFFF)',
-                border: '1.5px solid rgba(24,71,214,0.28)',
-                boxShadow: '0 0 60px rgba(24,71,214,0.10), 0 8px 32px rgba(24,71,214,0.08)',
-              }}
-            >
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                <span
-                  className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-1.5 rounded-full"
-                  style={{
-                    background: 'linear-gradient(135deg, #1847D6, #1035BC)',
-                    color: '#FFFFFF',
-                    boxShadow: '0 4px 16px rgba(24,71,214,0.35)',
-                  }}
-                >
-                  <Package size={10} />
-                  Tudo incluso
-                </span>
-              </div>
-
-              <div className="mb-5 mt-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <Tablet size={15} style={{ color: '#1847D6' }} />
-                  <h4 className="font-bold text-[#0C1A38] text-base">Implantação + Tablet Incluso</h4>
-                </div>
-                <p className="text-xs text-[#8FA0BE]">Ideal para empresas que desejam um ponto dedicado</p>
-              </div>
-
-              <div className="mb-5">
-                <span
-                  className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider mb-2"
-                  style={{ background: 'rgba(24,71,214,0.09)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.22)' }}
-                >
-                  Sob consulta
-                </span>
-                <p className="text-sm text-[#4D5E7A]">
-                  Taxa única de implantação, com o tablet incluso. Valor calculado conforme a sua empresa.
-                </p>
-              </div>
-
-              <div className="h-px mb-5" style={{ background: 'rgba(24,71,214,0.10)' }} />
-
-              <ul className="space-y-2.5 flex-1 mb-5">
-                {[
-                  'Tablet incluso',
-                  'Tablet configurado com o sistema',
-                  'Instalação presencial',
-                  'Cadastro facial inicial',
-                  'Treinamento da equipe',
-                  'Suporte no primeiro mês',
-                  'Operacional em até 48 horas',
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm text-[#4D5E7A]">
-                    <Check size={13} className="mt-0.5 flex-shrink-0" style={{ color: '#1847D6' }} strokeWidth={2.5} />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-
-              {/* Patrimônio callout */}
-              <div
-                className="rounded-xl px-4 py-3 mb-5"
-                style={{ background: 'rgba(24,71,214,0.06)', border: '1px solid rgba(24,71,214,0.14)' }}
-              >
-                <p className="text-xs font-semibold text-[#1847D6] mb-1">
-                  O tablet passa a ser patrimônio da empresa após a implantação.
-                </p>
-                <p className="text-[11px] text-[#4D5E7A] leading-relaxed">
-                  Sem aluguel. Sem devolução. Equipamento definitivo da empresa.
-                </p>
-              </div>
-
-              <a
-                href={WA_IMPL}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackWhatsAppClick('pricing_impl_tablet')}
-                className="btn-primary w-full py-3 mt-auto"
-              >
-                Solicitar orçamento
-                <ArrowRight size={14} />
-              </a>
-            </motion.div>
-
-          </div>
-
-          <p className="text-center text-xs text-[#8FA0BE] mt-6">
-            Mensalidade contratada separadamente, conforme o plano escolhido.
-          </p>
-        </div>
 
       </div>
     </section>
