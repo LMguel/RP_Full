@@ -51,12 +51,12 @@ export const TIERS = [
     mobile: {
       monthly: 79,
       implCash: 299,
-      installments: [{ n: 3, value: 110 }],
+      installments: [{ n: 3, value: 108 }],
     },
     kiosk: {
       monthly: 99,
       implCash: 1599,
-      installments: [{ n: 6, value: 320 }, { n: 12, value: 180 }],
+      installments: [{ n: 6, value: 305 }, { n: 12, value: 170 }],
     },
   },
   {
@@ -66,12 +66,12 @@ export const TIERS = [
     mobile: {
       monthly: 99,
       implCash: 349,
-      installments: [{ n: 3, value: 125 }],
+      installments: [{ n: 3, value: 126 }],
     },
     kiosk: {
       monthly: 119,
       implCash: 1649,
-      installments: [{ n: 6, value: 340 }, { n: 12, value: 195 }],
+      installments: [{ n: 6, value: 315 }, { n: 12, value: 176 }],
     },
   },
   {
@@ -80,12 +80,12 @@ export const TIERS = [
     mobile: {
       monthly: 149,
       implCash: 429,
-      installments: [{ n: 3, value: 160 }],
+      installments: [{ n: 3, value: 155 }],
     },
     kiosk: {
       monthly: 169,
       implCash: 1699,
-      installments: [{ n: 6, value: 370 }, { n: 12, value: 210 }],
+      installments: [{ n: 6, value: 324 }, { n: 12, value: 181 }],
     },
   },
   {
@@ -94,12 +94,12 @@ export const TIERS = [
     mobile: {
       monthly: 179,
       implCash: 499,
-      installments: [{ n: 4, value: 150 }],
+      installments: [{ n: 4, value: 137 }],
     },
     kiosk: {
       monthly: 199,
       implCash: 1749,
-      installments: [{ n: 6, value: 400 }, { n: 12, value: 225 }],
+      installments: [{ n: 6, value: 334 }, { n: 12, value: 186 }],
     },
   },
 ]
