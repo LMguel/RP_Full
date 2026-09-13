@@ -55,8 +55,8 @@ export const TIERS = [
     },
     kiosk: {
       monthly: 99,
-      implCash: 1599,
-      installments: [{ n: 6, value: 305 }, { n: 12, value: 170 }],
+      implCash: 1670,
+      installments: [{ n: 6, value: 319 }, { n: 12, value: 178 }],
     },
   },
   {
@@ -70,8 +70,8 @@ export const TIERS = [
     },
     kiosk: {
       monthly: 119,
-      implCash: 1649,
-      installments: [{ n: 6, value: 315 }, { n: 12, value: 176 }],
+      implCash: 1700,
+      installments: [{ n: 6, value: 324 }, { n: 12, value: 181 }],
     },
   },
   {
@@ -84,8 +84,8 @@ export const TIERS = [
     },
     kiosk: {
       monthly: 169,
-      implCash: 1699,
-      installments: [{ n: 6, value: 324 }, { n: 12, value: 181 }],
+      implCash: 1760,
+      installments: [{ n: 6, value: 336 }, { n: 12, value: 188 }],
     },
   },
   {
@@ -98,8 +98,8 @@ export const TIERS = [
     },
     kiosk: {
       monthly: 199,
-      implCash: 1749,
-      installments: [{ n: 6, value: 334 }, { n: 12, value: 186 }],
+      implCash: 1820,
+      installments: [{ n: 6, value: 347 }, { n: 12, value: 194 }],
     },
   },
 ]
