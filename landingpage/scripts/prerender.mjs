@@ -35,7 +35,7 @@ async function main() {
   })
 
   const entryPath = path.join(ssrOutDir, 'entry-server.js')
-  const { render, SEGMENTS } = await import(pathToFileURL(entryPath).href)
+  const { render, SEGMENTS, LOCATIONS } = await import(pathToFileURL(entryPath).href)
 
   const baseIndexPath = path.join(root, 'dist', 'index.html')
   const baseHtml = fs.readFileSync(baseIndexPath, 'utf-8')
@@ -49,8 +49,8 @@ async function main() {
   fs.writeFileSync(baseIndexPath, homeHtml)
   console.log('Prerender concluído:', path.relative(root, baseIndexPath))
 
-  // Segment pages
-  for (const segment of SEGMENTS) {
+  // Segment pages + location pages
+  for (const segment of [...SEGMENTS, ...LOCATIONS]) {
     const appHtml = render(segment.path)
     let html = baseHtml.replace('<div id="root"></div>', `<div id="root">${appHtml}</div>`)
     html = replaceHead(html, { title: segment.seo.title, description: segment.seo.description, path: segment.path })

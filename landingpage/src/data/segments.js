@@ -1,4 +1,4 @@
-import { GraduationCap, UtensilsCrossed, Clock, Users, FileSpreadsheet, ShieldCheck, CalendarClock, Repeat } from 'lucide-react'
+import { GraduationCap, UtensilsCrossed, Clock, Users, FileSpreadsheet, ShieldCheck, CalendarClock, Repeat, Store, TrendingUp } from 'lucide-react'
 
 export const SEGMENTS = [
   {
@@ -76,6 +76,44 @@ export const SEGMENTS = [
       },
     ],
     ctaMessage: 'Olá! Tenho um restaurante/buffet e gostaria de saber mais sobre o REGISTRA.PONTO para controle de ponto da equipe.',
+  },
+  {
+    slug: 'comercio',
+    path: '/comercio',
+    label: 'Comércio',
+    seo: {
+      title: 'Sistema de Ponto Eletrônico para Comércio — REGISTRA.PONTO',
+      description: 'Controle de ponto com reconhecimento facial para lojas e comércio. Visibilidade em tempo real da equipe de vendas, múltiplos turnos e fechamento pronto para o DP. Implantação em até 48h.',
+    },
+    badge: 'Para comércio',
+    headline: 'Saiba quem está na loja agora, sem ligar pra conferir.',
+    subheadline:
+      'Escalas de vendedores, folgas trocadas e múltiplas lojas tornam o controle manual de ponto um ponto cego pra gestão. O REGISTRA.PONTO registra automaticamente e mostra tudo num painel só.',
+    heroImage: '/image/dashboard.webp',
+    heroImageAlt: 'Dashboard do REGISTRA.PONTO usado em comércio',
+    painPoints: [
+      {
+        icon: Store,
+        title: 'Uma ou várias lojas no mesmo painel',
+        description: 'Acompanhe presença e horários de todas as unidades sem precisar ligar loja por loja.',
+      },
+      {
+        icon: TrendingUp,
+        title: 'Visibilidade em tempo real da equipe de vendas',
+        description: 'Saiba quem está em loja, quem está de folga e quem está atrasado sem sair do painel.',
+      },
+      {
+        icon: FileSpreadsheet,
+        title: 'Comissão e horas extras sem planilha',
+        description: 'Exportação em Excel pronta para o financeiro calcular horas extras e fechamento do mês.',
+      },
+      {
+        icon: ShieldCheck,
+        title: 'Registro à prova de fraude',
+        description: 'Reconhecimento facial elimina o "bater ponto pelo colega" — cada registro tem foto e horário reais.',
+      },
+    ],
+    ctaMessage: 'Olá! Tenho um comércio/loja e gostaria de saber mais sobre o REGISTRA.PONTO para controle de ponto da equipe.',
   },
 ]
 

@@ -13,7 +13,7 @@ const stats = [
 ]
 
 const trust = [
-  'Já em uso em empresas da região',
+  'Já em uso em empresas de Angra dos Reis, Paraty e Mangaratiba',
   'Reconhecimento facial + GPS incluso',
   'Suporte local, não só remoto',
 ]
@@ -111,7 +111,7 @@ export default function Hero() {
               className="text-xs lg:text-sm font-semibold tracking-widest uppercase mb-5"
               style={{ color: '#1847D6' }}
             >
-              Sistema de ponto eletrônico B2B
+              Ponto eletrônico em Angra dos Reis, Paraty e Mangaratiba
             </motion.p>
 
             <motion.h1

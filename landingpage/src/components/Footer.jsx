@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { MessageCircle, Instagram } from 'lucide-react'
 import { trackWhatsAppClick } from '../lib/analytics'
 import { SEGMENTS } from '../data/segments'
+import { LOCATIONS } from '../data/locations'
 
 const WA_URL = 'https://wa.me/5524992272778?text=Ol%C3%A1!%20Tenho%20interesse%20no%20REGISTRA.PONTO.'
 const IG_URL = 'https://www.instagram.com/lmetech/'
@@ -21,6 +22,13 @@ const links = [
   {
     title: 'Segmentos',
     items: SEGMENTS.map((s) => ({ label: s.label, href: s.path, internal: true })),
+  },
+  {
+    title: 'Onde atuamos',
+    items: [
+      { label: 'Angra dos Reis', href: '/', internal: true },
+      ...LOCATIONS.map((l) => ({ label: l.label, href: l.path, internal: true })),
+    ],
   },
   {
     title: 'Suporte',
@@ -48,7 +56,7 @@ export default function Footer() {
       style={{ borderTop: '1px solid rgba(24,71,214,0.09)' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-8 sm:gap-12 mb-10 sm:mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-8 sm:gap-12 mb-10 sm:mb-12">
           {/* Brand */}
           <div className="sm:col-span-2">
             <Link to="/" className="flex items-center gap-2.5 mb-4">
@@ -68,9 +76,12 @@ export default function Footer() {
             <p className="text-sm text-[#8FA0BE] leading-relaxed max-w-xs mb-1">
               Sistema de controle de ponto eletrônico com reconhecimento facial para empresas modernas.
             </p>
-            <p className="text-xs text-[#B0C0D4] mb-5">
+            <p className="text-xs text-[#B0C0D4] mb-1">
               Desenvolvido por{' '}
               <span className="font-semibold text-[#8FA0BE]" style={{ fontFamily: 'Outfit, sans-serif' }}>LME Tech</span>
+            </p>
+            <p className="text-xs text-[#B0C0D4] mb-5">
+              Atendemos Angra dos Reis, Paraty e Mangaratiba
             </p>
             <div className="flex flex-col gap-2">
               <a

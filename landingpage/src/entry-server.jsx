@@ -4,6 +4,7 @@ import { StaticRouter } from 'react-router-dom/server'
 import App from './App'
 
 export { SEGMENTS } from './data/segments'
+export { LOCATIONS } from './data/locations'
 
 export function render(url = '/') {
   return renderToString(
