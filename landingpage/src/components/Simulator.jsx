@@ -120,9 +120,7 @@ export default function Simulator() {
 
   function buildWAUrl() {
     const empLabel = employeeOptions.find(e => e.id === employees)?.label ?? '-'
-    const implLine = methodData
-      ? `Implantação: R$${fmtBRL(methodData.implCash)} à vista (ou parcelado)`
-      : 'Implantação: sob consulta'
+    const implLine = 'Implantação: sob consulta (taxa única)'
     const msg = [
       'Olá! Simulei um orçamento no REGISTRA.PONTO.',
       '',
@@ -363,17 +361,14 @@ export default function Simulator() {
                         </p>
                         {methodData ? (
                           <>
-                            <div className="flex items-baseline gap-0.5">
-                              <span className="text-xs text-[#4D5E7A] font-medium">R$</span>
-                              <span
-                                className="text-3xl font-black text-[#0C1A38] leading-none tracking-tight"
-                                style={{ fontFamily: 'Outfit, sans-serif' }}
-                              >
-                                {fmtBRL(methodData.implCash)}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-[#4D5E7A] mt-1">
-                              ou {methodData.installments.map((i) => `${i.n}x R$${fmtBRL(i.value)}`).join(' ou ')}
+                            <span
+                              className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider"
+                              style={{ background: 'rgba(14,165,233,0.09)', color: '#0EA5E9', border: '1px solid rgba(14,165,233,0.22)' }}
+                            >
+                              Sob consulta
+                            </span>
+                            <p className="text-[11px] text-[#4D5E7A] mt-2">
+                              Taxa única. Valor calculado no orçamento.
                             </p>
                           </>
                         ) : (

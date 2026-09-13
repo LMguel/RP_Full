@@ -16,7 +16,14 @@ export const BASE_FEATURES = [
 
 // ─── Métodos de registro ──────────────────────────────────────────────────
 // Preços validados via modelo cost-plus (custo AWS ratado + margem alvo 75%,
-// hardware+markup para o Kiosk). Tabela vigente desde 2026-08-13.
+// hardware+markup para o Kiosk). Tabela vigente desde 2026-09-13 — realinhada
+// ao preço já validado pela base de clientes atuais (~R$149 para 30 func.)
+// após recalcular o custo real de infra: ~R$33/empresa/mês fixo (fatura AWS
+// rateada por 3 empresas ativas) + variável trivial de Rekognition (~R$1-7,
+// mesmo custo pro Mobile e pro Kiosk — os dois usam reconhecimento facial
+// a cada batida, não só o Kiosk). implCash/installments abaixo não são mais
+// exibidos na página pública (implantação voltou a "Sob consulta"), mas
+// ficam documentados aqui como o valor justo de referência para orçamento.
 export const METHODS = [
   {
     id: 'mobile',
@@ -42,13 +49,13 @@ export const TIERS = [
     id: 'up5',
     employees: 'Até 5 funcionários',
     mobile: {
-      monthly: 119,
+      monthly: 79,
       implCash: 299,
       installments: [{ n: 3, value: 110 }],
     },
     kiosk: {
-      monthly: 139,
-      implCash: 699,
+      monthly: 99,
+      implCash: 1599,
       installments: [{ n: 6, value: 320 }, { n: 12, value: 180 }],
     },
   },
@@ -57,13 +64,13 @@ export const TIERS = [
     employees: 'Até 10 funcionários',
     popular: true,
     mobile: {
-      monthly: 179,
+      monthly: 99,
       implCash: 349,
       installments: [{ n: 3, value: 125 }],
     },
     kiosk: {
-      monthly: 199,
-      implCash: 799,
+      monthly: 119,
+      implCash: 1649,
       installments: [{ n: 6, value: 340 }, { n: 12, value: 195 }],
     },
   },
@@ -71,13 +78,13 @@ export const TIERS = [
     id: '11-20',
     employees: 'Até 20 funcionários',
     mobile: {
-      monthly: 259,
-      implCash: 449,
+      monthly: 149,
+      implCash: 429,
       installments: [{ n: 3, value: 160 }],
     },
     kiosk: {
-      monthly: 279,
-      implCash: 949,
+      monthly: 169,
+      implCash: 1699,
       installments: [{ n: 6, value: 370 }, { n: 12, value: 210 }],
     },
   },
@@ -85,13 +92,13 @@ export const TIERS = [
     id: '21-30',
     employees: 'Até 30 funcionários',
     mobile: {
-      monthly: 329,
-      implCash: 549,
+      monthly: 179,
+      implCash: 499,
       installments: [{ n: 4, value: 150 }],
     },
     kiosk: {
-      monthly: 349,
-      implCash: 1099,
+      monthly: 199,
+      implCash: 1749,
       installments: [{ n: 6, value: 400 }, { n: 12, value: 225 }],
     },
   },

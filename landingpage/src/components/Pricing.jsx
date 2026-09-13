@@ -6,17 +6,6 @@ import { buildWaUrl, BASE_FEATURES, METHODS, TIERS, ENTERPRISE_TIER, PLUS_MODULE
 
 const METHOD_ICONS = { Smartphone, Tablet }
 
-function fmtBRL(v) {
-  if (v == null) return null
-  return v % 1 === 0
-    ? v.toLocaleString('pt-BR')
-    : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function installmentsLabel(installments) {
-  return installments.map((i) => `${i.n}x R$${fmtBRL(i.value)}`).join(' ou ')
-}
-
 function useCountUp(target, duration = 1100, trigger = false) {
   const [val, setVal] = useState(0)
   useEffect(() => {
@@ -106,11 +95,14 @@ function TierCard({ tier, method, methodId, index, trigger }) {
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#8FA0BE] mb-1.5">
           Implantação (única vez)
         </p>
-        <p className="text-sm font-bold text-[#0C1A38]">
-          R${fmtBRL(data.implCash)} à vista
-        </p>
-        <p className="text-[11px] text-[#4D5E7A] mt-0.5">
-          ou {installmentsLabel(data.installments)}
+        <span
+          className="inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider"
+          style={{ background: 'rgba(24,71,214,0.09)', color: '#1847D6', border: '1px solid rgba(24,71,214,0.18)' }}
+        >
+          Sob consulta
+        </span>
+        <p className="text-[11px] text-[#4D5E7A] mt-1.5">
+          Taxa única, calculada conforme a sua necessidade.
         </p>
       </div>
 
@@ -304,9 +296,11 @@ export default function Pricing() {
         >
           <p className="text-sm text-[#4D5E7A] leading-relaxed">
             Os valores acima são{' '}
-            <span className="font-semibold text-[#0C1A38]">mensalidade recorrente + implantação única</span>{' '}
-            (cobrada separadamente, à vista ou parcelada). O {METHODS.find((m) => m.id === 'kiosk').name}{' '}
-            inclui o tablet — o {METHODS.find((m) => m.id === 'mobile').name} usa o celular que o funcionário já tem.
+            <span className="font-semibold text-[#0C1A38]">mensalidades recorrentes.</span>{' '}
+            A implantação é uma{' '}
+            <span className="font-semibold text-[#0C1A38]">taxa única</span>, cobrada separadamente.
+            O {METHODS.find((m) => m.id === 'kiosk').name} inclui o tablet — o {METHODS.find((m) => m.id === 'mobile').name}{' '}
+            usa o celular que o funcionário já tem.
           </p>
         </motion.div>
 
