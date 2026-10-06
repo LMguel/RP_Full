@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useFullscreen } from '../../hooks/useFullscreen';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
+import { useStableOffline } from '../../hooks/useStableOffline';
 import { useKioskHealth } from '../../hooks/useKioskHealth';
 import { useKioskSleep } from '../../hooks/useKioskSleep';
 import { pingBackend } from '../../hooks/useBackendStatus';
@@ -17,6 +18,7 @@ import type { RecognitionResult, RegisterPointResult } from '../../types';
 import { kioskLog } from '../../services/kioskLogger';
 import { kioskUpdateCoordinator } from '../../services/kioskUpdateCoordinator';
 import { kioskTelemetry } from '../../services/kioskTelemetry';
+import { queueOfflineRecord } from '../../services/offline/offlineQueue';
 import { refreshEmployeeCache, getCacheAgeMs, getCachedEmployeeCount } from '../../services/offline/employeeCache';
 
 const CAMERA_STREAM_MAX_MS = 30 * 60 * 1000; // reinicia stream após 30min
@@ -32,7 +34,7 @@ type ConfirmData = {
   fotoUrl?: string;
 };
 
-type SuccessData = { nome: string; tipo: string; tipo_label: string; horario: string };
+type SuccessData = { nome: string; tipo: string; tipo_label: string; horario: string; offline?: boolean };
 
 /** Fallback quando sessionCompanyId ainda não restaurou (ex.: logo após um reload
  *  diário) — evita consultar o cache de funcionários com chave vazia, que sempre
@@ -67,13 +69,15 @@ export default function KioskPage() {
 
   const navigate = useNavigate();
   const { user, userType, clearKioskRestore } = useAuth();
-  const { isOnline, backendAvailable, pendingCount, syncStatus, refreshPendingCount } = useOfflineSync();
+  const { isOnline, backendAvailable, pendingCount, syncStatus, triggerSync, refreshPendingCount } = useOfflineSync();
 
   // Refs para getters estáveis passados a serviços externos
   const backendAvailableRef = useRef(backendAvailable);
   const pendingCountRef = useRef(pendingCount);
 
-  const showOfflineMode = !isOnline || !backendAvailable;
+  // Entra no offline na hora, mas só volta para a câmera após 60s de conexão estável
+  // (Wi-Fi oscilando fazia a tela alternar a cada minuto e interromper registros).
+  const showOfflineMode = useStableOffline(!isOnline || !backendAvailable, 60_000);
 
   const sessionCompanyId = (userType === 'empresa' && (user as any)?.company_id) || null;
   const sessionCompanyIdRef = useRef(sessionCompanyId);
@@ -274,9 +278,12 @@ export default function KioskPage() {
       });
     } else if (!showOfflineMode && prevShowOfflineRef.current) {
       kioskLog('OFFLINE_MODE_EXIT');
+      // Registros feitos durante a janela de estabilização (rede já de volta, tela
+      // ainda offline) não pegaram a sync de reconexão — dispara agora.
+      triggerSync();
     }
     prevShowOfflineRef.current = showOfflineMode;
-  }, [showOfflineMode, isOnline]);
+  }, [showOfflineMode, isOnline, triggerSync]);
 
   // Camera lifecycle: start/stop based on online mode e repouso.
   // stopCamera uses cameraStreamRef so cleanup is never stale.
@@ -596,10 +603,9 @@ export default function KioskPage() {
       return;
     }
     setIsProcessing(true);
+    const dateStr = getSaoPauloTimeString();
+    const horario = dateStr.slice(11, 16);
     try {
-      const dateStr = getSaoPauloTimeString();
-      const horario = dateStr.slice(11, 16);
-
       const res: RegisterPointResult = await apiService.registerPointByFace(
         confirmData.id,
         confirmData.tipo,
@@ -633,6 +639,38 @@ export default function KioskPage() {
         throw new Error(res.error || 'Erro ao registrar ponto');
       }
     } catch (err: any) {
+      // Falha de conexão antes de a requisição chegar ao servidor (Wi-Fi caiu):
+      // guarda na fila offline em vez de perder o registro. Timeout (ECONNABORTED)
+      // fica de fora — o servidor pode ter gravado e a sync geraria ponto duplicado.
+      const neverReachedServer = !err?.response && (!navigator.onLine || err?.code === 'ERR_NETWORK');
+      if (neverReachedServer) {
+        try {
+          await queueOfflineRecord({
+            employee_id: confirmData.id,
+            company_id: confirmData.companyId,
+            tipo: '', // servidor determina entrada/saída na sync, como no modo offline
+            timestamp: dateStr,
+          });
+          kioskLog('OFFLINE_RECORD_QUEUED', `src=online-fallback emp=${confirmData.id?.slice(0, 8)}`);
+          markActivity();
+          if (capturedUrl) URL.revokeObjectURL(capturedUrl);
+          setCapturedUrl(null);
+          setConfirmData(null);
+          setShowSuccess({
+            nome: confirmData.nome,
+            tipo: confirmData.tipo,
+            tipo_label: confirmData.tipoLabel,
+            horario,
+            offline: true,
+          });
+          setTimeout(() => setShowSuccess(false), 3000);
+          refreshPendingCount();
+          setTimeout(() => { triggerSync(); }, 30_000);
+          return;
+        } catch {
+          // IndexedDB indisponível — cai no erro normal abaixo
+        }
+      }
       let msg = 'Erro ao registrar ponto. Se persistir, contate o administrador do sistema.';
       if (!err?.response) {
         msg = 'Sem conexão com o servidor. Verifique a internet e tente novamente.';
@@ -710,6 +748,9 @@ export default function KioskPage() {
             </div>
           </div>
           <div className="text-7xl font-black tracking-tight">{showSuccess.horario}</div>
+          {showSuccess.offline && (
+            <p className="mt-6 text-white/70 text-base">Sem internet — registro salvo e será sincronizado automaticamente</p>
+          )}
         </motion.div>
       </div>
     );
