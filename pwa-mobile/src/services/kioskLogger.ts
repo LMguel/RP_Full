@@ -39,6 +39,7 @@ export type KioskEvent =
   // modo offline / cache de funcionários
   | 'OFFLINE_MODE_ENTER'
   | 'OFFLINE_MODE_EXIT'
+  | 'OFFLINE_RECORD_QUEUED'
   | 'EMPLOYEE_CACHE_OK'
   | 'EMPLOYEE_CACHE_FAILED'
   | 'EMPLOYEE_CACHE_EMPTY'

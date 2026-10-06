@@ -75,6 +75,7 @@ export default function KioskOfflineMode({ companyId, onBack, onRecordQueued }: 
       tipo: '',
       timestamp: ts,
     });
+    kioskLog('OFFLINE_RECORD_QUEUED', `src=offline-mode emp=${selected.id.slice(0, 8)}`);
     setRegisteredTime(ts.slice(11, 16));
     setSuccessNome(selected.nome);
     setStep('success');
