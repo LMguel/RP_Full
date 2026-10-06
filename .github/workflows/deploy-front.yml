@@ -67,8 +67,8 @@ jobs:
       - name: CloudFront invalidation
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id E34SUQ0BNKFXYE \
+            --distribution-id E2TE7LW6Z6QARR \
             --paths "/*"
 
       - name: Summary
-        run: echo "Frontend em producao: https://app.registraponto.app.br"
+        run: echo "Frontend em producao - https://painel.registraponto.app.br"

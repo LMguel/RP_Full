@@ -71,11 +71,11 @@ jobs:
       - name: CloudFront invalidation
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id E2TE7LW6Z6QARR \
+            --distribution-id E34SUQ0BNKFXYE \
             --paths "/*"
 
       - name: Summary
         run: |
-          echo "✅ PWA deployado: https://painel.registraponto.app.br"
+          echo "✅ PWA deployado: https://app.registraponto.app.br"
           echo "   Tablets receberão novo Service Worker na próxima visita."
           echo "   kiosk_active flag garante retorno automático à câmera."
