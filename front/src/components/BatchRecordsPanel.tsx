@@ -199,7 +199,10 @@ const BatchRecordsPanel: React.FC<BatchRecordsPanelProps> = ({ employeeId, disab
           return l;
         }
         aplicados += 1;
-        const celulas = Array.from({ length: colunas }, (_, i) => batidas[i] ?? '');
+        // 2 horários em quadro de 4 colunas = só entrada e saída (almoço em branco)
+        const celulas = colunas === 4 && batidas.length === 2
+          ? [batidas[0], '', '', batidas[1]]
+          : Array.from({ length: colunas }, (_, i) => batidas[i] ?? '');
         return { ...l, incluir: true, celulas };
       }),
     );

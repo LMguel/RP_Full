@@ -538,7 +538,6 @@ const EmployeeRecordsPage: React.FC = () => {
       d.status === 'FERIAS' ||
       d.status === 'ATESTADO' ||
       d.registros_ativos.length > 0 ||
-      declaracoesDoDia(d.data).length > 0 ||
       d.status === 'INCOMPLETO' ||
       (dailySummaries[d.data] && Number(dailySummaries[d.data].horas_trabalhadas_min || 0) > 0)
     );
@@ -595,6 +594,7 @@ const EmployeeRecordsPage: React.FC = () => {
       calendarDays.forEach(d => {
         if (d.status !== 'FALTA') return;
         if (d.data >= todayISO) return; // hoje = EM_PROCESSAMENTO
+        if (dailySummaries[d.data]) return; // dia com resumo (ex.: so declaracao) ja foi somado acima
         const pMin = minutosPrevistosDia(funcionarioSchedule, d.data, true);
         if (pMin <= 0) return;
         totalMinPrevistos += pMin;
@@ -1473,11 +1473,23 @@ const EmployeeRecordsPage: React.FC = () => {
                             <Box sx={{ display:'flex', alignItems:'center', justifyContent:'center', gap:1 }}>
                               <Chip label="Falta" size="small" sx={{ height:18, fontSize:10, background:'rgba(239,68,68,0.18)', border:'1px solid rgba(239,68,68,0.5)', color:'#ef4444', fontWeight:700 }} />
                               <Typography sx={{ color:'rgba(239,68,68,0.6)', fontSize:11 }}>Sem registro de ponto</Typography>
+                              {declaracoesDoDia(day.data).map(dc => (
+                                <Chip key={`${dc.inicio}-${dc.fim}`} title={dc.justificativa}
+                                  label={`Declaração ${dc.inicio}–${dc.fim}`} size="small"
+                                  sx={{ height:18, fontSize:10, background:'rgba(245,158,11,0.15)', border:'1px solid rgba(245,158,11,0.45)', color:'#f59e0b', fontWeight:700 }} />
+                              ))}
+                              {declaracoesDoDia(day.data).length > 0 && (
+                                <Typography sx={{ color:'#f59e0b', fontSize:11 }}>
+                                  abonado {(dailySummaries[day.data] as { abono_str?: string }).abono_str ?? '00:00'}
+                                </Typography>
+                              )}
                             </Box>
                           </TableCell>
                           <TableCell align="center">
                             <Typography sx={{ fontSize:12, fontFamily:'monospace', color:'#ef4444', fontWeight:700 }}>
-                              {day.horas_previstas ? `-${day.horas_previstas}` : '—'}
+                              {declaracoesDoDia(day.data).length > 0
+                                ? ((dailySummaries[day.data] as { banco_horas_dia_str?: string }).banco_horas_dia_str ?? '—')
+                                : (day.horas_previstas ? `-${day.horas_previstas}` : '—')}
                             </Typography>
                           </TableCell>
                           <TableCell />
