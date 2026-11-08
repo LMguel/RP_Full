@@ -98,7 +98,9 @@ function getSummaryText(log: AuditLog): string {
         if (afterType === 'declaracao')   return emp ? `${who} lançou declaração de comparecimento de ${emp}` : `${who} lançou declaração de comparecimento`;
         if (afterType === 'ponto_manual_lote') {
           const dias = ((log.after as Record<string, unknown>)?.dias as unknown[] | undefined)?.length ?? 0;
-          return emp ? `${who} lançou ponto manual de ${dias} dia(s) de ${emp} (em lote)` : `${who} lançou ponto manual de ${dias} dia(s) (em lote)`;
+          const subst = ((log.after as Record<string, unknown>)?.dias_substituidos as unknown[] | undefined)?.length ?? 0;
+          const sufixo = subst > 0 ? ` — substituiu batidas de ${subst} dia(s)` : '';
+          return emp ? `${who} lançou ponto manual de ${dias} dia(s) de ${emp} (em lote)${sufixo}` : `${who} lançou ponto manual de ${dias} dia(s) (em lote)${sufixo}`;
         }
         return emp ? `${who} adicionou registro manual de ${emp}` : `${who} adicionou registro manual`;
       }

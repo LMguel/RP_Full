@@ -160,3 +160,24 @@ def test_lote_nao_invalida_declaracao_do_dia(ctx):
     resp = _post(client, [{'data': d, 'batidas': ['09:00', '17:00']}])
     assert resp.status_code == 200
     tabela.update_item.assert_not_called()
+
+
+def test_auditoria_guarda_horarios_anteriores_ao_substituir(ctx):
+    client, _, audit, periodo = ctx
+    d = _dia(1)
+    periodo.return_value = {d: [
+        {'employee_id#date_time': f'{EMP}#{d} 08:00:00', 'type': 'entrada', 'data_hora': f'{d} 08:00:00'},
+        {'employee_id#date_time': f'{EMP}#{d} 17:00:00', 'type': 'saída', 'data_hora': f'{d} 17:00:00'},
+    ]}
+    resp = _post(client, [{'data': d, 'batidas': ['09:00', '18:00'], 'substituir': True}])
+    assert resp.status_code == 200
+    kwargs = audit.call_args.kwargs
+    assert kwargs['before']['horarios_anteriores'][0].endswith('08:00 · 17:00')
+    assert kwargs['after']['dias'][0].endswith('09:00 · 18:00')
+    assert len(kwargs['after']['dias_substituidos']) == 1
+
+
+def test_audit_sem_substituicao_nao_tem_before(ctx):
+    client, _, audit, _ = ctx
+    _post(client, [{'data': _dia(2), 'batidas': ['08:00', '17:00']}])
+    assert audit.call_args.kwargs['before'] is None

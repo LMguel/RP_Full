@@ -2544,6 +2544,12 @@ def _registros_do_periodo(empresa_id, employee_id, data_inicio, data_fim):
     return por_data
 
 
+def _data_br(iso):
+    """'2026-11-03' -> '03/11/2026' (para textos de auditoria)."""
+    a, m, d = iso.split('-')
+    return f'{d}/{m}/{a}'
+
+
 def _carregar_funcionario_ativo(empresa_id, employee_id):
     """Retorna (funcionario, resposta_de_erro). Garante pertencer à empresa e estar ativo."""
     resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': employee_id})
@@ -2716,6 +2722,7 @@ def registrar_ponto_lote(payload):
     empresa_nome = payload.get('empresa_nome')
     lancados = []
     substituidos = []
+    horarios_anteriores = []
     novos_registros = []
     chaves_invalidar = []
 
@@ -2731,6 +2738,8 @@ def registrar_ponto_lote(payload):
         if registros_dia:
             chaves_invalidar.extend(r['employee_id#date_time'] for r in registros_dia)
             substituidos.append(v['data'])
+            antigos = sorted(str(r.get('data_hora', ''))[11:16] for r in registros_dia)
+            horarios_anteriores.append(f"{_data_br(v['data'])}: {' · '.join(antigos)}")
 
         for hhmm, tipo in zip(v['batidas'], tipos_para_batidas(len(v['batidas']))):
             data_hora = f"{v['data']} {hhmm}:00"
@@ -2779,12 +2788,12 @@ def registrar_ponto_lote(payload):
             user_name=payload.get('user_name', payload.get('usuario_id', '')),
             entity='RECORD', entity_id=f"{employee_id}#{lancados[0]['data']}",
             action='CREATE',
-            before=None,
+            before={'horarios_anteriores': horarios_anteriores} if horarios_anteriores else None,
             after={
                 'type': 'ponto_manual_lote',
                 'lote_id': lote_id,
-                'dias': lancados,
-                'dias_substituidos': substituidos,
+                'dias': [f"{_data_br(l['data'])}: {' · '.join(l['batidas'])}" for l in lancados],
+                'dias_substituidos': [_data_br(d) for d in substituidos],
                 'justificativa': justificativa,
             },
             request=request,

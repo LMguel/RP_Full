@@ -391,8 +391,9 @@ const EmployeeRecordsPage: React.FC = () => {
     }
   }, [employeeId, employeeName, dateFrom, dateTo]);
 
-  const declaracoesDoDia = (iso: string): { inicio?: string; fim?: string; justificativa?: string }[] =>
-    (dailySummaries[iso] as { declaracoes?: { inicio?: string; fim?: string; justificativa?: string }[] } | undefined)?.declaracoes ?? [];
+  type DeclaracaoDia = { inicio?: string; fim?: string; justificativa?: string; anexo_url?: string | null };
+  const declaracoesDoDia = (iso: string): DeclaracaoDia[] =>
+    (dailySummaries[iso] as { declaracoes?: DeclaracaoDia[] } | undefined)?.declaracoes ?? [];
 
   const buildCalendar = (): RegistroDia[] => {
     if (!selectedMonth) return [];
@@ -1475,7 +1476,8 @@ const EmployeeRecordsPage: React.FC = () => {
                               <Typography sx={{ color:'rgba(239,68,68,0.6)', fontSize:11 }}>Sem registro de ponto</Typography>
                               {declaracoesDoDia(day.data).map(dc => (
                                 <Chip key={`${dc.inicio}-${dc.fim}`} title={dc.justificativa}
-                                  label={`Declaração ${dc.inicio}–${dc.fim}`} size="small"
+                                  label={`Declaração ${dc.inicio}–${dc.fim}${dc.anexo_url ? ' · ver anexo' : ''}`} size="small"
+                                  onClick={dc.anexo_url ? () => window.open(dc.anexo_url as string, '_blank', 'noopener') : undefined}
                                   sx={{ height:18, fontSize:10, background:'rgba(245,158,11,0.15)', border:'1px solid rgba(245,158,11,0.45)', color:'#f59e0b', fontWeight:700 }} />
                               ))}
                               {declaracoesDoDia(day.data).length > 0 && (
@@ -1655,6 +1657,10 @@ const EmployeeRecordsPage: React.FC = () => {
                             <Typography key={`${dc.inicio}-${dc.fim}`} title={dc.justificativa} sx={{ fontSize:10, color:'#f59e0b', fontWeight:700, whiteSpace:'nowrap' }}>
                               Declaração {dc.inicio}–{dc.fim}
                               {idx === lista.length - 1 && ` · abonado ${(dailySummaries[day.data] as { abono_str?: string }).abono_str ?? '00:00'}`}
+                              {dc.anexo_url && (
+                                <a href={dc.anexo_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                  style={{ marginLeft: 6, color:'#fbbf24', textDecoration:'underline' }}>ver anexo</a>
+                              )}
                             </Typography>
                           ))}
                         </TableCell>

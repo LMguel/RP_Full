@@ -785,6 +785,10 @@ def get_daily_summaries():
                         'fim': d.get('abono_fim'),
                         'justificativa': d.get('justificativa', ''),
                         'tem_anexo': bool(d.get('declaracao_s3_key')),
+                        'anexo_url': (
+                            generate_presigned_url(d['declaracao_s3_key'], expiration_seconds=3600)
+                            if d.get('declaracao_s3_key') else None
+                        ),
                     }
                     for d in declaracoes_dia if intervalo_declaracao(d)
                 ],
