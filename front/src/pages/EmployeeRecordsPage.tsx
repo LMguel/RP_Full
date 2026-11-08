@@ -391,6 +391,9 @@ const EmployeeRecordsPage: React.FC = () => {
     }
   }, [employeeId, employeeName, dateFrom, dateTo]);
 
+  const declaracoesDoDia = (iso: string): { inicio?: string; fim?: string; justificativa?: string }[] =>
+    (dailySummaries[iso] as { declaracoes?: { inicio?: string; fim?: string; justificativa?: string }[] } | undefined)?.declaracoes ?? [];
+
   const buildCalendar = (): RegistroDia[] => {
     if (!selectedMonth) return [];
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -412,7 +415,8 @@ const EmployeeRecordsPage: React.FC = () => {
     for (let d = 1; d <= lastDay; d++) {
       // String formatting direto — sem conversão UTC
       const iso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const records = grouped[iso] || [];
+      // Declaração de comparecimento não é batida: fica fora da lista de registros do dia
+      const records = (grouped[iso] || []).filter(r => (r as { type?: string }).type !== 'declaracao');
       const activeRecords = records.filter(r => !['INVALIDADO','AJUSTADO'].includes((r as any).status || 'ATIVO'));
       const dow = new Date(`${iso}T12:00:00`).getDay();
       const isPast = iso < todayISO;
@@ -534,6 +538,7 @@ const EmployeeRecordsPage: React.FC = () => {
       d.status === 'FERIAS' ||
       d.status === 'ATESTADO' ||
       d.registros_ativos.length > 0 ||
+      declaracoesDoDia(d.data).length > 0 ||
       d.status === 'INCOMPLETO' ||
       (dailySummaries[d.data] && Number(dailySummaries[d.data].horas_trabalhadas_min || 0) > 0)
     );
@@ -1634,6 +1639,12 @@ const EmployeeRecordsPage: React.FC = () => {
                             {day.dia_semana}
                             {day.status === 'INCOMPLETO' && <span style={{ color:'#eab308', marginLeft:4 }}>⚠ incompleto</span>}
                           </Typography>
+                          {declaracoesDoDia(day.data).map((dc, idx, lista) => (
+                            <Typography key={`${dc.inicio}-${dc.fim}`} title={dc.justificativa} sx={{ fontSize:10, color:'#f59e0b', fontWeight:700, whiteSpace:'nowrap' }}>
+                              Declaração {dc.inicio}–{dc.fim}
+                              {idx === lista.length - 1 && ` · abonado ${(dailySummaries[day.data] as { abono_str?: string }).abono_str ?? '00:00'}`}
+                            </Typography>
+                          ))}
                         </TableCell>
                         {/* Entrada */}
                         <TableCell align="center" sx={{ py:1, px:1 }}><Typography sx={{ color:'rgba(255,255,255,0.85)', fontSize:12, fontFamily:'monospace' }}>{day.entrada||'—'}</Typography></TableCell>

@@ -10,6 +10,7 @@ from boto3.dynamodb.conditions import Key, Attr
 import boto3
 import calendar
 
+from services.declaracao import abono_minutos, credito_abono, declaracoes_ativas, reduzir_ocorrencias
 from services.calculation_engine import (
     calculate_worked_minutes,
     calculate_delay_minutes,
@@ -188,6 +189,8 @@ def compute_worked_data(
     horas_domingo = Decimal('0')
     atraso_min    = Decimal('0')
     dias_reg: Set[str] = set()
+    abono_por_data: Dict[str, int] = {}
+    horas_abonadas = Decimal('0')
 
     for dt_str, day_records in by_date.items():
         try:
@@ -195,7 +198,11 @@ def compute_worked_data(
         except ValueError:
             continue
 
-        dias_reg.add(dt_str)
+        # Declaração de comparecimento não é batida: sozinha não evita a falta do dia.
+        if len(declaracoes_ativas(day_records)) < len(day_records):
+            dias_reg.add(dt_str)
+        abono_dia = abono_minutos(day_records)
+        abono_por_data[dt_str] = abono_dia
 
         worked_min, first_punch, _ = calculate_worked_minutes(
             day_records, intervalo_automatico, duracao_intervalo
@@ -203,6 +210,8 @@ def compute_worked_data(
 
         wh = Decimal(str(round(worked_min / 60, 4)))
         horas_trab += wh
+        if abono_dia and dt_str in dias_reg:
+            horas_abonadas += Decimal(str(round(credito_abono(worked_min, int(horas_diarias * 60), abono_dia) / 60, 4)))
 
         # Horas extras: regra única e universal (trabalhado vs. previsto do
         # dia) — o que exceder é hora extra, sem exceção por entrada
@@ -217,6 +226,7 @@ def compute_worked_data(
         if dt.weekday() < 5 and dt_str not in feriados and first_punch:
             horario_entrada = emp_info.get('horario_entrada') or horario_entrada_padrao
             delay = calculate_delay_minutes(first_punch, horario_entrada, tolerancia_atraso_min)
+            delay, _ = reduzir_ocorrencias(delay, 0, credito_abono(worked_min, int(horas_diarias * 60), abono_dia))
             atraso_min += Decimal(str(delay))
 
         # Feriado ou domingo trabalhado
@@ -234,7 +244,9 @@ def compute_worked_data(
         if dt.isoformat() in feriados:
             continue
         if dt.isoformat() not in dias_reg:
-            horas_falta += Decimal(str(horas_diarias))
+            abono_dia = min(abono_por_data.get(dt.isoformat(), 0), int(horas_diarias * 60))
+            horas_abonadas += Decimal(str(round(abono_dia / 60, 4)))
+            horas_falta += Decimal(str(horas_diarias)) - Decimal(str(round(abono_dia / 60, 4)))
 
     banco_horas = horas_extra - horas_falta
 
@@ -245,7 +257,7 @@ def compute_worked_data(
         'horas_falta':       float(horas_falta),
         'horas_feriado':     float(horas_feriado),
         'horas_domingo':     float(horas_domingo),
-        'horas_abonadas':    0.0,
+        'horas_abonadas':    float(horas_abonadas),
         'atraso_minutos':    float(atraso_min),
         'banco_horas':       float(banco_horas),
         'dias_uteis':        dias_uteis,

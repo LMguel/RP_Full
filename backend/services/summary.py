@@ -179,7 +179,7 @@ def calculate_daily_summary(company_id: str, employee_id: str, target_date: date
     # (detecção simplificada: número ímpar de batidas não-dia_inteiro)
     active_punches = [
         r for r in records
-        if str(r.get('type') or r.get('tipo') or '').lower().strip() != 'dia_inteiro'
+        if str(r.get('type') or r.get('tipo') or '').lower().strip() not in ('dia_inteiro', 'declaracao')
     ]
     missing_exit = len(active_punches) % 2 != 0
 

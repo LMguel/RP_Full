@@ -95,6 +95,11 @@ function getSummaryText(log: AuditLog): string {
       if (log.entity === 'RECORD') {
         if (afterType === 'ferias_folga') return emp ? `${who} marcou folga/férias de ${emp}` : `${who} marcou folga/férias`;
         if (afterType === 'atestado')     return emp ? `${who} registrou atestado de ${emp}` : `${who} registrou atestado`;
+        if (afterType === 'declaracao')   return emp ? `${who} lançou declaração de comparecimento de ${emp}` : `${who} lançou declaração de comparecimento`;
+        if (afterType === 'ponto_manual_lote') {
+          const dias = ((log.after as Record<string, unknown>)?.dias as unknown[] | undefined)?.length ?? 0;
+          return emp ? `${who} lançou ponto manual de ${dias} dia(s) de ${emp} (em lote)` : `${who} lançou ponto manual de ${dias} dia(s) (em lote)`;
+        }
         return emp ? `${who} adicionou registro manual de ${emp}` : `${who} adicionou registro manual`;
       }
       return `${who} criou ${ENTITY_LABELS[log.entity] || log.entity}`;

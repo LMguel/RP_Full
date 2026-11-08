@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -21,12 +21,15 @@ import {
   MedicalServices as MedicalIcon,
   CloudUpload as UploadIcon,
   InsertDriveFile as FileIcon,
+  CalendarMonth as BatchIcon,
+  EventAvailable as DeclIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiService } from '../services/api';
-import { Employee } from '../types';
+import { Employee, LoteDiaEnvio, LoteResultado } from '../types';
+import BatchRecordsPanel, { LoteResultadoView } from './BatchRecordsPanel';
 
-type Mode = 'ponto' | 'ferias' | 'atestado';
+type Mode = 'ponto' | 'lote' | 'declaracao' | 'ferias' | 'atestado';
 
 interface TimeRecordFormProps {
   open: boolean;
@@ -56,6 +59,8 @@ const fieldSx = {
 
 const MODES: { key: Mode; label: string; icon: React.ReactNode; color: string; desc: string }[] = [
   { key: 'ponto',    label: 'Ponto Manual',   icon: <AccessTimeIcon sx={{ fontSize: 16 }} />, color: '#3b82f6', desc: 'Registrar ponto — tipo calculado automaticamente' },
+  { key: 'lote',     label: 'Vários Dias',    icon: <BatchIcon      sx={{ fontSize: 16 }} />, color: '#f97316', desc: 'Lançar o ponto de vários dias de uma vez (ex.: dias sem internet)' },
+  { key: 'declaracao', label: 'Declaração', icon: <DeclIcon sx={{ fontSize: 16 }} />, color: '#f59e0b', desc: 'Abonar só algumas horas do dia (ex.: consulta médica) — o resto do dia é trabalhado normalmente' },
   { key: 'ferias',  label: 'Férias / Folga',  icon: <BeachIcon      sx={{ fontSize: 16 }} />, color: '#8b5cf6', desc: 'Marcar período de férias ou folga' },
   { key: 'atestado',label: 'Atestado Médico', icon: <MedicalIcon    sx={{ fontSize: 16 }} />, color: '#14b8a6', desc: 'Lançar atestado com upload do documento' },
 ];
@@ -81,6 +86,23 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
   // Ponto manual
   const [pontoDate, setPontoDate] = useState('');
   const [pontoTime, setPontoTime] = useState('');
+
+  // Declaração de comparecimento
+  const [declData, setDeclData] = useState('');
+  const [declInicio, setDeclInicio] = useState('');
+  const [declFim, setDeclFim] = useState('');
+  const [declFile, setDeclFile] = useState<File | null>(null);
+  const declFileRef = useRef<HTMLInputElement>(null);
+
+  // Vários dias (lote)
+  const [loteDias, setLoteDias] = useState<LoteDiaEnvio[]>([]);
+  const [lotePendencias, setLotePendencias] = useState(0);
+  const [loteResultado, setLoteResultado] = useState<LoteResultado | null>(null);
+  const [tentouEnviar, setTentouEnviar] = useState(false);
+  const handleLoteChange = useCallback((dias: LoteDiaEnvio[], pendencias: number) => {
+    setLoteDias(dias);
+    setLotePendencias(pendencias);
+  }, []);
 
   // Férias
   const [feriasInicio, setFeriasInicio] = useState('');
@@ -117,6 +139,10 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     setFeriasInicio(today);
     setFeriasFim(today);
     setAtestadoData(today);
+    setDeclData(today);
+    setDeclInicio('');
+    setDeclFim('');
+    setDeclFile(null);
 
     setMode('ponto');
     setEmployeeId('');
@@ -126,6 +152,8 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
     setAtestadoFile(null);
     setUploadProgress(null);
     setErrors({});
+    setLoteResultado(null);
+    setTentouEnviar(false);
   }, [open]);
 
   const selectedEmployee = employees.find(e => e.id === employeeId) || null;
@@ -141,6 +169,16 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         const dt = new Date(`${pontoDate}T${pontoTime}:00`);
         if (dt > new Date()) e.data = 'Não é possível registrar no futuro';
       }
+    }
+    if (mode === 'lote') {
+      if (loteDias.length === 0) e.lote = 'Marque pelo menos um dia para lançar';
+      else if (lotePendencias > 0) e.lote = `Corrija os horários de ${lotePendencias} dia(s) marcado(s) antes de lançar`;
+    }
+    if (mode === 'declaracao') {
+      if (!declData) e.data = 'Data obrigatória';
+      if (!declInicio || !declFim) e.decl = 'Informe o horário inicial e final da declaração';
+      else if (declFim <= declInicio) e.decl = 'O horário final deve ser depois do inicial';
+      if (declFile && declFile.size > 15 * 1024 * 1024) e.arquivo = 'Arquivo excede o limite de 15 MB';
     }
     if (mode === 'ferias') {
       if (!feriasInicio) e.data = 'Data de início obrigatória';
@@ -160,6 +198,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
+    setTentouEnviar(true);
     if (!validate()) return;
     setSubmitting(true);
     try {
@@ -169,6 +208,35 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
           data_hora: `${pontoDate} ${pontoTime}:00`,
           justificativa: justificativa.trim(),
         });
+      } else if (mode === 'lote') {
+        try {
+          const resultado = await apiService.registerPontoLote({
+            employee_id: employeeId,
+            justificativa: justificativa.trim(),
+            dias: loteDias,
+          });
+          setLoteResultado(resultado);
+        } catch (err: unknown) {
+          const er = err as { response?: { data?: { mensagem?: string; ignorados?: { data: string; motivo: string }[] } } };
+          const motivos = er?.response?.data?.ignorados?.map(i => `${i.data.split('-').reverse().join('/')}: ${i.motivo}`).join(' • ');
+          const base = er?.response?.data?.mensagem || 'Não foi possível lançar os dias. Tente novamente.';
+          setErrors(prev => ({ ...prev, submit: motivos ? `${base}. ${motivos}` : base }));
+        }
+      } else if (mode === 'declaracao') {
+        try {
+          const fd = new FormData();
+          fd.append('employee_id', employeeId);
+          fd.append('data', declData);
+          fd.append('hora_inicio', declInicio);
+          fd.append('hora_fim', declFim);
+          fd.append('justificativa', justificativa.trim());
+          if (declFile) fd.append('arquivo', declFile);
+          await apiService.registerDeclaracao(fd);
+          onClose();
+        } catch (err: unknown) {
+          const er = err as { response?: { data?: { mensagem?: string } } };
+          setErrors(prev => ({ ...prev, submit: er?.response?.data?.mensagem || 'Não foi possível lançar a declaração. Tente novamente.' }));
+        }
       } else if (mode === 'ferias') {
         await apiService.registerFerias({
           employee_id: employeeId,
@@ -225,7 +293,7 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
       open={open}
       onClose={(_, reason) => { if (reason === 'backdropClick' || reason === 'escapeKeyDown') return; onClose(); }}
       disableEscapeKeyDown
-      maxWidth="sm"
+      maxWidth={mode === 'lote' ? 'md' : 'sm'}
       fullWidth
       PaperProps={{
         sx: {
@@ -283,7 +351,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
 
       <form onSubmit={handleSubmit}>
         <DialogContent sx={{ py: 3, px: 3 }}>
-          {loadingEmployees ? (
+          {mode === 'lote' && loteResultado ? (
+            <LoteResultadoView resultado={loteResultado} />
+          ) : loadingEmployees ? (
             <Box display="flex" justifyContent="center" py={4}>
               <CircularProgress size={32} sx={{ color: modeColor }} />
             </Box>
@@ -318,6 +388,19 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
 
               {/* ── Ponto Manual ─────────────────────────────────────────────── */}
               <AnimatePresence mode="wait">
+                {mode === 'lote' && (
+                  <motion.div key="lote" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                    <BatchRecordsPanel
+                      employeeId={employeeId}
+                      disabled={isLoading}
+                      tentouEnviar={tentouEnviar}
+                      onChange={handleLoteChange}
+                    />
+                    {errors.lote && (
+                      <Typography sx={{ color: '#f87171', fontSize: 12, mt: 1 }}>{errors.lote}</Typography>
+                    )}
+                  </motion.div>
+                )}
                 {mode === 'ponto' && (
                   <motion.div key="ponto" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                     <Box sx={{ display: 'flex', gap: 2 }}>
@@ -339,6 +422,60 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
                     <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
                       <Typography sx={{ fontSize: 12, color: 'rgba(148,163,184,0.9)' }}>
                         💡 O tipo (entrada/saída) é calculado automaticamente com base nos registros existentes do dia.
+                      </Typography>
+                    </Box>
+                  </motion.div>
+                )}
+
+                {/* ── Declaração de comparecimento ─────────────────────────── */}
+                {mode === 'declaracao' && (
+                  <motion.div key="declaracao" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+                    <Box sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
+                      <TextField
+                        label="Data" type="date" value={declData}
+                        onChange={e => { setDeclData(e.target.value); setErrors(p => ({ ...p, data: '' })); }}
+                        error={!!errors.data} helperText={errors.data}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 2, ...fieldSx }}
+                      />
+                      <TextField
+                        label="Das" type="time" value={declInicio}
+                        onChange={e => { setDeclInicio(e.target.value); setErrors(p => ({ ...p, decl: '' })); }}
+                        error={!!errors.decl}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                      <TextField
+                        label="Até" type="time" value={declFim}
+                        onChange={e => { setDeclFim(e.target.value); setErrors(p => ({ ...p, decl: '' })); }}
+                        error={!!errors.decl} helperText={errors.decl}
+                        InputLabelProps={{ shrink: true }} disabled={isLoading}
+                        sx={{ flex: 1, ...fieldSx }}
+                      />
+                    </Box>
+
+                    <input
+                      ref={declFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" hidden
+                      onChange={e => { setDeclFile(e.target.files?.[0] || null); setErrors(p => ({ ...p, arquivo: '' })); }}
+                    />
+                    <Box
+                      onClick={() => !isLoading && declFileRef.current?.click()}
+                      sx={{
+                        border: `2px dashed ${errors.arquivo ? '#ef4444' : declFile ? '#f59e0b' : 'rgba(255,255,255,0.2)'}`,
+                        borderRadius: 2, p: 1.8, textAlign: 'center', cursor: isLoading ? 'not-allowed' : 'pointer',
+                        background: declFile ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)',
+                        '&:hover': isLoading ? {} : { borderColor: '#f59e0b' },
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 13, fontWeight: 600, color: declFile ? '#f59e0b' : 'rgba(255,255,255,0.55)' }}>
+                        {declFile ? declFile.name : 'Anexar a declaração (opcional) — PDF, JPG ou PNG'}
+                      </Typography>
+                    </Box>
+                    {errors.arquivo && <Typography sx={{ color: '#ef4444', fontSize: 11, mt: 0.5 }}>{errors.arquivo}</Typography>}
+
+                    <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                      <Typography sx={{ fontSize: 12, color: 'rgba(148,163,184,0.9)' }}>
+                        Só o período informado é abonado. O funcionário continua batendo o ponto normalmente no restante do dia, e a declaração aparece separada do atestado no espelho.
                       </Typography>
                     </Box>
                   </motion.div>
@@ -505,7 +642,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
               <TextField
                 label="Justificativa *"
                 placeholder={
-                  mode === 'ferias' ? 'Ex: Férias anuais — período acordado em contrato'
+                  mode === 'declaracao' ? 'Ex: Consulta médica — declaração de comparecimento'
+                  : mode === 'lote' ? 'Ex: Sistema sem internet de 28/10 a 04/11 — horários informados pelo funcionário'
+                  : mode === 'ferias' ? 'Ex: Férias anuais — período acordado em contrato'
                   : mode === 'atestado' ? 'Ex: Atestado médico — gripe com febre'
                   : 'Informe o motivo do registro manual'
                 }
@@ -530,8 +669,9 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
         <DialogActions sx={{ px: 3, pb: 2.5, pt: 0, borderTop: '1px solid rgba(255,255,255,0.07)', gap: 1 }}>
           <Button onClick={onClose} disabled={isLoading}
             sx={{ color: 'rgba(255,255,255,0.5)', '&:hover': { color: 'white', background: 'rgba(255,255,255,0.06)' } }}>
-            Cancelar
+            {mode === 'lote' && loteResultado ? 'Concluir' : 'Cancelar'}
           </Button>
+          {!(mode === 'lote' && loteResultado) && (
           <Button type="submit" variant="contained" disabled={isLoading || loadingEmployees}
             startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : MODES.find(m => m.key === mode)?.icon}
             sx={{
@@ -545,9 +685,12 @@ const TimeRecordForm: React.FC<TimeRecordFormProps> = ({
               ? uploadProgress !== null ? `Enviando... ${uploadProgress}%` : 'Enviando...'
               : isLoading ? 'Salvando...'
               : mode === 'ponto' ? 'Registrar Ponto'
+              : mode === 'declaracao' ? 'Lançar Declaração'
+              : mode === 'lote' ? (loteDias.length ? `Lançar ${loteDias.length} dia(s)` : 'Lançar dias')
               : mode === 'ferias' ? 'Registrar Férias/Folga'
               : 'Enviar Atestado'}
           </Button>
+          )}
         </DialogActions>
       </form>
     </Dialog>

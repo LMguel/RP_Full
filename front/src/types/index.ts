@@ -305,3 +305,36 @@ export interface HoursWorked {
   funcionario_id: string;
   horas_trabalhadas: string;
 }
+
+// ── Lançamento de ponto manual em lote ───────────────────────────────────────
+export type LoteSituacaoDia = 'livre' | 'com_batidas' | 'ferias' | 'atestado' | 'futuro';
+
+export interface LoteDiaPrevia {
+  data: string; // YYYY-MM-DD
+  dia_semana: string;
+  tem_escala: boolean;
+  entrada_prevista: string | null;
+  saida_prevista: string | null;
+  situacao: LoteSituacaoDia;
+  batidas_existentes: string[];
+}
+
+export interface LotePreviaResponse {
+  funcionario: { id: string; nome: string };
+  intervalo_automatico: boolean;
+  dias: LoteDiaPrevia[];
+}
+
+export interface LoteDiaEnvio {
+  data: string;
+  batidas: string[];
+  substituir?: boolean;
+}
+
+export interface LoteResultado {
+  mensagem: string;
+  lote_id?: string;
+  lancados: { data: string; batidas: string[] }[];
+  substituidos?: string[];
+  ignorados: { data: string; motivo: string }[];
+}

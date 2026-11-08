@@ -35,6 +35,7 @@ def _tem_registros_proximos(records, limite_min=10):
             except Exception:
                 pass
     return False
+from services.declaracao import abono_minutos, credito_abono, declaracoes_ativas, intervalo_declaracao, reduzir_ocorrencias
 from services.calculation_engine import (
     calculate_worked_minutes as eng_worked,
     get_display_times as eng_display,
@@ -613,6 +614,10 @@ def get_daily_summaries():
                 summaries.append(summary_obj)
                 continue
 
+            # Declarações de comparecimento (abono parcial): não são batidas.
+            declaracoes_dia = declaracoes_ativas(records)
+            abono_total_min = abono_minutos(records)
+
             # ── Motor canônico: todos os cálculos passam por aqui ──
             worked_min, first_iso, last_iso = eng_worked(
                 records, emp_intervalo_automatico, break_duration
@@ -667,6 +672,7 @@ def get_daily_summaries():
                     day_status = 'PRESENTE'
 
             # Inicializar campos de breakdown (usados no summary_obj abaixo)
+            credito_min = 0
             atraso_entrada = 0
             excesso_intervalo = 0
 
@@ -703,8 +709,9 @@ def get_daily_summaries():
                 # Banco de horas: ver calculate_daily_balance (motor canônico).
                 # atraso_entrada, excesso_intervalo e saida_antecipada acima ficam
                 # só para exibição informativa — não entram mais na conta do banco.
+                credito_min = credito_abono(worked_min, expected_min, abono_total_min)
                 banco_horas_dia, horas_extras_min = eng_daily_balance(
-                    worked_min, expected_min, tolerancia_atraso,
+                    worked_min + credito_min, expected_min, tolerancia_atraso,
                 )
             else:
                 # ── MODO AUTOMÁTICO (intervalo_automatico=True) ───────────────
@@ -719,9 +726,16 @@ def get_daily_summaries():
                 saida_antecipada_min = eng_early_dep(last_iso, scheduled_end, tolerancia_atraso)
 
                 # Banco de horas: ver calculate_daily_balance (motor canônico).
+                credito_min = credito_abono(worked_min, expected_min, abono_total_min)
                 banco_horas_dia, horas_extras_min = eng_daily_balance(
-                    worked_min, expected_min, tolerancia_atraso,
+                    worked_min + credito_min, expected_min, tolerancia_atraso,
                 )
+
+            # O abono justifica atraso/saída antecipada (só informativo; o saldo já foi ajustado acima)
+            if not variavel and credito_min:
+                atraso_min, saida_antecipada_min = reduzir_ocorrencias(atraso_min, saida_antecipada_min, credito_min)
+                if not emp_intervalo_automatico:
+                    atraso_entrada = max(0, atraso_entrada - credito_min)
 
             try:
                 wd = datetime.strptime(date_str, '%Y-%m-%d').weekday()
@@ -762,7 +776,19 @@ def get_daily_summaries():
                 'n_punches': n_punches_count,
                 'tipo_especial': None,
                 'atestado_url': None,
-                'registros_proximos': _tem_registros_proximos(records),
+                'abono_minutos': credito_min,
+                'abono_str': minutes_to_hhmm(credito_min) if credito_min else '00:00',
+                'declaracoes': [
+                    {
+                        'registro_id': d.get('registro_id'),
+                        'inicio': d.get('abono_inicio'),
+                        'fim': d.get('abono_fim'),
+                        'justificativa': d.get('justificativa', ''),
+                        'tem_anexo': bool(d.get('declaracao_s3_key')),
+                    }
+                    for d in declaracoes_dia if intervalo_declaracao(d)
+                ],
+                'registros_proximos': _tem_registros_proximos([r for r in records if r not in declaracoes_dia]),
             }
 
             summaries.append(summary_obj)

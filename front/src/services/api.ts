@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { toast } from 'react-hot-toast';
 import { config } from '../config';
+import type { LoteDiaEnvio, LotePreviaResponse, LoteResultado } from '../types';
 
 const API_BASE_URL = config.API_URL;
 
@@ -187,6 +188,32 @@ class ApiService {
     justificativa: string;
   }) {
     const response = await this.api.post('/api/registrar_ponto_manual', data);
+    return response.data;
+  }
+
+  async registerDeclaracao(formData: FormData) {
+    const response = await this.api.post('/api/registrar_declaracao', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return response.data;
+  }
+
+  async getPontoLotePrevia(params: {
+    employee_id: string;
+    data_inicio: string;
+    data_fim: string;
+  }): Promise<LotePreviaResponse> {
+    const response = await this.api.get('/api/ponto_lote/previa', { params });
+    return response.data;
+  }
+
+  async registerPontoLote(data: {
+    employee_id: string;
+    justificativa: string;
+    dias: LoteDiaEnvio[];
+  }): Promise<LoteResultado> {
+    const response = await this.api.post('/api/registrar_ponto_lote', data, { timeout: 60000 });
     return response.data;
   }
 

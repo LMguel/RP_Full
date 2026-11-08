@@ -20,6 +20,12 @@ from boto3.dynamodb.conditions import Attr, Key
 from services.overtime import calculate_overtime, format_minutes_to_time
 from utils.schedule_settings import resolve_early_entry_overtime, resolve_interval_automatico
 from utils.geolocation import validar_localizacao, formatar_distancia
+from services.declaracao import (
+    MAX_DECLARACOES_DIA, TIPO_DECLARACAO, declaracoes_ativas, intervalo_declaracao, is_declaracao, validar_periodo,
+)
+from services.batch_records import (
+    DIAS_SEMANA_PT, MAX_DIAS_LOTE, tipos_para_batidas, validar_batidas,
+)
 import unicodedata
 import re
 from utils.logger import setup_logger
@@ -2509,6 +2515,293 @@ def registrar_ponto_manual(payload):
 
     return jsonify({'mensagem': f'Ponto manual registrado como {tipo} com sucesso'}), 200
 
+
+def _registros_do_periodo(empresa_id, employee_id, data_inicio, data_fim):
+    """Registros ATIVOS do funcionário no período, agrupados por data (YYYY-MM-DD)."""
+    key_cond = (
+        Key('company_id').eq(empresa_id) &
+        Key('employee_id#date_time').between(
+            f"{employee_id}#{data_inicio} 00:00:00",
+            f"{employee_id}#{data_fim} 23:59:59",
+        )
+    )
+    itens = []
+    kwargs = {'KeyConditionExpression': key_cond}
+    while True:
+        resp = tabela_registros.query(**kwargs)
+        itens.extend(resp.get('Items', []))
+        last = resp.get('LastEvaluatedKey')
+        if not last:
+            break
+        kwargs['ExclusiveStartKey'] = last
+
+    por_data = {}
+    for item in itens:
+        if item.get('status', 'ATIVO') == 'INVALIDADO':
+            continue
+        data_hora = str(item.get('data_hora', ''))
+        por_data.setdefault(data_hora[:10], []).append(item)
+    return por_data
+
+
+def _carregar_funcionario_ativo(empresa_id, employee_id):
+    """Retorna (funcionario, resposta_de_erro). Garante pertencer à empresa e estar ativo."""
+    resp = tabela_funcionarios.get_item(Key={'company_id': empresa_id, 'id': employee_id})
+    funcionario = resp.get('Item')
+    if not funcionario:
+        return None, (jsonify({'mensagem': 'Funcionário não encontrado'}), 404)
+    if not funcionario.get('is_active', funcionario.get('ativo', True)):
+        return None, (jsonify({'mensagem': 'Funcionário inativo. Não é possível registrar ponto.'}), 403)
+    return funcionario, None
+
+
+def _parse_periodo(data_inicio, data_fim):
+    """Converte e valida o período. Retorna (dt_inicio, dt_fim, mensagem_erro)."""
+    try:
+        dt_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
+        dt_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None, None, 'Formato de data inválido. Use YYYY-MM-DD'
+    if dt_fim < dt_inicio:
+        return None, None, 'A data final deve ser igual ou posterior à data inicial'
+    if (dt_fim - dt_inicio).days + 1 > MAX_DIAS_LOTE:
+        return None, None, f'Período máximo de {MAX_DIAS_LOTE} dias por lançamento'
+    return dt_inicio, dt_fim, None
+
+
+@routes.route('/ponto_lote/previa', methods=['GET'])
+@token_required
+def ponto_lote_previa(payload):
+    """
+    Prepara a grade do lançamento em lote: para cada dia do período devolve o horário
+    previsto do funcionário e a situação atual (livre, já tem batidas, férias, atestado).
+    """
+    empresa_id = payload.get('company_id')
+    employee_id = (request.args.get('employee_id') or '').strip()
+    if not employee_id:
+        return jsonify({'mensagem': 'employee_id é obrigatório'}), 400
+
+    dt_inicio, dt_fim, erro = _parse_periodo(
+        (request.args.get('data_inicio') or '').strip(),
+        (request.args.get('data_fim') or '').strip(),
+    )
+    if erro:
+        return jsonify({'mensagem': erro}), 400
+
+    funcionario, erro_resp = _carregar_funcionario_ativo(empresa_id, employee_id)
+    if erro_resp:
+        return erro_resp
+
+    configuracoes = tabela_configuracoes.get_item(Key={'company_id': empresa_id}).get('Item', {})
+    por_data = _registros_do_periodo(
+        empresa_id, employee_id, dt_inicio.strftime('%Y-%m-%d'), dt_fim.strftime('%Y-%m-%d')
+    )
+    hoje = datetime.now(ZoneInfo('America/Sao_Paulo')).date()
+
+    dias = []
+    atual = dt_inicio
+    while atual <= dt_fim:
+        data_str = atual.strftime('%Y-%m-%d')
+        entrada_prev, saida_prev = get_schedule_for_date(funcionario, atual, configuracoes)
+        registros = [r for r in por_data.get(data_str, []) if not is_declaracao(r)]
+        tipos = {str(r.get('type', r.get('tipo', ''))).lower() for r in registros}
+
+        if atual > hoje:
+            situacao = 'futuro'
+        elif 'ferias_folga' in tipos:
+            situacao = 'ferias'
+        elif 'atestado' in tipos:
+            situacao = 'atestado'
+        elif registros:
+            situacao = 'com_batidas'
+        else:
+            situacao = 'livre'
+
+        dias.append({
+            'data': data_str,
+            'dia_semana': DIAS_SEMANA_PT[atual.weekday()],
+            'tem_escala': bool(entrada_prev and saida_prev),
+            'entrada_prevista': entrada_prev,
+            'saida_prevista': saida_prev,
+            'situacao': situacao,
+            'batidas_existentes': sorted(str(r.get('data_hora', ''))[11:16] for r in registros),
+        })
+        atual += timedelta(days=1)
+
+    return jsonify({
+        'funcionario': {'id': employee_id, 'nome': funcionario.get('nome', '')},
+        'intervalo_automatico': resolve_interval_automatico(funcionario, configuracoes),
+        'dias': dias,
+    }), 200
+
+
+@routes.route('/registrar_ponto_lote', methods=['POST'])
+@token_required
+def registrar_ponto_lote(payload):
+    """
+    Lança o ponto manual de vários dias de um funcionário de uma só vez.
+
+    Body: {
+      employee_id, justificativa,
+      dias: [{ data: 'YYYY-MM-DD', batidas: ['08:00', '12:00', '13:00', '17:00'], substituir?: bool }]
+    }
+    Cada dia é independente: os que falharem na validação são devolvidos em `ignorados`
+    com o motivo, e os demais são gravados.
+    """
+    _v = _viewer_readonly(payload)
+    if _v:
+        return _v
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'mensagem': 'JSON inválido ou ausente'}), 400
+
+    empresa_id = payload.get('company_id')
+    employee_id = (data.get('employee_id') or '').strip()
+    justificativa = (data.get('justificativa') or '').strip()
+    dias_req = data.get('dias')
+
+    if not employee_id:
+        return jsonify({'mensagem': 'Selecione o funcionário'}), 400
+    if len(justificativa) < 5:
+        return jsonify({'mensagem': 'Informe a justificativa (mínimo de 5 caracteres)'}), 400
+    if not isinstance(dias_req, list) or not dias_req:
+        return jsonify({'mensagem': 'Nenhum dia informado'}), 400
+    if len(dias_req) > MAX_DIAS_LOTE:
+        return jsonify({'mensagem': f'Máximo de {MAX_DIAS_LOTE} dias por lançamento'}), 400
+
+    funcionario, erro_resp = _carregar_funcionario_ativo(empresa_id, employee_id)
+    if erro_resp:
+        return erro_resp
+
+    agora = datetime.now(ZoneInfo('America/Sao_Paulo'))
+    hoje = agora.date()
+
+    # Valida cada dia antes de tocar no banco
+    validos = []
+    ignorados = []
+    datas_vistas = set()
+    for item in dias_req:
+        data_str = str((item or {}).get('data', '')).strip()
+        try:
+            dia = datetime.strptime(data_str, '%Y-%m-%d').date()
+        except ValueError:
+            ignorados.append({'data': data_str, 'motivo': 'Data inválida'})
+            continue
+        if data_str in datas_vistas:
+            ignorados.append({'data': data_str, 'motivo': 'Dia repetido no lançamento'})
+            continue
+        datas_vistas.add(data_str)
+
+        batidas, motivo = validar_batidas(item.get('batidas'))
+        if motivo:
+            ignorados.append({'data': data_str, 'motivo': motivo})
+            continue
+        if dia > hoje or (dia == hoje and batidas[-1] > agora.strftime('%H:%M')):
+            ignorados.append({'data': data_str, 'motivo': 'Não é possível lançar horário no futuro'})
+            continue
+        validos.append({'data': data_str, 'batidas': batidas, 'substituir': bool(item.get('substituir'))})
+
+    if not validos:
+        return jsonify({
+            'mensagem': 'Nenhum dia pôde ser lançado',
+            'lancados': [],
+            'ignorados': ignorados,
+        }), 400
+
+    datas = sorted(v['data'] for v in validos)
+    existentes = _registros_do_periodo(empresa_id, employee_id, datas[0], datas[-1])
+
+    lote_id = str(uuid.uuid4())
+    criado_por = payload.get('usuario_id', payload.get('email', 'admin'))
+    empresa_nome = payload.get('empresa_nome')
+    lancados = []
+    substituidos = []
+    novos_registros = []
+    chaves_invalidar = []
+
+    for v in validos:
+        registros_dia = [r for r in existentes.get(v['data'], []) if not is_declaracao(r)]
+        tipos_dia = {str(r.get('type', r.get('tipo', ''))).lower() for r in registros_dia}
+        if tipos_dia & {'ferias_folga', 'atestado'}:
+            ignorados.append({'data': v['data'], 'motivo': 'Dia com férias/folga ou atestado — remova antes de lançar horários'})
+            continue
+        if registros_dia and not v['substituir']:
+            ignorados.append({'data': v['data'], 'motivo': 'Dia já possui batidas (não foi alterado)'})
+            continue
+        if registros_dia:
+            chaves_invalidar.extend(r['employee_id#date_time'] for r in registros_dia)
+            substituidos.append(v['data'])
+
+        for hhmm, tipo in zip(v['batidas'], tipos_para_batidas(len(v['batidas']))):
+            data_hora = f"{v['data']} {hhmm}:00"
+            novos_registros.append({
+                'company_id': empresa_id,
+                'employee_id#date_time': f"{employee_id}#{data_hora}",
+                'registro_id': str(uuid.uuid4()),
+                'employee_id': employee_id,
+                'data_hora': data_hora,
+                'data_hora_calculo': data_hora,
+                'type': tipo,
+                'method': 'MANUAL',
+                'status': 'ATIVO',
+                'origem': 'manual_lote',
+                'lote_id': lote_id,
+                'justificativa': justificativa,
+                'criado_por': criado_por,
+                'funcionario_nome': funcionario.get('nome', ''),
+                'empresa_nome': empresa_nome,
+            })
+        lancados.append({'data': v['data'], 'batidas': v['batidas']})
+
+    if not lancados:
+        return jsonify({
+            'mensagem': 'Nenhum dia pôde ser lançado',
+            'lancados': [],
+            'ignorados': ignorados,
+        }), 400
+
+    # Invalida primeiro; se o novo horário coincidir com um antigo, o put_item o reativa.
+    for chave in chaves_invalidar:
+        tabela_registros.update_item(
+            Key={'company_id': empresa_id, 'employee_id#date_time': chave},
+            UpdateExpression='SET #st = :v, invalidado_por_lote = :l',
+            ExpressionAttributeNames={'#st': 'status'},
+            ExpressionAttributeValues={':v': 'INVALIDADO', ':l': lote_id},
+        )
+    with tabela_registros.batch_writer() as escritor:
+        for registro in novos_registros:
+            escritor.put_item(Item=registro)
+
+    if lancados:
+        _log_audit(
+            company_id=empresa_id,
+            user_id=payload.get('usuario_id', payload.get('email', '')),
+            user_name=payload.get('user_name', payload.get('usuario_id', '')),
+            entity='RECORD', entity_id=f"{employee_id}#{lancados[0]['data']}",
+            action='CREATE',
+            before=None,
+            after={
+                'type': 'ponto_manual_lote',
+                'lote_id': lote_id,
+                'dias': lancados,
+                'dias_substituidos': substituidos,
+                'justificativa': justificativa,
+            },
+            request=request,
+            employee_id=employee_id,
+            employee_name=funcionario.get('nome', ''),
+            reason=justificativa,
+        )
+
+    return jsonify({
+        'mensagem': f'Ponto lançado em {len(lancados)} dia(s)',
+        'lote_id': lote_id,
+        'lancados': lancados,
+        'substituidos': substituidos,
+        'ignorados': ignorados,
+    }), 200
+
+
 @routes.route('/registrar_ferias', methods=['POST'])
 @token_required
 def registrar_ferias(payload):
@@ -2717,6 +3010,124 @@ def registrar_atestado(payload):
         'mensagem':    f'Atestado registrado para {len(criados)} dia(s)',
         'dias':        criados,
         'atestado_url': atestado_url,
+    }), 200
+
+
+@routes.route('/registrar_declaracao', methods=['POST'])
+@token_required
+def registrar_declaracao(payload):
+    """
+    Declaração de comparecimento: abona apenas o período declarado (ex.: consulta
+    das 08:00 às 11:00). O funcionário bate o ponto normalmente no resto do dia.
+    O anexo (foto/PDF da declaração) é opcional.
+    """
+    _v = _viewer_readonly(payload)
+    if _v:
+        return _v
+
+    employee_id   = (request.form.get('employee_id')   or '').strip()
+    data_str      = (request.form.get('data')          or '').strip()  # YYYY-MM-DD
+    justificativa = (request.form.get('justificativa') or '').strip()
+    arquivo       = request.files.get('arquivo')
+
+    if not employee_id or not data_str:
+        return jsonify({'mensagem': 'Funcionário e data são obrigatórios'}), 400
+    if len(justificativa) < 5:
+        return jsonify({'mensagem': 'Informe o motivo (ex.: consulta médica) com pelo menos 5 caracteres'}), 400
+
+    hora_inicio, hora_fim, erro = validar_periodo(request.form.get('hora_inicio'), request.form.get('hora_fim'))
+    if erro:
+        return jsonify({'mensagem': erro}), 400
+
+    try:
+        dia = datetime.strptime(data_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'mensagem': 'Formato de data inválido. Use YYYY-MM-DD'}), 400
+    if dia > datetime.now(ZoneInfo('America/Sao_Paulo')).date():
+        return jsonify({'mensagem': 'Não é possível lançar declaração em data futura'}), 400
+
+    empresa_id   = payload.get('company_id')
+    empresa_nome = payload.get('empresa_nome', '')
+    funcionario, erro_resp = _carregar_funcionario_ativo(empresa_id, employee_id)
+    if erro_resp:
+        return erro_resp
+
+    existentes = _registros_do_periodo(empresa_id, employee_id, data_str, data_str).get(data_str, [])
+    tipos_dia = {str(r.get('type', r.get('tipo', ''))).lower() for r in existentes}
+    if tipos_dia & {'ferias_folga', 'atestado'}:
+        return jsonify({'mensagem': 'Este dia já está como férias/folga ou atestado'}), 409
+    declaracoes = declaracoes_ativas(existentes)
+    if len(declaracoes) >= MAX_DECLARACOES_DIA:
+        return jsonify({'mensagem': f'Máximo de {MAX_DECLARACOES_DIA} declarações por dia'}), 409
+    ini_novo = int(hora_inicio[:2]) * 60 + int(hora_inicio[3:])
+    fim_novo = int(hora_fim[:2]) * 60 + int(hora_fim[3:])
+    for d in declaracoes:
+        intervalo = intervalo_declaracao(d)
+        if intervalo and ini_novo < intervalo[1] and fim_novo > intervalo[0]:
+            return jsonify({'mensagem': f"Já existe uma declaração neste dia das {d.get('abono_inicio')} às {d.get('abono_fim')}"}), 409
+
+    declaracao_s3_key = None
+    if arquivo and arquivo.filename:
+        ext = os.path.splitext(arquivo.filename)[1].lower()
+        if ext not in {'.pdf', '.png', '.jpg', '.jpeg'}:
+            return jsonify({'mensagem': 'Formato inválido. Envie PDF, PNG, JPG ou JPEG'}), 400
+        arquivo.seek(0, 2)
+        tamanho = arquivo.tell()
+        arquivo.seek(0)
+        if tamanho > 15 * 1024 * 1024:
+            return jsonify({'mensagem': f'Arquivo excede 15 MB ({tamanho // (1024 * 1024)} MB recebido)'}), 400
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+                tmp = tmp_file.name
+                arquivo.save(tmp)
+            declaracao_s3_key = enviar_s3(tmp, f"declaracoes/{empresa_id}/{employee_id}/{uuid.uuid4().hex}{ext}", empresa_id)
+        except Exception as e:
+            return jsonify({'mensagem': f'Erro ao fazer upload da declaração: {str(e)}'}), 500
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+
+    # 00:00:1N mantém a declaração fora da sequência de batidas do dia
+    data_hora = f"{data_str} 00:00:{10 + len(declaracoes):02d}"
+    registro = {
+        'company_id':            empresa_id,
+        'employee_id#date_time': f"{employee_id}#{data_hora}",
+        'registro_id':           str(uuid.uuid4()),
+        'employee_id':           employee_id,
+        'data_hora':             data_hora,
+        'type':                  TIPO_DECLARACAO,
+        'method':                'MANUAL',
+        'status':                'ATIVO',
+        'abono_inicio':          hora_inicio,
+        'abono_fim':             hora_fim,
+        'abono_minutos':         fim_novo - ini_novo,
+        'justificativa':         justificativa,
+        'criado_por':            payload.get('usuario_id', payload.get('email', 'admin')),
+        'funcionario_nome':      funcionario.get('nome', ''),
+        'empresa_nome':          empresa_nome,
+    }
+    if declaracao_s3_key:
+        registro['declaracao_s3_key'] = declaracao_s3_key
+    tabela_registros.put_item(Item=registro)
+
+    _log_audit(
+        company_id=empresa_id,
+        user_id=payload.get('usuario_id', payload.get('email', '')),
+        user_name=payload.get('user_name', payload.get('usuario_id', '')),
+        entity='RECORD', entity_id=registro['registro_id'], action='CREATE',
+        before=None,
+        after={'type': TIPO_DECLARACAO, 'data': data_str, 'abono_inicio': hora_inicio, 'abono_fim': hora_fim,
+               'justificativa': justificativa, 'declaracao_s3_key': declaracao_s3_key},
+        request=request,
+        employee_id=employee_id,
+        employee_name=funcionario.get('nome', ''),
+        reason=justificativa,
+    )
+
+    return jsonify({
+        'mensagem': f'Declaração lançada: {hora_inicio} às {hora_fim}',
+        'registro_id': registro['registro_id'],
     }), 200
 
 

@@ -72,7 +72,7 @@ def _sorted_punches(records: List[Dict]) -> List[Tuple[datetime, str, Dict]]:
     punches = []
     for r in records:
         tipo = str(r.get('type') or r.get('tipo') or '').lower().strip()
-        if tipo == 'dia_inteiro':
+        if tipo in ('dia_inteiro', 'declaracao'):
             continue
         record_status = str(r.get('status') or 'ATIVO').upper()
         if record_status in ('INVALIDADO', 'AJUSTADO'):
